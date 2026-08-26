@@ -1,0 +1,6 @@
+{
+  "name": "Helion Particle Lab",
+  "description": "A high-performance WebGPU particle sandbox featuring n-body gravity, fluid dynamics, and organic flow fields.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
