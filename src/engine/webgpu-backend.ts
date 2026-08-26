@@ -1,6 +1,6 @@
 import { bakePalette } from "./palettes";
 import { HASH_MAX_PER_CELL } from "./types";
-import { WGSL_INTEGRATE, WGSL_RENDER_VS } from "./shaders";
+import { WGSL_FADE, WGSL_INTEGRATE, WGSL_POST, WGSL_RENDER_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
 import type { LabParams, PointerState, ToolKind } from "./types";
 
@@ -43,14 +43,28 @@ export class WebGPUBackend {
   computeLayout: GPUBindGroupLayout;
   renderLayout: GPUBindGroupLayout;
   sampleLayout: GPUBindGroupLayout;
+  fadeLayout: GPUBindGroupLayout;
+  postLayout: GPUBindGroupLayout;
   computeBG: GPUBindGroup;
   renderBG: GPUBindGroup;
   sampleBG: GPUBindGroup;
+  fadeBG: GPUBindGroup;
+  postBG: GPUBindGroup | null = null;
   clearPipe: GPUComputePipeline;
   insertPipe: GPUComputePipeline;
   integratePipe: GPUComputePipeline;
   renderPipeAdd: GPURenderPipeline;
   renderPipeAlpha: GPURenderPipeline;
+  fadePipe: GPURenderPipeline;
+  postPipe: GPURenderPipeline;
+  fadeUniformBuf: GPUBuffer;
+  postUniformBuf: GPUBuffer;
+  postSamp: GPUSampler;
+  accumTex: GPUTexture | null = null;
+  accumView: GPUTextureView | null = null;
+  accumW = 0;
+  accumH = 0;
+  firstFrame = true;
   cap: number;
   cells: number;
   cols = 96;
@@ -133,8 +147,41 @@ export class WebGPUBackend {
       ],
     });
 
+    // Fade layout for trails
+    this.fadeLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      ],
+    });
+    this.fadeUniformBuf = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.fadeBG = device.createBindGroup({
+      layout: this.fadeLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.fadeUniformBuf } },
+      ],
+    });
+
+    // Post / Bloom layout
+    this.postLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      ],
+    });
+    this.postUniformBuf = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.postSamp = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+
     const computeMod = device.createShaderModule({ code: WGSL_INTEGRATE });
     const renderMod = device.createShaderModule({ code: WGSL_RENDER_VS });
+    const fadeMod = device.createShaderModule({ code: WGSL_FADE });
+    const postMod = device.createShaderModule({ code: WGSL_POST });
 
     this.clearPipe = device.createComputePipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.computeLayout] }),
@@ -179,6 +226,34 @@ export class WebGPUBackend {
             alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
           },
         }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
+    this.fadePipe = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.fadeLayout] }),
+      vertex: { module: fadeMod, entryPoint: "vs" },
+      fragment: {
+        module: fadeMod,
+        entryPoint: "fs",
+        targets: [{
+          format,
+          blend: {
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+          },
+        }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
+    this.postPipe = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.postLayout] }),
+      vertex: { module: postMod, entryPoint: "vs_post" },
+      fragment: {
+        module: postMod,
+        entryPoint: "fs_post",
+        targets: [{ format }],
       },
       primitive: { topology: "triangle-list" },
     });
@@ -437,25 +512,120 @@ export class WebGPUBackend {
     }
   }
 
-  render(count: number, additive: boolean): void {
+  private ensureAccum(w: number, h: number): void {
+    const width = Math.max(1, w);
+    const height = Math.max(1, h);
+    if (this.accumTex && this.accumW === width && this.accumH === height) return;
+    if (this.accumTex) {
+      this.accumTex.destroy();
+    }
+    this.accumW = width;
+    this.accumH = height;
+    this.firstFrame = true;
+    this.accumTex = this.device.createTexture({
+      size: [width, height],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.accumView = this.accumTex.createView();
+    this.postBG = this.device.createBindGroup({
+      layout: this.postLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.postUniformBuf } },
+        { binding: 1, resource: this.accumView },
+        { binding: 2, resource: this.postSamp },
+      ],
+    });
+  }
+
+  render(count: number, params: LabParams): void {
     if (!this.context) return;
-    const view = this.context.getCurrentTexture().createView();
+    const canvas = this.context.canvas as HTMLCanvasElement;
+    const w = Math.max(1, canvas.width);
+    const h = Math.max(1, canvas.height);
+    this.ensureAccum(w, h);
+    if (!this.accumView || !this.postBG) return;
+
     const enc = this.device.createCommandEncoder();
-    const pass = enc.beginRenderPass({
+
+    // 1. Trails / Clear pass on accumulation texture
+    if (this.firstFrame || !params.trails) {
+      const clearPass = enc.beginRenderPass({
+        colorAttachments: [
+          {
+            view: this.accumView,
+            clearValue: { r: 0.031, g: 0.035, b: 0.047, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          },
+        ],
+      });
+      clearPass.end();
+      this.firstFrame = false;
+    } else {
+      const fade = Math.min(0.45, Math.max(0.04, params.trailDecay));
+      const fadeData = new Float32Array([0.031, 0.035, 0.047, fade]);
+      this.device.queue.writeBuffer(this.fadeUniformBuf, 0, fadeData);
+
+      const fadePass = enc.beginRenderPass({
+        colorAttachments: [
+          {
+            view: this.accumView,
+            loadOp: "load",
+            storeOp: "store",
+          },
+        ],
+      });
+      fadePass.setPipeline(this.fadePipe);
+      fadePass.setBindGroup(0, this.fadeBG);
+      fadePass.draw(6);
+      fadePass.end();
+    }
+
+    // 2. Render particles into accumView
+    if (count > 0) {
+      const additive = params.blend === "additive";
+      const partPass = enc.beginRenderPass({
+        colorAttachments: [
+          {
+            view: this.accumView,
+            loadOp: "load",
+            storeOp: "store",
+          },
+        ],
+      });
+      partPass.setPipeline(additive ? this.renderPipeAdd : this.renderPipeAlpha);
+      partPass.setBindGroup(0, this.renderBG);
+      partPass.setBindGroup(1, this.sampleBG);
+      partPass.draw(6, Math.max(count, 0));
+      partPass.end();
+    }
+
+    // 3. Post pass (Bloom + Blit) onto final swapchain target
+    const swapView = this.context.getCurrentTexture().createView();
+    const postData = new Float32Array([
+      params.bloomStrength,
+      params.bloom ? 1.0 : 0.0,
+      w,
+      h,
+    ]);
+    this.device.queue.writeBuffer(this.postUniformBuf, 0, postData);
+
+    const postPass = enc.beginRenderPass({
       colorAttachments: [
         {
-          view,
+          view: swapView,
           clearValue: { r: 0.031, g: 0.035, b: 0.047, a: 1 },
           loadOp: "clear",
           storeOp: "store",
         },
       ],
     });
-    pass.setPipeline(additive ? this.renderPipeAdd : this.renderPipeAlpha);
-    pass.setBindGroup(0, this.renderBG);
-    pass.setBindGroup(1, this.sampleBG);
-    pass.draw(6, Math.max(count, 0));
-    pass.end();
+    postPass.setPipeline(this.postPipe);
+    postPass.setBindGroup(0, this.postBG);
+    postPass.draw(6);
+    postPass.end();
+
     this.device.queue.submit([enc.finish()]);
   }
 
@@ -470,6 +640,11 @@ export class WebGPUBackend {
     this.uniformBuf.destroy();
     this.wallsBuf.destroy();
     this.palTex.destroy();
+    this.fadeUniformBuf.destroy();
+    this.postUniformBuf.destroy();
+    if (this.accumTex) {
+      this.accumTex.destroy();
+    }
   }
 }
 

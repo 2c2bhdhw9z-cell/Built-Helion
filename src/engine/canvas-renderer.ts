@@ -27,6 +27,12 @@ export class Canvas2DRenderer {
       ctx.fillRect(0, 0, w, h);
     }
     ctx.globalCompositeOperation = params.blend === "additive" ? "lighter" : "source-over";
+    if (params.bloom) {
+      ctx.shadowBlur = Math.min(24, 8 * params.bloomStrength);
+      ctx.shadowColor = "rgba(255,255,255,0.6)";
+    } else {
+      ctx.shadowBlur = 0;
+    }
     const n = soa.count;
     const sx = w / Math.max(worldW, 1e-6);
     const sy = h / Math.max(worldH, 1e-6);

@@ -82,6 +82,51 @@ void main() {
 }
 `;
 
+export const GL_POST_VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 a_pos;
+out vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+`;
+
+export const GL_POST_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_screenTex;
+uniform vec2 u_texSize;
+uniform float u_bloom;
+uniform float u_bloomStrength;
+out vec4 frag;
+
+void main() {
+  vec4 baseColor = texture(u_screenTex, v_uv);
+  if (u_bloom <= 0.5) {
+    frag = baseColor;
+    return;
+  }
+  vec2 step = (1.0 / u_texSize) * (2.8 * u_bloomStrength);
+  vec3 bg = vec3(0.031, 0.035, 0.047);
+  vec3 bloom = vec3(0.0);
+  
+  vec2 offsets[12] = vec2[](
+    vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
+    vec2(-0.707, -0.707), vec2(0.707, -0.707), vec2(-0.707, 0.707), vec2(0.707, 0.707),
+    vec2(-2.0, 0.0), vec2(2.0, 0.0), vec2(0.0, -2.0), vec2(0.0, 2.0)
+  );
+  
+  for (int i = 0; i < 12; i++) {
+    vec3 s = texture(u_screenTex, v_uv + offsets[i] * step).rgb;
+    vec3 bright = max(s - bg, vec3(0.0));
+    bloom += bright;
+  }
+  bloom = (bloom / 12.0) * u_bloomStrength * 1.8;
+  frag = vec4(baseColor.rgb + bloom, 1.0);
+}
+`;
+
 export const WGSL_INTEGRATE = /* wgsl */ `
 fn mod289(x: vec3<f32>) -> vec3<f32> {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
@@ -565,6 +610,81 @@ fn fs(in: VSOut) -> @location(0) vec4<f32> {
   }
   let col = textureSample(palTex, palSamp, vec2<f32>(clamp(in.metric, 0.0, 1.0), 0.5));
   return vec4<f32>(col.rgb * a, a);
+}
+`;
+
+export const WGSL_FADE = /* wgsl */ `
+struct FadeUniforms {
+  color: vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> fadeU: FadeUniforms;
+
+@vertex
+fn vs(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4<f32> {
+  var pos = array<vec2<f32>, 6>(
+    vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
+    vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0)
+  );
+  return vec4<f32>(pos[vid], 0.0, 1.0);
+}
+
+@fragment
+fn fs() -> @location(0) vec4<f32> {
+  return fadeU.color;
+}
+`;
+
+export const WGSL_POST = /* wgsl */ `
+struct PostUniforms {
+  bloomStrength: f32,
+  bloomEnabled: f32,
+  texWidth: f32,
+  texHeight: f32,
+}
+@group(0) @binding(0) var<uniform> postU: PostUniforms;
+@group(0) @binding(1) var screenTex: texture_2d<f32>;
+@group(0) @binding(2) var screenSamp: sampler;
+
+struct PostVSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_post(@builtin(vertex_index) vid: u32) -> PostVSOut {
+  var pos = array<vec2<f32>, 6>(
+    vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
+    vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0)
+  );
+  var out: PostVSOut;
+  out.pos = vec4<f32>(pos[vid], 0.0, 1.0);
+  out.uv = pos[vid] * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+  return out;
+}
+
+@fragment
+fn fs_post(in: PostVSOut) -> @location(0) vec4<f32> {
+  let baseColor = textureSample(screenTex, screenSamp, in.uv);
+  if (postU.bloomEnabled <= 0.5) {
+    return baseColor;
+  }
+  let step = (1.0 / vec2<f32>(postU.texWidth, postU.texHeight)) * (2.8 * postU.bloomStrength);
+  var bloom = vec3<f32>(0.0, 0.0, 0.0);
+  let bg = vec3<f32>(0.031, 0.035, 0.047);
+  
+  let offsets = array<vec2<f32>, 12>(
+    vec2<f32>(-1.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0),
+    vec2<f32>(-0.707, -0.707), vec2<f32>(0.707, -0.707), vec2<f32>(-0.707, 0.707), vec2<f32>(0.707, 0.707),
+    vec2<f32>(-2.0, 0.0), vec2<f32>(2.0, 0.0), vec2<f32>(0.0, -2.0), vec2<f32>(0.0, 2.0)
+  );
+  
+  for (var k = 0u; k < 12u; k++) {
+    let s = textureSample(screenTex, screenSamp, in.uv + offsets[k] * step).rgb;
+    let bright = max(s - bg, vec3<f32>(0.0));
+    bloom += bright;
+  }
+  bloom = (bloom / 12.0) * postU.bloomStrength * 1.8;
+  return vec4<f32>(baseColor.rgb + bloom, 1.0);
 }
 `;
 

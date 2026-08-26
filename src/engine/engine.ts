@@ -458,7 +458,7 @@ export class ParticleEngine {
         this.gpu.uploadSoA(this.soa);
         this.gpu.writeParams(this.params, this.pointer, this.tool, this.brushRadius, this.brushStrength, this.soa.count, this.worldW, this.worldH, FIXED_DT, 0, 0, this.totalTime);
       }
-      this.gpu.render(this.soa.count, this.params.blend === "additive");
+      this.gpu.render(this.soa.count, this.params);
       return;
     }
 

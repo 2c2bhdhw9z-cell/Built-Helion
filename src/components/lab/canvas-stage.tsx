@@ -239,7 +239,7 @@ export function CanvasStage() {
       <WallsOverlay engineRef={engineRef} />
       {pointer.inside && (
         <div
-          className="pointer-events-none absolute rounded-full border-2 border-white/40 bg-white/5 backdrop-blur-[1px] shadow-[0_0_12px_rgba(255,255,255,0.2)]"
+          className="pointer-events-none absolute rounded-full border border-white/40 shadow-[0_0_8px_rgba(255,255,255,0.15)]"
           style={{
             width: brush * 2 * viewportH,
             height: brush * 2 * viewportH,

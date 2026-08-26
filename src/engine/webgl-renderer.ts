@@ -1,5 +1,5 @@
 import { bakePalette } from "./palettes";
-import { GL_FADE_FS, GL_FS, GL_QUAD_VS, GL_VS } from "./shaders";
+import { GL_FADE_FS, GL_FS, GL_POST_FS, GL_POST_VS, GL_QUAD_VS, GL_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
 import type { ColorMap, LabParams, PaletteId } from "./types";
 
@@ -38,11 +38,16 @@ export class WebGLRenderer {
   private gl: WebGL2RenderingContext;
   private particleProg: WebGLProgram;
   private fadeProg: WebGLProgram;
+  private postProg: WebGLProgram;
   private vao: WebGLVertexArrayObject;
   private quadVao: WebGLVertexArrayObject;
   private buf: WebGLBuffer;
   private quad: WebGLBuffer;
   private palTex: WebGLTexture;
+  private accumTex: WebGLTexture | null = null;
+  private accumFbo: WebGLFramebuffer | null = null;
+  private accumW = 0;
+  private accumH = 0;
   private packed: Float32Array;
   private packedCap = 0;
   private paletteId: PaletteId | null = null;
@@ -55,11 +60,16 @@ export class WebGLRenderer {
   private uEnergy: WebGLUniformLocation | null;
   uShape: WebGLUniformLocation | null;
   private uFade: WebGLUniformLocation | null;
+  private uPostScreen: WebGLUniformLocation | null;
+  private uPostTexSize: WebGLUniformLocation | null;
+  private uPostBloom: WebGLUniformLocation | null;
+  private uPostBloomStrength: WebGLUniformLocation | null;
 
   constructor(gl: WebGL2RenderingContext, cap: number) {
     this.gl = gl;
     this.particleProg = program(gl, GL_VS, GL_FS);
     this.fadeProg = program(gl, GL_QUAD_VS, GL_FADE_FS);
+    this.postProg = program(gl, GL_POST_VS, GL_POST_FS);
     this.uWorld = gl.getUniformLocation(this.particleProg, "u_world");
     this.uSize = gl.getUniformLocation(this.particleProg, "u_size");
     this.uLifeCurve = gl.getUniformLocation(this.particleProg, "u_lifeCurve");
@@ -67,6 +77,10 @@ export class WebGLRenderer {
     this.uEnergy = gl.getUniformLocation(this.particleProg, "u_energy");
     this.uShape = gl.getUniformLocation(this.particleProg, "u_shape");
     this.uFade = gl.getUniformLocation(this.fadeProg, "u_color");
+    this.uPostScreen = gl.getUniformLocation(this.postProg, "u_screenTex");
+    this.uPostTexSize = gl.getUniformLocation(this.postProg, "u_texSize");
+    this.uPostBloom = gl.getUniformLocation(this.postProg, "u_bloom");
+    this.uPostBloomStrength = gl.getUniformLocation(this.postProg, "u_bloomStrength");
 
     const range = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
     if (range && range[1] > 1) this.maxPoint = range[1];
@@ -122,6 +136,30 @@ export class WebGLRenderer {
     }
   }
 
+  private ensureAccum(w: number, h: number): void {
+    const gl = this.gl;
+    if (this.accumTex && this.accumFbo && this.accumW === w && this.accumH === h) return;
+    if (this.accumTex) gl.deleteTexture(this.accumTex);
+    if (this.accumFbo) gl.deleteFramebuffer(this.accumFbo);
+
+    this.accumW = w;
+    this.accumH = h;
+    this.firstFrame = true;
+
+    this.accumTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.accumTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    this.accumFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.accumFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.accumTex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
   resize(_w: number, _h: number): void {
     this.firstFrame = true;
   }
@@ -174,19 +212,23 @@ export class WebGLRenderer {
   ): void {
     const gl = this.gl;
     if (gl.isContextLost()) return;
+    const dw = Math.max(1, gl.drawingBufferWidth);
+    const dh = Math.max(1, gl.drawingBufferHeight);
+    this.ensureAccum(dw, dh);
+    if (!this.accumFbo || !this.accumTex) return;
+
     const n = this.pack(soa, params.colorMap, 2.4);
     this.setPalette(params.palette);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     if (n > 0) gl.bufferData(gl.ARRAY_BUFFER, this.packed.subarray(0, n * 4), gl.DYNAMIC_DRAW);
 
-    const dw = Math.max(1, gl.drawingBufferWidth);
-    const dh = Math.max(1, gl.drawingBufferHeight);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, dw, dh);
-
     const bgR = 0.031;
     const bgG = 0.035;
     const bgB = 0.047;
+
+    // 1. Render into accumulation framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.accumFbo);
+    gl.viewport(0, 0, dw, dh);
 
     if (this.firstFrame || !params.trails) {
       gl.disable(gl.BLEND);
@@ -198,7 +240,7 @@ export class WebGLRenderer {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.useProgram(this.fadeProg);
       gl.bindVertexArray(this.quadVao);
-      const fade = Math.min(0.45, Math.max(0.08, params.trailDecay));
+      const fade = Math.min(0.45, Math.max(0.04, params.trailDecay));
       gl.uniform4f(this.uFade, bgR, bgG, bgB, fade);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.bindVertexArray(null);
@@ -231,6 +273,21 @@ export class WebGLRenderer {
       gl.bindVertexArray(null);
     }
 
+    // 2. Post pass (Bloom + Blit) onto default framebuffer (canvas screen)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, dw, dh);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.postProg);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.accumTex);
+    gl.uniform1i(this.uPostScreen, 0);
+    gl.uniform2f(this.uPostTexSize, dw, dh);
+    gl.uniform1f(this.uPostBloom, params.bloom ? 1.0 : 0.0);
+    gl.uniform1f(this.uPostBloomStrength, params.bloomStrength);
+    gl.bindVertexArray(this.quadVao);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindVertexArray(null);
+
     void cssW;
     void cssH;
   }
@@ -239,10 +296,13 @@ export class WebGLRenderer {
     const gl = this.gl;
     gl.deleteProgram(this.particleProg);
     gl.deleteProgram(this.fadeProg);
+    gl.deleteProgram(this.postProg);
     gl.deleteBuffer(this.buf);
     gl.deleteBuffer(this.quad);
     gl.deleteVertexArray(this.vao);
     gl.deleteVertexArray(this.quadVao);
     gl.deleteTexture(this.palTex);
+    if (this.accumTex) gl.deleteTexture(this.accumTex);
+    if (this.accumFbo) gl.deleteFramebuffer(this.accumFbo);
   }
 }

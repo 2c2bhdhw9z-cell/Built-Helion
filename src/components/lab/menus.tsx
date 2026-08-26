@@ -5,6 +5,7 @@ import { Type,
   Eraser,
   Grid3x3,
   Magnet,
+  MessageSquarePlus,
   Orbit,
   Paintbrush,
   PenLine,
@@ -197,6 +198,7 @@ export function ParamDock() {
   const setParam = useLab((s) => s.setParam);
   const cap = useLab((s) => s.cap);
   const setCap = useLab((s) => s.setCap);
+  const setFeedbackOpen = useLab((s) => s.setFeedbackOpen);
   const [open, setOpen] = useState(false);
 
   return (
@@ -219,6 +221,14 @@ export function ParamDock() {
               {t.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setFeedbackOpen(true)}
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-sm border border-accent/30 bg-accent/10 px-3 text-xs font-medium text-accent transition-colors duration-150 hover:bg-accent/20"
+          >
+            <MessageSquarePlus className="size-3.5" />
+            <span>Feedback</span>
+          </button>
         </div>
         <button
           type="button"
