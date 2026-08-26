@@ -30,6 +30,22 @@ export const Route = createRootRoute({
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap",
       },
     ],
+    scripts: [
+      {
+        children: `
+          window.addEventListener('vite:preloadError', function(event) {
+            console.warn('Vite preload error detected, refreshing page:', event);
+            window.location.reload();
+          });
+          window.addEventListener('error', function(event) {
+            if (event && event.message && event.message.includes('Importing a module script failed')) {
+              console.warn('Recovering from module script import failure:', event.message);
+              // Prevent noisy fatal alert if transient
+            }
+          });
+        `,
+      },
+    ],
   }),
   component: () => (
     <html lang="en" className="dark antialiased" suppressHydrationWarning>

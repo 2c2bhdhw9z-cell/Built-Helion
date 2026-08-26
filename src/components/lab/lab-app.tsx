@@ -9,6 +9,7 @@ import { FeedbackDialog } from "./feedback-dialog";
 export function LabApp() {
   const tiltEnabled = useLab((s) => s.params.tiltEnabled);
   const setTilt = useLab((s) => s.setTilt);
+  const feedbackOpen = useLab((s) => s.feedbackOpen);
   const uiTopOpen = useLab((s) => s.uiTopOpen);
   const uiBottomOpen = useLab((s) => s.uiBottomOpen);
   const toggleUiTop = useLab((s) => s.toggleUiTop);
@@ -60,7 +61,7 @@ export function LabApp() {
   return (
     <div className="relative h-dvh min-h-0 overflow-hidden bg-bg text-fg">
       <CanvasStage />
-      <FeedbackDialog />
+      {feedbackOpen && <FeedbackDialog />}
       
       <div className="pointer-events-none absolute inset-0 z-20 flex min-h-0 flex-col justify-between overflow-hidden">
         <div 
