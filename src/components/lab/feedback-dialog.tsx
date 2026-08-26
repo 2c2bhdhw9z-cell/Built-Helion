@@ -59,35 +59,34 @@ export function FeedbackDialog() {
   const params = useLab((s) => s.params);
 
   const [tab, setTab] = useState<"bug" | "feature" | "idea" | "roadmap">("bug");
-  const [items, setItems] = useState<FeedbackItem[]>(() => {
+  const [items, setItems] = useState<FeedbackItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [votedIds, setVotedIds] = useState<Record<string, boolean>>({});
+
+  // Initialize from localStorage on client mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
       const cached = localStorage.getItem(FEEDBACK_ITEMS_KEY);
-      if (cached) return JSON.parse(cached);
+      if (cached) setItems(JSON.parse(cached));
     } catch {
       // ignore
     }
-    return [];
-  });
-  const [loading, setLoading] = useState(false);
-
-  const [votedIds, setVotedIds] = useState<Record<string, boolean>>(() => {
     try {
       const stored = localStorage.getItem(VOTES_KEY);
-      if (stored) return JSON.parse(stored);
+      if (stored) setVotedIds(JSON.parse(stored));
     } catch {
-      // fallback
+      // ignore
     }
-    return {};
-  });
+  }, []);
 
   // Sync to local cache
   useEffect(() => {
-    if (items.length > 0) {
-      try {
-        localStorage.setItem(FEEDBACK_ITEMS_KEY, JSON.stringify(items));
-      } catch {
-        // ignore
-      }
+    if (typeof window === "undefined" || items.length === 0) return;
+    try {
+      localStorage.setItem(FEEDBACK_ITEMS_KEY, JSON.stringify(items));
+    } catch {
+      // ignore
     }
   }, [items]);
 
@@ -95,7 +94,7 @@ export function FeedbackDialog() {
   useEffect(() => {
     if (!isOpen) return;
 
-    setLoading(items.length === 0);
+    setLoading(true);
     try {
       const q = query(collection(db, "feedback_items"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(
@@ -123,14 +122,14 @@ export function FeedbackDialog() {
           setItems(loaded);
           setLoading(false);
         },
-        (error) => {
+        (_error) => {
           // Graceful fallback for offline / unreached backend
           setLoading(false);
         }
       );
 
       return () => unsubscribe();
-    } catch (e) {
+    } catch {
       setLoading(false);
     }
   }, [isOpen]);
