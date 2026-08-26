@@ -178,6 +178,10 @@ export const DEFAULT_PARAMS: LabParams = {
   flowStrength: 1.5,
   flowScale: 3.0,
   flowSpeed: 0.5,
+  bloom: false,
+  bloomStrength: 1.5,
+  audioReactive: false,
+  audioSensitivity: 1.0,
 };
 
 export const DEFAULT_TELEMETRY: Telemetry = {

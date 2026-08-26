@@ -43,11 +43,12 @@ export function SliderRow({
   format?: (n: number) => string;
   onChange: (n: number) => void;
 }) {
+  const safeVal = typeof value === "number" && !isNaN(value) ? value : (min ?? 0);
   return (
     <label className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
       <span className="text-xs text-muted">{label}</span>
       <span className="font-mono text-2xs tabular-nums text-fg">
-        {format ? format(value) : value.toFixed(2)}
+        {format ? format(safeVal) : safeVal.toFixed(2)}
       </span>
       <input
         type="range"
@@ -55,7 +56,7 @@ export function SliderRow({
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={safeVal}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
       />
