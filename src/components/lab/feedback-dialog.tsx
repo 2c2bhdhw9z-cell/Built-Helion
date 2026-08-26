@@ -1,5 +1,16 @@
 import { useState, useEffect } from "react";
 import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  increment,
+  onSnapshot,
+  query,
+  orderBy,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import {
   Bug,
   CheckCircle2,
   Clipboard,
@@ -7,7 +18,6 @@ import {
   Github,
   Lightbulb,
   MessageSquare,
-  Plus,
   Search,
   Star,
   ThumbsUp,
@@ -38,7 +48,6 @@ export interface FeedbackItem {
   userEmail?: string;
 }
 
-const STORAGE_KEY = "helion_feedback_items_v2";
 const VOTES_KEY = "helion_user_voted_ids_v2";
 
 export function FeedbackDialog() {
@@ -48,15 +57,8 @@ export function FeedbackDialog() {
   const params = useLab((s) => s.params);
 
   const [tab, setTab] = useState<"bug" | "feature" | "idea" | "roadmap">("bug");
-  const [items, setItems] = useState<FeedbackItem[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch {
-      // fallback
-    }
-    return [];
-  });
+  const [items, setItems] = useState<FeedbackItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [votedIds, setVotedIds] = useState<Record<string, boolean>>(() => {
     try {
@@ -68,6 +70,48 @@ export function FeedbackDialog() {
     return {};
   });
 
+  // Real-time Firestore sync for community feedback
+  useEffect(() => {
+    try {
+      const q = query(collection(db, "feedback_items"), orderBy("createdAt", "desc"));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const loaded: FeedbackItem[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            loaded.push({
+              id: docSnap.id,
+              type: data.type || "idea",
+              title: data.title || "Untitled",
+              category: data.category || "General",
+              description: data.description || "",
+              stepsOrUseCases: data.stepsOrUseCases || "",
+              severityOrPriority: data.severityOrPriority || "",
+              rating: data.rating,
+              votes: typeof data.votes === "number" ? data.votes : 1,
+              status: (data.status as FeedbackStatus) || "under_review",
+              createdAt: data.createdAt || new Date().toISOString(),
+              diagnostics: data.diagnostics,
+              userEmail: data.userEmail,
+            });
+          });
+          setItems(loaded);
+          setLoading(false);
+        },
+        (error) => {
+          console.warn("Firestore feedback sync notice:", error);
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn("Could not subscribe to Firestore:", e);
+      setLoading(false);
+    }
+  }, []);
+
   // Bug form state
   const [bugTitle, setBugTitle] = useState("");
   const [bugCategory, setBugCategory] = useState("WebGL2 / WebGPU Crash");
@@ -75,6 +119,7 @@ export function FeedbackDialog() {
   const [bugDesc, setBugDesc] = useState("");
   const [bugSteps, setBugSteps] = useState("");
   const [includeDiag, setIncludeDiag] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Feature form state
   const [featTitle, setFeatTitle] = useState("");
@@ -96,14 +141,6 @@ export function FeedbackDialog() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {
-      // ignore
-    }
-  }, [items]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem(VOTES_KEY, JSON.stringify(votedIds));
     } catch {
       // ignore
@@ -112,7 +149,10 @@ export function FeedbackDialog() {
 
   const getSystemDiagnostics = () => {
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "Unknown";
-    const screenRes = typeof window !== "undefined" ? `${window.innerWidth}x${window.innerHeight} (DPR: ${window.devicePixelRatio || 1})` : "N/A";
+    const screenRes =
+      typeof window !== "undefined"
+        ? `${window.innerWidth}x${window.innerHeight} (DPR: ${window.devicePixelRatio || 1})`
+        : "N/A";
     return [
       `### Helion System Diagnostics`,
       `- **Engine Backend**: ${telemetry.backend} (${telemetry.compute})`,
@@ -136,9 +176,11 @@ export function FeedbackDialog() {
     setTimeout(() => setCopiedDiag(false), 2000);
   };
 
-  const handleVote = (id: string) => {
+  const handleVote = async (id: string) => {
     const hasVoted = !!votedIds[id];
     setVotedIds((prev) => ({ ...prev, [id]: !hasVoted }));
+
+    // Optimistic local update
     setItems((prev) =>
       prev.map((item) => {
         if (item.id === id) {
@@ -151,15 +193,26 @@ export function FeedbackDialog() {
         return item;
       })
     );
+
+    // Save vote to Firestore
+    try {
+      const docRef = doc(db, "feedback_items", id);
+      await updateDoc(docRef, {
+        votes: increment(hasVoted ? -1 : 1),
+      });
+    } catch (e) {
+      console.warn("Error updating vote in Firestore:", e);
+    }
   };
 
-  const handleCreateBug = (e: React.FormEvent) => {
+  const handleCreateBug = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bugTitle.trim() || !bugDesc.trim()) return;
+    if (!bugTitle.trim() || !bugDesc.trim() || isSubmitting) return;
 
-    const diagInfo = includeDiag ? getSystemDiagnostics() : undefined;
-    const newItem: FeedbackItem = {
-      id: `bug-${Date.now()}`,
+    setIsSubmitting(true);
+    const diagInfo = includeDiag ? getSystemDiagnostics() : "";
+    const docId = `bug-${Date.now()}`;
+    const newItemData = {
       type: "bug",
       title: bugTitle.trim(),
       category: bugCategory,
@@ -167,28 +220,39 @@ export function FeedbackDialog() {
       description: bugDesc.trim(),
       stepsOrUseCases: bugSteps.trim(),
       votes: 1,
-      hasVoted: true,
       status: "under_review",
       createdAt: new Date().toISOString(),
       diagnostics: diagInfo,
     };
 
-    setItems((prev) => [newItem, ...prev]);
-    setVotedIds((prev) => ({ ...prev, [newItem.id]: true }));
-    setBugTitle("");
-    setBugDesc("");
-    setBugSteps("");
-    setSubmittedToast("Bug report submitted! Saved to community board.");
-    setTimeout(() => setSubmittedToast(null), 4000);
-    setTab("roadmap");
+    try {
+      await setDoc(doc(db, "feedback_items", docId), newItemData);
+      setVotedIds((prev) => ({ ...prev, [docId]: true }));
+      setBugTitle("");
+      setBugDesc("");
+      setBugSteps("");
+      setSubmittedToast("Bug report submitted and stored in the cloud!");
+      setTimeout(() => setSubmittedToast(null), 4000);
+      setTab("roadmap");
+    } catch (err) {
+      console.error("Failed to submit bug report to Firestore:", err);
+      // Local fallback
+      setItems((prev) => [{ ...newItemData, id: docId, type: "bug", status: "under_review" }, ...prev]);
+      setSubmittedToast("Bug report saved locally (Cloud sync unavailable).");
+      setTimeout(() => setSubmittedToast(null), 4000);
+      setTab("roadmap");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleCreateFeature = (e: React.FormEvent) => {
+  const handleCreateFeature = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!featTitle.trim() || !featDesc.trim()) return;
+    if (!featTitle.trim() || !featDesc.trim() || isSubmitting) return;
 
-    const newItem: FeedbackItem = {
-      id: `feat-${Date.now()}`,
+    setIsSubmitting(true);
+    const docId = `feat-${Date.now()}`;
+    const newItemData = {
       type: "feature",
       title: featTitle.trim(),
       category: featCategory,
@@ -196,45 +260,65 @@ export function FeedbackDialog() {
       description: featDesc.trim(),
       stepsOrUseCases: featUseCases.trim(),
       votes: 1,
-      hasVoted: true,
       status: "under_review",
       createdAt: new Date().toISOString(),
     };
 
-    setItems((prev) => [newItem, ...prev]);
-    setVotedIds((prev) => ({ ...prev, [newItem.id]: true }));
-    setFeatTitle("");
-    setFeatDesc("");
-    setFeatUseCases("");
-    setSubmittedToast("Feature request posted! Ready for upvoting.");
-    setTimeout(() => setSubmittedToast(null), 4000);
-    setTab("roadmap");
+    try {
+      await setDoc(doc(db, "feedback_items", docId), newItemData);
+      setVotedIds((prev) => ({ ...prev, [docId]: true }));
+      setFeatTitle("");
+      setFeatDesc("");
+      setFeatUseCases("");
+      setSubmittedToast("Feature request posted! Now live for everyone to upvote.");
+      setTimeout(() => setSubmittedToast(null), 4000);
+      setTab("roadmap");
+    } catch (err) {
+      console.error("Failed to submit feature request to Firestore:", err);
+      setItems((prev) => [{ ...newItemData, id: docId, type: "feature", status: "under_review" }, ...prev]);
+      setSubmittedToast("Feature request saved locally.");
+      setTimeout(() => setSubmittedToast(null), 4000);
+      setTab("roadmap");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleCreateFeedback = (e: React.FormEvent) => {
+  const handleCreateFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!feedbackText.trim()) return;
+    if (!feedbackText.trim() || isSubmitting) return;
 
-    const newItem: FeedbackItem = {
-      id: `idea-${Date.now()}`,
+    setIsSubmitting(true);
+    const docId = `idea-${Date.now()}`;
+    const newItemData = {
       type: "idea",
       title: `Feedback (${rating}★): ${feedbackText.slice(0, 45)}${feedbackText.length > 45 ? "..." : ""}`,
       category: "User Experience",
       description: feedbackText.trim(),
       rating,
-      userEmail: feedbackEmail.trim() || undefined,
+      userEmail: feedbackEmail.trim() || "",
       votes: 1,
-      hasVoted: true,
       status: "under_review",
       createdAt: new Date().toISOString(),
     };
 
-    setItems((prev) => [newItem, ...prev]);
-    setFeedbackText("");
-    setFeedbackEmail("");
-    setSubmittedToast("Thank you! Your feedback and rating have been recorded.");
-    setTimeout(() => setSubmittedToast(null), 4000);
-    setTab("roadmap");
+    try {
+      await setDoc(doc(db, "feedback_items", docId), newItemData);
+      setVotedIds((prev) => ({ ...prev, [docId]: true }));
+      setFeedbackText("");
+      setFeedbackEmail("");
+      setSubmittedToast("Thank you! Your feedback & star rating were saved to the cloud.");
+      setTimeout(() => setSubmittedToast(null), 4000);
+      setTab("roadmap");
+    } catch (err) {
+      console.error("Failed to submit review to Firestore:", err);
+      setItems((prev) => [{ ...newItemData, id: docId, type: "idea", status: "under_review" }, ...prev]);
+      setSubmittedToast("Feedback saved.");
+      setTimeout(() => setSubmittedToast(null), 4000);
+      setTab("roadmap");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const openGitHubIssue = (item?: FeedbackItem) => {
@@ -249,8 +333,12 @@ export function FeedbackDialog() {
       `### ${isBug ? "Bug Description" : "Feature Summary"}`,
       item.description,
       "",
-      item.stepsOrUseCases ? `### ${isBug ? "Steps to Reproduce" : "Use Cases & Practical Value"}\n${item.stepsOrUseCases}\n` : "",
-      item.severityOrPriority ? `**Category**: ${item.category} | **Severity/Priority**: ${item.severityOrPriority}\n` : "",
+      item.stepsOrUseCases
+        ? `### ${isBug ? "Steps to Reproduce" : "Use Cases & Practical Value"}\n${item.stepsOrUseCases}\n`
+        : "",
+      item.severityOrPriority
+        ? `**Category**: ${item.category} | **Severity/Priority**: ${item.severityOrPriority}\n`
+        : "",
       item.diagnostics ? `\n${item.diagnostics}` : `\n${getSystemDiagnostics()}`,
     ].join("\n");
 
@@ -289,11 +377,11 @@ export function FeedbackDialog() {
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold tracking-wider text-fg">HELION DISPATCH</span>
               <span className="rounded bg-accent/20 px-1.5 py-0.5 font-mono text-2xs text-accent">
-                Feedback & Issues
+                Cloud Sync • Firestore
               </span>
             </div>
             <p className="text-xs text-muted">
-              Report bugs, suggest physics features, and vote on community ideas.
+              Submit bug reports, request physics features, and vote on live community ideas.
             </p>
           </div>
 
@@ -377,10 +465,7 @@ export function FeedbackDialog() {
               <CheckCircle2 className="size-4" />
               <span>{submittedToast}</span>
             </div>
-            <button
-              onClick={() => setSubmittedToast(null)}
-              className="text-ok/70 hover:text-ok"
-            >
+            <button onClick={() => setSubmittedToast(null)} className="text-ok/70 hover:text-ok">
               <X className="size-3.5" />
             </button>
           </div>
@@ -403,137 +488,95 @@ export function FeedbackDialog() {
                     className="h-9 rounded-md border border-border bg-elevated px-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-fg">Category</label>
-                    <select
-                      value={bugCategory}
-                      onChange={(e) => setBugCategory(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
-                    >
-                      <option value="WebGL2 / WebGPU Crash">WebGL2 / WebGPU</option>
-                      <option value="Physics / Collision Glitch">Physics Simulation</option>
-                      <option value="Visual FX & Shaders">Visual FX / Bloom</option>
-                      <option value="Performance & Lag">Performance / FPS</option>
-                      <option value="UI & Controls">UI & Sliders</option>
-                      <option value="Mobile & Touch">Mobile / Touch</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-fg">Severity</label>
-                    <select
-                      value={bugSeverity}
-                      onChange={(e) => setBugSeverity(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
-                    >
-                      <option value="Low">Low (Visual glitch)</option>
-                      <option value="Medium">Medium (Affects use)</option>
-                      <option value="High">High (Major flaw)</option>
-                      <option value="Critical">Critical (Crash/Freeze)</option>
-                    </select>
-                  </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-fg">Component / Category</label>
+                  <select
+                    value={bugCategory}
+                    onChange={(e) => setBugCategory(e.target.value)}
+                    className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
+                  >
+                    <option value="WebGL2 / WebGPU Crash">WebGL2 / WebGPU Crash</option>
+                    <option value="Physics Engine / NaN Glitch">Physics Engine / NaN Glitch</option>
+                    <option value="UI & Controls / Slider Glitch">UI & Controls / Slider Glitch</option>
+                    <option value="Rendering / Bloom / Shaders">Rendering / Bloom / Shaders</option>
+                    <option value="Audio / MIDI Integration">Audio / MIDI Integration</option>
+                    <option value="Performance / FPS Drop">Performance / FPS Drop</option>
+                    <option value="Preset Import & Export">Preset Import & Export</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-fg">Severity Level</label>
+                  <select
+                    value={bugSeverity}
+                    onChange={(e) => setBugSeverity(e.target.value)}
+                    className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
+                  >
+                    <option value="Critical (App crashes or freezes)">Critical (App crashes or freezes)</option>
+                    <option value="High (Broken physics or visual glitch)">High (Broken physics or visual glitch)</option>
+                    <option value="Medium (Functional but annoying)">Medium (Functional but annoying)</option>
+                    <option value="Low (Cosmetic/Typo)">Low (Cosmetic/Typo)</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-fg">Steps to Reproduce</label>
+                  <input
+                    type="text"
+                    placeholder="1. Set generator to Burst. 2. Tap Force slider."
+                    value={bugSteps}
+                    onChange={(e) => setBugSteps(e.target.value)}
+                    className="h-9 rounded-md border border-border bg-elevated px-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
+                  />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-fg">Description of Bug *</label>
+                <label className="text-xs font-medium text-fg">Detailed Description *</label>
                 <textarea
-                  required
                   rows={3}
-                  placeholder="Describe what happened and what you expected to happen..."
+                  required
+                  placeholder="Describe what happened, what you expected to see, and any specific browser quirks..."
                   value={bugDesc}
                   onChange={(e) => setBugDesc(e.target.value)}
-                  className="rounded-md border border-border bg-elevated p-2.5 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
+                  className="rounded-md border border-border bg-elevated p-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-fg">Steps to Reproduce (Optional)</label>
-                <textarea
-                  rows={2}
-                  placeholder="1. Open Visuals tab&#10;2. Enable Bloom with Additive blend&#10;3. Click Pour..."
-                  value={bugSteps}
-                  onChange={(e) => setBugSteps(e.target.value)}
-                  className="rounded-md border border-border bg-elevated p-2.5 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
-                />
-              </div>
-
-              {/* System Diagnostics Box */}
-              <div className="rounded-lg border border-border bg-elevated/60 p-3">
+              <div className="rounded-lg border border-border bg-elevated/50 p-3">
                 <div className="flex items-center justify-between">
-                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-fg">
+                  <label className="flex items-center gap-2 text-xs font-medium text-fg">
                     <input
                       type="checkbox"
                       checked={includeDiag}
                       onChange={(e) => setIncludeDiag(e.target.checked)}
-                      className="size-3.5 rounded accent-accent"
+                      className="rounded border-border bg-surface text-accent focus:ring-accent"
                     />
-                    <span>Auto-attach Real-time Diagnostics</span>
+                    Attach Live Diagnostics (FPS: {telemetry.fps.toFixed(0)}, {telemetry.backend}, {telemetry.live} particles)
                   </label>
-                  <Button
+                  <button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1 text-2xs"
                     onClick={handleCopyDiagnostics}
+                    className="flex items-center gap-1 font-mono text-2xs text-muted hover:text-fg"
                   >
                     <Clipboard className="size-3" />
-                    {copiedDiag ? "Copied!" : "Copy Diagnostics"}
-                  </Button>
+                    {copiedDiag ? "Copied!" : "Copy Raw Diag"}
+                  </button>
                 </div>
-                {includeDiag && (
-                  <div className="mt-2.5 grid grid-cols-2 gap-2 text-2xs font-mono text-muted sm:grid-cols-4">
-                    <div className="rounded bg-surface px-2 py-1">
-                      <span className="text-faint">Backend:</span> {telemetry.backend}
-                    </div>
-                    <div className="rounded bg-surface px-2 py-1">
-                      <span className="text-faint">FPS:</span> {telemetry.fps.toFixed(0)} ({telemetry.frameMs.toFixed(1)}ms)
-                    </div>
-                    <div className="rounded bg-surface px-2 py-1">
-                      <span className="text-faint">Particles:</span> {telemetry.live.toLocaleString()}
-                    </div>
-                    <div className="rounded bg-surface px-2 py-1">
-                      <span className="text-faint">NaN Count:</span> {telemetry.nanCount}
-                    </div>
-                  </div>
-                )}
               </div>
 
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-2xs text-faint">
-                  Submissions are posted to the Helion Community Board and can be opened directly on GitHub.
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!bugTitle) return;
-                      openGitHubIssue({
-                        id: "preview",
-                        type: "bug",
-                        title: bugTitle,
-                        category: bugCategory,
-                        severityOrPriority: bugSeverity,
-                        description: bugDesc,
-                        stepsOrUseCases: bugSteps,
-                        votes: 1,
-                        status: "under_review",
-                        createdAt: new Date().toISOString(),
-                        diagnostics: getSystemDiagnostics(),
-                      });
-                    }}
-                  >
-                    <Github className="size-3.5" />
-                    Post to GitHub
-                  </Button>
-                  <Button type="submit" variant="default" size="sm" className="gap-1.5 bg-accent text-accent-fg">
-                    <Plus className="size-3.5" />
-                    Submit Bug Report
-                  </Button>
-                </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5 bg-danger text-white hover:bg-danger/90"
+                >
+                  <Bug className="size-3.5" />
+                  {isSubmitting ? "Saving..." : "Submit Bug Report"}
+                </Button>
               </div>
             </form>
           )}
@@ -547,126 +590,104 @@ export function FeedbackDialog() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 3D Gyroscope Gravity in Mobile VR"
+                    placeholder="e.g. Add Gravitational Lensing & Black Hole Distortion"
                     value={featTitle}
                     onChange={(e) => setFeatTitle(e.target.value)}
                     className="h-9 rounded-md border border-border bg-elevated px-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-fg">Category</label>
-                    <select
-                      value={featCategory}
-                      onChange={(e) => setFeatCategory(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
-                    >
-                      <option value="Forces & Physics Simulation">Physics & Forces</option>
-                      <option value="New Generator / Preset">Generator Preset</option>
-                      <option value="Visual FX & Shaders">Visual FX & Shaders</option>
-                      <option value="Interactive Brushes & Tools">Tools & Brushes</option>
-                      <option value="Audio & Music Reactivity">Audio & Music</option>
-                      <option value="Export & Capture">Export & Video</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-fg">Impact Level</label>
-                    <select
-                      value={featPriority}
-                      onChange={(e) => setFeatPriority(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
-                    >
-                      <option value="Nice to have">Nice to have</option>
-                      <option value="Exciting">Exciting</option>
-                      <option value="Game Changer">Game Changer</option>
-                    </select>
-                  </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-fg">Domain Category</label>
+                  <select
+                    value={featCategory}
+                    onChange={(e) => setFeatCategory(e.target.value)}
+                    className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
+                  >
+                    <option value="Forces & Physics Simulation">Forces & Physics Simulation</option>
+                    <option value="Visual Shaders & Post-FX">Visual Shaders & Post-FX</option>
+                    <option value="Interactive Brushes & Tools">Interactive Brushes & Tools</option>
+                    <option value="Audio Reactive / Synth Mapping">Audio Reactive / Synth Mapping</option>
+                    <option value="Performance & WebGPU Optimization">Performance & WebGPU Optimization</option>
+                    <option value="Presets, Export & Sharing">Presets, Export & Sharing</option>
+                  </select>
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-fg">Priority & Excitement</label>
+                <select
+                  value={featPriority}
+                  onChange={(e) => setFeatPriority(e.target.value)}
+                  className="h-9 rounded-md border border-border bg-elevated px-2.5 text-xs text-fg focus:border-accent focus:outline-none"
+                >
+                  <option value="Game Changer (Must have for serious work)">Game Changer (Must have for serious work)</option>
+                  <option value="Exciting (Would make simulation 10x cooler)">Exciting (Would make simulation 10x cooler)</option>
+                  <option value="Nice to have (Polishing touch)">Nice to have (Polishing touch)</option>
+                </select>
               </div>
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-fg">Feature Description *</label>
                 <textarea
-                  required
                   rows={3}
-                  placeholder="Explain what capability you would like to see in Helion..."
+                  required
+                  placeholder="Explain how this feature should behave and what interactive parameters it should introduce..."
                   value={featDesc}
                   onChange={(e) => setFeatDesc(e.target.value)}
-                  className="rounded-md border border-border bg-elevated p-2.5 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
+                  className="rounded-md border border-border bg-elevated p-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-fg">Why is this useful / Practical Use Case</label>
+                <label className="text-xs font-medium text-fg">Practical Use Cases / Inspiration</label>
                 <textarea
                   rows={2}
-                  placeholder="How will creators, artists, or developers benefit from this?"
+                  placeholder="e.g. Useful for generating procedural nebula backgrounds or VJ concert backgrounds..."
                   value={featUseCases}
                   onChange={(e) => setFeatUseCases(e.target.value)}
-                  className="rounded-md border border-border bg-elevated p-2.5 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
+                  className="rounded-md border border-border bg-elevated p-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                 />
               </div>
 
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-2xs text-faint">
-                  Features with high community upvotes get prioritized for active GPU compute implementation.
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!featTitle) return;
-                      openGitHubIssue({
-                        id: "preview-feat",
-                        type: "feature",
-                        title: featTitle,
-                        category: featCategory,
-                        severityOrPriority: featPriority,
-                        description: featDesc,
-                        stepsOrUseCases: featUseCases,
-                        votes: 1,
-                        status: "under_review",
-                        createdAt: new Date().toISOString(),
-                      });
-                    }}
-                  >
-                    <Github className="size-3.5" />
-                    Open as GitHub Request
-                  </Button>
-                  <Button type="submit" variant="default" size="sm" className="gap-1.5 bg-accent text-accent-fg">
-                    <Lightbulb className="size-3.5" />
-                    Submit Feature Request
-                  </Button>
-                </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5 bg-accent text-accent-fg hover:bg-accent/90"
+                >
+                  <Lightbulb className="size-3.5" />
+                  {isSubmitting ? "Submitting..." : "Submit Feature Request"}
+                </Button>
               </div>
             </form>
           )}
 
-          {/* 3. GENERAL FEEDBACK & RATING TAB */}
+          {/* 3. GENERAL FEEDBACK TAB */}
           {tab === "idea" && (
             <form onSubmit={handleCreateFeedback} className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-medium text-fg">How is your experience with Helion Particle Lab?</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
                       type="button"
                       onClick={() => setRating(star)}
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-lg border transition-all",
-                        rating >= star
-                          ? "border-warn/40 bg-warn/15 text-warn"
-                          : "border-border bg-elevated text-muted hover:border-border-strong"
-                      )}
+                      className="rounded p-1 transition-transform hover:scale-110 active:scale-95"
                     >
-                      <Star className={cn("size-4", rating >= star && "fill-warn")} />
+                      <Star
+                        className={cn(
+                          "size-5",
+                          star <= rating
+                            ? "fill-warn text-warn"
+                            : "text-border hover:text-muted"
+                        )}
+                      />
                     </button>
                   ))}
-                  <span className="ml-2 font-mono text-xs text-muted">
+                  <span className="ml-2 text-xs font-medium text-muted">
                     {rating === 5
                       ? "Flawless & Fast ⚡"
                       : rating === 4
@@ -683,12 +704,12 @@ export function FeedbackDialog() {
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-fg">Your Thoughts, Praises, or Feedback *</label>
                 <textarea
-                  required
                   rows={4}
+                  required
                   placeholder="Share what you love, what feels clunky, or ideas for improving the particle engine..."
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  className="rounded-md border border-border bg-elevated p-2.5 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
+                  className="rounded-md border border-border bg-elevated p-3 text-xs text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                 />
               </div>
 
@@ -704,9 +725,15 @@ export function FeedbackDialog() {
               </div>
 
               <div className="mt-2 flex justify-end">
-                <Button type="submit" variant="default" size="sm" className="gap-1.5 bg-accent text-accent-fg">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5 bg-accent text-accent-fg"
+                >
                   <MessageSquare className="size-3.5" />
-                  Send Feedback
+                  {isSubmitting ? "Sending..." : "Send Feedback"}
                 </Button>
               </div>
             </form>
@@ -769,7 +796,11 @@ export function FeedbackDialog() {
 
               {/* Items List */}
               <div className="flex flex-col gap-2.5">
-                {filteredItems.length === 0 ? (
+                {loading ? (
+                  <div className="flex items-center justify-center py-12 text-xs text-muted">
+                    Loading community items...
+                  </div>
+                ) : filteredItems.length === 0 ? (
                   <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-12 text-center">
                     <MessageSquare className="mb-2 size-6 text-faint" />
                     <p className="text-xs font-medium text-fg">No feedback or reports submitted yet</p>
@@ -853,9 +884,7 @@ export function FeedbackDialog() {
                           </Button>
                         </div>
 
-                        <p className="text-xs text-muted leading-relaxed pl-[42px]">
-                          {item.description}
-                        </p>
+                        <p className="text-xs text-muted leading-relaxed pl-[42px]">{item.description}</p>
 
                         {item.stepsOrUseCases && (
                           <div className="ml-[42px] rounded bg-surface/80 p-2 text-2xs text-faint">
@@ -880,7 +909,8 @@ export function FeedbackDialog() {
             <span>Helion v2.4 (Active Backend: {telemetry.backend})</span>
             <button
               onClick={() => {
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(items, null, 2));
+                const dataStr =
+                  "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(items, null, 2));
                 const dl = document.createElement("a");
                 dl.setAttribute("href", dataStr);
                 dl.setAttribute("download", `helion_feedback_${Date.now()}.json`);
