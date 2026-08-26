@@ -470,10 +470,8 @@ function flockForce(
 }
 
 function sphDensity(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: number): void {
-  const h = params.sphSmoothing;
+  const h = Math.max(params.sphSmoothing, 0.005);
   const h2 = h * h;
-  const h8 = h2 * h2 * h2 * h2;
-  const poly6 = 4 / (Math.PI * h8);
   const px = soa.posX;
   const py = soa.posY;
   const dens = soa.density;
@@ -481,8 +479,11 @@ function sphDensity(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: n
   const mass = soa.mass;
   const rest = params.sphRestDensity;
   const k = params.sphPressure;
+  const invH = 1 / h;
+  const normFactor = 4 / (Math.PI * h2);
+
   for (let i = 0; i < n; i++) {
-    let rho = mass[i]! * poly6 * h2 * h2 * h2;
+    let rho = mass[i]! * normFactor;
     const x = px[i]!;
     const y = py[i]!;
     hash.query(x, y, (j) => {
@@ -491,8 +492,9 @@ function sphDensity(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: n
       const dy = py[j]! - y;
       const r2 = dx * dx + dy * dy;
       if (r2 >= h2) return;
-      const d = h2 - r2;
-      rho += mass[j]! * poly6 * d * d * d;
+      const r = Math.sqrt(r2);
+      const q = 1 - r * invH;
+      rho += mass[j]! * normFactor * q * q;
     });
     dens[i] = rho;
     pres[i] = Math.max(0, k * (rho - rest));
@@ -500,10 +502,9 @@ function sphDensity(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: n
 }
 
 function sphForces(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: number): void {
-  const h = params.sphSmoothing;
+  const h = Math.max(params.sphSmoothing, 0.005);
   const h2 = h * h;
-  const spiky = 10 / (Math.PI * Math.pow(h, 5));
-  const viscLap = 40 / (Math.PI * Math.pow(h, 5));
+  const invH = 1 / h;
   const px = soa.posX;
   const py = soa.posY;
   const vx = soa.velX;
@@ -514,13 +515,15 @@ function sphForces(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: nu
   const ax = soa.accX;
   const ay = soa.accY;
   const mu = params.sphViscosity;
+
   for (let i = 0; i < n; i++) {
     let fx = 0,
       fy = 0;
     const x = px[i]!;
     const y = py[i]!;
     const pi = pres[i]!;
-    const di = Math.max(dens[i]!, 1e-5);
+    const di = Math.max(dens[i]!, 0.1);
+
     hash.query(x, y, (j) => {
       if (j === i) return;
       const dx = x - px[j]!;
@@ -528,15 +531,21 @@ function sphForces(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: nu
       const r2 = dx * dx + dy * dy;
       if (r2 >= h2 || r2 < 1e-12) return;
       const r = Math.sqrt(r2);
-      const dj = Math.max(dens[j]!, 1e-5);
+      const q = 1 - r * invH;
+      const dj = Math.max(dens[j]!, 0.1);
       const mj = mass[j]!;
-      const coeff = ((pi + pres[j]!) / (2 * dj)) * mj * spiky * (h - r) * (h - r);
-      fx += (dx / r) * coeff;
-      fy += (dy / r) * coeff;
-      const lap = viscLap * (h - r);
-      fx += mu * mj * ((vx[j]! - vx[i]!) / dj) * lap;
-      fy += mu * mj * ((vy[j]! - vy[i]!) / dj) * lap;
+
+      // Spiky pressure force
+      const pTerm = ((pi + pres[j]!) / (2 * dj)) * mj * q * q * 18;
+      fx += (dx / r) * pTerm;
+      fy += (dy / r) * pTerm;
+
+      // Viscosity smoothing force
+      const vTerm = mu * mj * (q / dj) * 35;
+      fx += (vx[j]! - vx[i]!) * vTerm;
+      fy += (vy[j]! - vy[i]!) * vTerm;
     });
+
     ax[i] = fx / di;
     ay[i] = fy / di;
   }

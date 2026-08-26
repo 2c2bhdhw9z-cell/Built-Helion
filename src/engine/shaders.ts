@@ -244,6 +244,10 @@ struct Params {
   flowScale: f32,
   flowSpeed: f32,
   time: f32,
+  sphRestDensity: f32,
+  sphPressure: f32,
+  sphViscosity: f32,
+  sphSmoothing: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -339,12 +343,20 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
     }
   }
 
-  // Grid / spatial hash logic for flocking and collisions
-  if ((params.flags & 1u) != 0u || (params.flags & 2u) != 0u) {
+  // Grid / spatial hash logic for flocking, collisions, and SPH fluid
+  if ((params.flags & 7u) != 0u) {
     var numNeighbors = 0u;
     var sep = vec2<f32>(0.0, 0.0);
     var ali = vec2<f32>(0.0, 0.0);
     var coh = vec2<f32>(0.0, 0.0);
+
+    var sphDensity: f32 = 1.0;
+    var sphPressureForce = vec2<f32>(0.0, 0.0);
+    var sphViscForce = vec2<f32>(0.0, 0.0);
+    let sphH = max(params.sphSmoothing, 0.005);
+    let sphH2 = sphH * sphH;
+    let invSphH = 1.0 / sphH;
+
     let gridX = i32(floor(p.x / params.cellSize));
     let gridY = i32(floor(p.y / params.cellSize));
     for (var y: i32 = -1; y <= 1; y += 1) {
@@ -381,6 +393,17 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
                   numNeighbors += 1u;
                }
             }
+            if ((params.flags & 4u) != 0u) { // SPH Fluid
+               if (d2 < sphH2 && d2 > 0.0000001) {
+                  let dist = sqrt(d2);
+                  let q = max(0.0, 1.0 - dist * invSphH);
+                  let normal = d / dist;
+                  sphDensity += q * q * 4.0;
+                  let press = params.sphPressure * q * q * 18.0;
+                  sphPressureForce += normal * press;
+                  sphViscForce += (v2 - v) * (params.sphViscosity * q * 35.0);
+               }
+            }
           }
         }
       }
@@ -392,6 +415,11 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
        acc += sep * params.flockSep;
        acc += (ali - v) * params.flockAli;
        acc += coh_dir * params.flockCoh;
+    }
+    if ((params.flags & 4u) != 0u) {
+       let delta = max(sphDensity - params.sphRestDensity * 0.1, 0.0);
+       acc += sphPressureForce * (1.0 + delta * 0.15);
+       acc += sphViscForce;
     }
   }
 
@@ -523,6 +551,7 @@ struct Params {
   mouseMode: u32, count: u32, boundary: u32, flags: u32,
   gridCols: u32, gridRows: u32, maxPerCell: u32, _pad: u32,
   flowStrength: f32, flowScale: f32, flowSpeed: f32, time: f32,
+  sphRestDensity: f32, sphPressure: f32, sphViscosity: f32, sphSmoothing: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;

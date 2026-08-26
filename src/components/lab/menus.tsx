@@ -198,8 +198,36 @@ export function ParamDock() {
   const setParam = useLab((s) => s.setParam);
   const cap = useLab((s) => s.cap);
   const setCap = useLab((s) => s.setCap);
+  const tiltX = useLab((s) => s.tiltX);
+  const tiltY = useLab((s) => s.tiltY);
   const setFeedbackOpen = useLab((s) => s.setFeedbackOpen);
   const [open, setOpen] = useState(false);
+
+  const handleToggleTilt = async (v: boolean) => {
+    if (v && typeof (DeviceOrientationEvent as any)?.requestPermission === "function") {
+      try {
+        const res = await (DeviceOrientationEvent as any).requestPermission();
+        if (res === "granted") {
+          setParam("tiltEnabled", true);
+          return;
+        }
+      } catch (e) {
+        console.warn("DeviceOrientation error:", e);
+      }
+    }
+    if (v && typeof (DeviceMotionEvent as any)?.requestPermission === "function") {
+      try {
+        const res = await (DeviceMotionEvent as any).requestPermission();
+        if (res === "granted") {
+          setParam("tiltEnabled", true);
+          return;
+        }
+      } catch (e) {
+        console.warn("DeviceMotion error:", e);
+      }
+    }
+    setParam("tiltEnabled", v);
+  };
 
   return (
     <section className="relative z-20 shrink-0 border-t border-border bg-surface/80 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md md:px-4">
@@ -455,7 +483,7 @@ export function ParamDock() {
                 <ToggleRow
                   label="Device IMU"
                   checked={params.tiltEnabled}
-                  onChange={(v) => setParam("tiltEnabled", v)}
+                  onChange={handleToggleTilt}
                 />
                 <SliderRow
                   label="Tilt scale"
@@ -465,10 +493,17 @@ export function ParamDock() {
                   step={0.05}
                   onChange={(n) => setParam("tiltScale", n)}
                 />
-                <p className="col-span-2 text-xs text-muted">
-                  On supported devices, accelerometer drives the gravity vector. Desktop uses Gravity X/Y in
-                  Physics.
-                </p>
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between rounded border border-border bg-surface-hover/50 px-2.5 py-1 text-xs">
+                    <span className="text-muted">Sensor Gravity:</span>
+                    <span className="font-mono text-accent">
+                      gx: {(tiltX * (params.tiltScale || 1)).toFixed(2)}, gy: {(tiltY * (params.tiltScale || 1)).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">
+                    Tilt your phone to steer gravity. On iOS/Safari, granting motion access enables real-time accelerometer control.
+                  </p>
+                </div>
               </div>
             )}
 

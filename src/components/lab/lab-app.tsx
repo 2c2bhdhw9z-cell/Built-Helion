@@ -19,13 +19,42 @@ export function LabApp() {
       setTilt(0, 0);
       return;
     }
+    
+    let lastGx = 0;
+    let lastGy = 0;
+
     const onOrient = (e: DeviceOrientationEvent) => {
-      const gx = (e.gamma ?? 0) / 45;
-      const gy = (e.beta ?? 0) / 45;
-      setTilt(gx, gy);
+      // Gamma: left-to-right [-90, 90]
+      // Beta: front-to-back [-180, 180]
+      const gamma = e.gamma ?? 0;
+      const beta = e.beta ?? 0;
+      
+      const gx = Math.sin((gamma * Math.PI) / 180) * 1.5;
+      const gy = Math.sin((beta * Math.PI) / 180) * 1.5;
+      
+      lastGx = Math.max(-2.5, Math.min(2.5, gx));
+      lastGy = Math.max(-2.5, Math.min(2.5, gy));
+      setTilt(lastGx, lastGy);
     };
+
+    const onMotion = (e: DeviceMotionEvent) => {
+      const acc = e.accelerationIncludingGravity;
+      if (acc && acc.x !== null && acc.y !== null && acc.x !== undefined && acc.y !== undefined) {
+        // -acc.x is rightward, acc.y is downward in standard screen coords
+        const gx = -(acc.x || 0) / 9.8 * 1.5;
+        const gy = (acc.y || 0) / 9.8 * 1.5;
+        lastGx = Math.max(-2.5, Math.min(2.5, gx));
+        lastGy = Math.max(-2.5, Math.min(2.5, gy));
+        setTilt(lastGx, lastGy);
+      }
+    };
+
     window.addEventListener("deviceorientation", onOrient);
-    return () => window.removeEventListener("deviceorientation", onOrient);
+    window.addEventListener("devicemotion", onMotion);
+    return () => {
+      window.removeEventListener("deviceorientation", onOrient);
+      window.removeEventListener("devicemotion", onMotion);
+    };
   }, [tiltEnabled, setTilt]);
 
   return (

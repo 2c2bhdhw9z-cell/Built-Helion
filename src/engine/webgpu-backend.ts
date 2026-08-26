@@ -414,7 +414,9 @@ export class WebGPUBackend {
     s[19] = params.flockRadius;
     s[20] = params.nbodyG;
     s[21] = params.settleThreshold;
-    s[22] = Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
+    s[22] = params.sph
+      ? Math.max(params.sphSmoothing, params.particleRadius * 4, 0.02)
+      : Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
     s[23] = params.pointSize;
     const mouseOn = pointer.down || (pointer.inside && tool === "attract");
     u[24] = toolMode(tool, mouseOn);
@@ -423,6 +425,7 @@ export class WebGPUBackend {
     let flags = 0;
     if (params.collide) flags |= 1;
     if (params.flock) flags |= 2;
+    if (params.sph) flags |= 4;
     
     let cm = 0;
     if (params.colorMap === "life") cm = 1;
@@ -445,6 +448,10 @@ export class WebGPUBackend {
     s[33] = params.flowScale;
     s[34] = params.flowSpeed;
     s[35] = time;
+    s[36] = params.sphRestDensity;
+    s[37] = params.sphPressure;
+    s[38] = params.sphViscosity;
+    s[39] = params.sphSmoothing;
     this.device.queue.writeBuffer(this.uniformBuf, 0, this.staging.buffer);
     
     // Write walls buffer
