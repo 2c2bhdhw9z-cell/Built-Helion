@@ -50,6 +50,8 @@ export interface FeedbackItem {
 
 const VOTES_KEY = "helion_user_voted_ids_v2";
 
+const FEEDBACK_ITEMS_KEY = "helion_feedback_cached_items_v2";
+
 export function FeedbackDialog() {
   const isOpen = useLab((s) => s.feedbackOpen);
   const setIsOpen = useLab((s) => s.setFeedbackOpen);
@@ -57,8 +59,16 @@ export function FeedbackDialog() {
   const params = useLab((s) => s.params);
 
   const [tab, setTab] = useState<"bug" | "feature" | "idea" | "roadmap">("bug");
-  const [items, setItems] = useState<FeedbackItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<FeedbackItem[]>(() => {
+    try {
+      const cached = localStorage.getItem(FEEDBACK_ITEMS_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(false);
 
   const [votedIds, setVotedIds] = useState<Record<string, boolean>>(() => {
     try {
@@ -70,8 +80,22 @@ export function FeedbackDialog() {
     return {};
   });
 
-  // Real-time Firestore sync for community feedback
+  // Sync to local cache
   useEffect(() => {
+    if (items.length > 0) {
+      try {
+        localStorage.setItem(FEEDBACK_ITEMS_KEY, JSON.stringify(items));
+      } catch {
+        // ignore
+      }
+    }
+  }, [items]);
+
+  // Real-time Firestore sync ONLY when dialog is active/open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setLoading(items.length === 0);
     try {
       const q = query(collection(db, "feedback_items"), orderBy("createdAt", "desc"));
       const unsubscribe = onSnapshot(
@@ -100,17 +124,16 @@ export function FeedbackDialog() {
           setLoading(false);
         },
         (error) => {
-          console.warn("Firestore feedback sync notice:", error);
+          // Graceful fallback for offline / unreached backend
           setLoading(false);
         }
       );
 
       return () => unsubscribe();
     } catch (e) {
-      console.warn("Could not subscribe to Firestore:", e);
       setLoading(false);
     }
-  }, []);
+  }, [isOpen]);
 
   // Bug form state
   const [bugTitle, setBugTitle] = useState("");
