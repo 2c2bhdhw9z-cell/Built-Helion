@@ -83,34 +83,12 @@ img {
   flex: 0 0 auto;
 }
 
-.powered-by,
-.powered-grok {
+.powered-helion {
   font-size: var(--text-footnote);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
   line-height: 1.2;
   white-space: nowrap;
-}
-
-.powered-by {
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.powered-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-}
-
-.grok-logo {
-  display: block;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
-}
-
-.powered-grok {
   color: rgba(255, 255, 255, 0.6);
 }
 
