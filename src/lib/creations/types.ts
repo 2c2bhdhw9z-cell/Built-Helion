@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
+  DEFAULT_CAP,
   DEFAULT_PARAMS,
+  SYSTEM_LIMIT,
   type GeneratorKind,
   type LabParams,
 } from "@/engine/types";
@@ -41,6 +43,15 @@ export const speedMuls = [0.25, 0.5, 1, 2, 4] as const;
 /** Particle-count clamp, matching the store's setSpawnCount bounds. */
 export const SPAWN_COUNT_MIN = 50;
 export const SPAWN_COUNT_MAX = 200_000;
+
+/**
+ * Particle-buffer cap clamp. Mirrors the engine's `setCap` floor (1024, i.e.
+ * the ParamDock cap slider's 2^10 minimum) and SYSTEM_LIMIT ceiling from
+ * @/engine/types, so a saved/untrusted cap can never starve the emitter or
+ * blow past the engine's hard capacity limit.
+ */
+export const CAP_MIN = 1024;
+export const CAP_MAX = SYSTEM_LIMIT;
 
 /**
  * A number field that falls back to `fallback` on anything non-finite/missing.
@@ -150,6 +161,19 @@ export const creationConfigSchema = z.object({
     .union([z.literal(0.25), z.literal(0.5), z.literal(1), z.literal(2), z.literal(4)])
     .catch(1)
     .default(1),
+  // The particle-buffer cap at save time. Captured so a creation saved above
+  // the default cap (e.g. a high-count nbody) reproduces at full particle count
+  // on load instead of being silently truncated to the fresh session's cap.
+  // Optional-with-default so older stored rows without `cap` still normalize,
+  // and clamped to CAP_MIN..CAP_MAX with a safe DEFAULT_CAP fallback for any
+  // out-of-range / non-finite / missing value (same untrusted-input discipline
+  // as spawnCount).
+  cap: z
+    .number()
+    .finite()
+    .transform((n) => Math.max(CAP_MIN, Math.min(CAP_MAX, Math.round(n))))
+    .catch(DEFAULT_CAP)
+    .default(DEFAULT_CAP),
 });
 
 /** The validated, always-complete saved config. */

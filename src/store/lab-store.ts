@@ -110,13 +110,16 @@ type LabState = {
  * existing fallbacks in addParticles/runGenerator.
  */
 export function currentCreationConfig(
-  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed">,
+  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed" | "cap">,
 ): CreationConfig {
   return {
     params: { ...state.params },
     spawnKind: state.spawnKind ?? "galaxy",
     spawnCount: state.spawnCount,
     speed: state.speed,
+    // Capture the buffer cap so a high-count creation reproduces at full
+    // particle count on load (mirrors how applyScene persists scene.cap).
+    cap: state.cap,
   };
 }
 
@@ -251,11 +254,18 @@ export const useLab = create<LabState>((set, get) => ({
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
     // Same clamp as setSpawnCount/applyScene.
     const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
+    // Restore the saved cap (like applyScene sets `cap: scene.cap ?? s.cap`),
+    // but floor it at spawnCount so the emitter is never starved — the engine
+    // spawns min(capacity - count, count), so a cap below spawnCount would load
+    // the creation truncated. The engine re-clamps to its own 1024..SYSTEM_LIMIT
+    // bounds, so this only ever raises the cap to preserve fidelity.
+    const nextCap = Math.max(config.cap, nextSpawnCount);
     set((s) => ({
       // Clear first so a loaded creation never stacks on the previous sim.
       clearId: s.clearId + 1,
       params: nextParams,
       spawnCount: nextSpawnCount,
+      cap: nextCap,
       speed: config.speed,
       pouring: false,
       // Deterministic boolean (default off); only 'fall' streams continuously.

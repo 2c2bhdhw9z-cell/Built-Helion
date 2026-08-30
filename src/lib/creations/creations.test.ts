@@ -25,7 +25,10 @@ let creationConfigSchema: CreationsTypes["creationConfigSchema"];
 let normalizeCreationConfig: CreationsTypes["normalizeCreationConfig"];
 let SPAWN_COUNT_MIN: number;
 let SPAWN_COUNT_MAX: number;
+let CAP_MIN: number;
+let CAP_MAX: number;
 let DEFAULT_PARAMS: LabParams;
+let DEFAULT_CAP: number;
 let defaultKeys: string[];
 
 before(async () => {
@@ -34,7 +37,11 @@ before(async () => {
   normalizeCreationConfig = types.normalizeCreationConfig;
   SPAWN_COUNT_MIN = types.SPAWN_COUNT_MIN;
   SPAWN_COUNT_MAX = types.SPAWN_COUNT_MAX;
-  DEFAULT_PARAMS = (await import("../../engine/types.ts")).DEFAULT_PARAMS;
+  CAP_MIN = types.CAP_MIN;
+  CAP_MAX = types.CAP_MAX;
+  const engineTypes = await import("../../engine/types.ts");
+  DEFAULT_PARAMS = engineTypes.DEFAULT_PARAMS;
+  DEFAULT_CAP = engineTypes.DEFAULT_CAP;
   defaultKeys = Object.keys(DEFAULT_PARAMS).sort();
 });
 
@@ -56,6 +63,7 @@ const validConfig = (): CreationConfig =>
     spawnKind: "ring",
     spawnCount: 12_345,
     speed: 2,
+    cap: 131_072,
   });
 
 describe("creationConfigSchema / normalizeCreationConfig", () => {
@@ -66,11 +74,13 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
       spawnKind: "flock",
       spawnCount: 8000,
       speed: 4,
+      cap: 262_144,
     };
     const parsed = creationConfigSchema.parse(input);
     assert.equal(parsed.spawnKind, "flock");
     assert.equal(parsed.spawnCount, 8000);
     assert.equal(parsed.speed, 4);
+    assert.equal(parsed.cap, 262_144);
     assert.equal(parsed.params.gravityX, 0.25);
     assert.equal(parsed.params.bloom, true);
     // Params carry EXACTLY the DEFAULT_PARAMS key set (mirrors scenes.test.ts).
@@ -148,6 +158,58 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
     assert.equal(parsed.speed, 1);
   });
 
+  it("round-trips a valid cap", () => {
+    const parsed = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      cap: 131_072,
+    });
+    assert.equal(parsed.cap, 131_072);
+  });
+
+  it("clamps an out-of-range cap into CAP_MIN..CAP_MAX", () => {
+    const tooLow = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      cap: 1,
+    });
+    assert.equal(tooLow.cap, CAP_MIN);
+
+    const tooHigh = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      cap: 10_000_000,
+    });
+    assert.equal(tooHigh.cap, CAP_MAX);
+  });
+
+  it("defaults a non-finite cap to DEFAULT_CAP", () => {
+    const parsed = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      cap: Number.POSITIVE_INFINITY,
+    });
+    assert.equal(parsed.cap, DEFAULT_CAP);
+  });
+
+  it("defaults a missing cap to DEFAULT_CAP (older rows without cap still normalize)", () => {
+    const parsed = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+    });
+    assert.equal(parsed.cap, DEFAULT_CAP);
+  });
+
   it("normalizeCreationConfig returns null on total garbage", () => {
     assert.equal(normalizeCreationConfig(null), null);
     assert.equal(normalizeCreationConfig("string"), null);
@@ -161,6 +223,7 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
     assert.deepEqual(Object.keys(parsed.params).sort(), defaultKeys);
     assert.equal(parsed.spawnKind, "galaxy");
     assert.equal(parsed.speed, 1);
+    assert.equal(parsed.cap, DEFAULT_CAP);
   });
 });
 
@@ -187,6 +250,7 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
     assert.equal(inserted.config.spawnKind, "ring");
     assert.equal(inserted.config.spawnCount, 12_345);
     assert.equal(inserted.config.speed, 2);
+    assert.equal(inserted.config.cap, 131_072);
     assert.equal(inserted.config.params.trails, true);
     assert.equal(inserted.config.params.gravityY, -0.5);
     assert.ok(inserted.created_at, "created_at must be populated");
