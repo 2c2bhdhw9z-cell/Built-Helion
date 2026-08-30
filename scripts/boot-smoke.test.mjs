@@ -13,7 +13,12 @@ import { test } from "node:test";
  *   1. The circular-ESM-chunk crash (`TypeError: createSsrRpc is not a
  *      function`) that 500'd every route when a top-level createServerFn call
  *      was co-located into the route-tree SSR chunk (FEAT-001). If it recurs,
- *      GET / stops returning 200 HTML and this test fails.
+ *      GET / stops returning 200 HTML and this test fails. GET /login and
+ *      GET /admin/feedback are also probed directly because they were the two
+ *      ACTUAL original crash triggers (their loaders reach the createServerFns
+ *      that participated in the createSsrRpc cycle); a future per-route chunk
+ *      cycle localized to those lazy chunks could 500 them while GET / stays
+ *      200, so asserting only GET / would let such a regression stay green.
  *   2. The Better Auth handler being unmounted, so /api/auth/* falls through to
  *      the router's 404 SPA shell instead of the auth handler (FEAT-002).
  *
@@ -80,7 +85,51 @@ test(
       `GET / body should start with <!DOCTYPE html>, got: ${homeBody.slice(0, 80)}`,
     );
 
-    // (b) /api/auth/* must be ROUTED to Better Auth, not the router 404 SPA
+    // (b) /login was one of the two ACTUAL original crash triggers: its loader
+    // reaches a createServerFn (authProvidersFn) that participated in the
+    // createSsrRpc chunk cycle. A future per-route chunk cycle localized to
+    // this lazy chunk could 500 it while GET / stays 200, so probe it directly.
+    const loginRes = await handler.fetch(
+      new Request("https://built-helion.vercel.app/login", {
+        headers: { accept: "text/html" },
+      }),
+      {},
+    );
+    const loginBody = await loginRes.text();
+    assert.equal(
+      loginRes.status,
+      200,
+      `GET /login expected 200, got ${loginRes.status}: ${loginBody.slice(0, 200)}`,
+    );
+    assert.ok(
+      loginBody.startsWith("<!DOCTYPE html>"),
+      `GET /login body should start with <!DOCTYPE html>, got: ${loginBody.slice(0, 80)}`,
+    );
+
+    // (c) /admin/feedback was the other original crash trigger: its loader
+    // reaches listFeedbackFn/updateFeedbackStatusFn (createServerFns) that were
+    // co-located into the route-tree SSR chunk. With any token the admin loader
+    // catches the 403 and renders the access-denied HTML with status 200, so
+    // the point here is it must RENDER (not 500), which proves the chunk-cycle
+    // crash class stays closed for this lazy chunk too.
+    const adminRes = await handler.fetch(
+      new Request("https://built-helion.vercel.app/admin/feedback?token=x", {
+        headers: { accept: "text/html" },
+      }),
+      {},
+    );
+    const adminBody = await adminRes.text();
+    assert.equal(
+      adminRes.status,
+      200,
+      `GET /admin/feedback?token=x expected 200, got ${adminRes.status}: ${adminBody.slice(0, 200)}`,
+    );
+    assert.ok(
+      adminBody.startsWith("<!DOCTYPE html>"),
+      `GET /admin/feedback?token=x body should start with <!DOCTYPE html>, got: ${adminBody.slice(0, 80)}`,
+    );
+
+    // (d) /api/auth/* must be ROUTED to Better Auth, not the router 404 SPA
     // shell. Better Auth's get-session returns 200 with body 'null' for an
     // anonymous caller (no DB round-trip needed for an empty session), so a
     // 404 or an HTML shell here means the auth route is not mounted.
