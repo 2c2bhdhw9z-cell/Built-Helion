@@ -58,7 +58,15 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
 
 test("the auth schema ships outside the globbed directory", () => {
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
+  // The app may ship its own top-level migrations (e.g. the feedback schema),
+  // but the Better Auth schema must never be one of them — it stays under
+  // migrations/auth/ (excluded by the non-recursive glob) until sign-in is
+  // turned on and it is explicitly copied up.
+  const pending = pendingMigrations(readdirSync(migrationsDir), []);
+  assert.ok(
+    !pending.some(({ name }) => name === AUTH_MIGRATION),
+    "the auth schema must not appear among the globbed top-level migrations",
+  );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
 
