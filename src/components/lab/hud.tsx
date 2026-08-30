@@ -61,7 +61,19 @@ export function Hud() {
 
         <div className="min-w-0 flex-1" />
 
-        <div className="ml-1 flex shrink-0 items-center gap-1">
+        {/*
+          Two groups share the right side of the row. The scroll group holds the
+          speed chips and the sim/secondary actions; on a narrow phone it can
+          shrink and scroll horizontally instead of pushing the row wider than
+          the screen. The pinned group (Settings + account) stays `shrink-0`
+          OUTSIDE the scroll region so the profile/account button is always
+          visible and tappable. The bug that shipped with the Performance button
+          was that the account control lived at the end of a single overflowing
+          row and got clipped off the right edge on a phone. On a wide viewport the
+          spacer above absorbs the slack and everything fits, so there is no
+          scrollbar and the header still reads as one right-aligned inline row.
+        */}
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {SPEEDS.map((s) => (
             <Chip
               key={s}
@@ -75,18 +87,26 @@ export function Hud() {
           <Button
             variant={paused ? "default" : "outline"}
             size="icon"
+            className="shrink-0"
             aria-label={paused ? "Resume" : "Pause"}
             onClick={() => setPaused(!paused)}
           >
             {paused ? <Play className="size-3.5 translate-x-px" /> : <Pause className="size-3.5" />}
           </Button>
-          <Button variant="outline" size="sm" className="h-9 px-2.5" aria-label="Clear" onClick={clearSim}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 px-2.5"
+            aria-label="Clear"
+            onClick={clearSim}
+          >
             <RotateCcw className="size-3.5" />
             <span className="hidden sm:inline">Clear</span>
           </Button>
           <Button
             variant="outline"
             size="icon"
+            className="shrink-0"
             aria-label="Performance"
             title="Performance hub"
             onClick={() => setPerfHubOpen(true)}
@@ -96,7 +116,7 @@ export function Hud() {
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-2.5"
+            className="h-9 shrink-0 px-2.5"
             aria-label="Feedback"
             onClick={() => setFeedbackOpen(true)}
           >
@@ -106,16 +126,19 @@ export function Hud() {
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-2.5"
+            className="h-9 shrink-0 px-2.5"
             aria-label="Feedback board"
             onClick={() => setBoardOpen(true)}
           >
             <ListChecks className="size-3.5" />
             <span className="hidden sm:inline">Board</span>
           </Button>
+        </div>
+
+        <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-border pl-1">
           <Link
             to="/settings"
-            className="inline-flex size-9 items-center justify-center rounded-md text-fg shadow-[0_0_0_1px_var(--color-border)] transition-colors hover:bg-elevated"
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-fg shadow-[0_0_0_1px_var(--color-border)] transition-colors hover:bg-elevated"
             aria-label="Settings"
           >
             <Settings className="size-3.5" />
