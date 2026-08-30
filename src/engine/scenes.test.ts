@@ -115,6 +115,47 @@ describe("scene spawnCount within the store clamp range", () => {
   });
 });
 
+describe("scene spawnCount honors the base emitter's real cap", () => {
+  // Per-emitter hard ceilings encoded from src/engine/emitters.ts. These are the
+  // Math.min(count, N) caps inside each spawn* function. Emitters with no cap use
+  // Infinity; cloth derives its count from a fixed 36x26 grid = 936 slots.
+  const EMITTER_CAP: Record<GeneratorKind, number> = {
+    nbody: 2400, // spawnNbody: Math.min(count, 2400)
+    fall: 800, // spawnFallBurst: Math.min(count, 800)
+    pour: 400, // spawnPourBurst: Math.min(count, 400)
+    galaxy: Infinity, // spawnGalaxy: no cap
+    ring: Infinity, // spawnRing: no cap
+    burst: Infinity, // spawnBurst: no cap
+    flock: Infinity, // spawnFlock: no cap
+    cloth: 936, // spawnCloth: 36 cols * 26 rows fixed grid
+    text: Infinity, // spawnText: no cap
+  };
+
+  it("declares no spawnCount above what its emitter can actually spawn", () => {
+    // This is the guard that would have caught the Black Hole 6000-vs-2400 mismatch:
+    // a scene must never silently drop particles because its emitter caps lower.
+    for (const s of SCENES) {
+      const cap = EMITTER_CAP[s.kind];
+      assert.ok(
+        s.spawnCount <= cap,
+        `scene ${s.id} (kind ${s.kind}) declares spawnCount ${s.spawnCount} but the emitter caps at ${cap}; lower the count or raise the cap`,
+      );
+    }
+  });
+
+  it("actually spawns a sensible fraction of the declared count (>= 90%)", () => {
+    // min(spawnCount, cap) must be close to spawnCount, i.e. barely anything is dropped.
+    for (const s of SCENES) {
+      const cap = EMITTER_CAP[s.kind];
+      const effective = Math.min(s.spawnCount, cap);
+      assert.ok(
+        effective >= s.spawnCount * 0.9,
+        `scene ${s.id} spawns only ${effective}/${s.spawnCount} particles (emitter cap ${cap})`,
+      );
+    }
+  });
+});
+
 describe("DEFAULT_PARAMS baseline resets stale toggles between scenes", () => {
   it("cloth's effective params do NOT retain black-hole's nbody flag", () => {
     const blackHole = byId("black-hole");

@@ -115,8 +115,11 @@ export const useLab = create<LabState>((set, get) => ({
   spawnKind: "galaxy",
   clearId: 0,
   activeSceneId: null,
-  setParam: (key, value) => set((s) => ({ params: { ...s.params, [key]: value } })),
-  patchParams: (p) => set((s) => ({ params: { ...s.params, ...p } })),
+  // Manual param edits mean the sim no longer matches any applied scene, so
+  // clear activeSceneId to keep the Scenes picker highlight honest.
+  setParam: (key, value) =>
+    set((s) => ({ params: { ...s.params, [key]: value }, activeSceneId: null })),
+  patchParams: (p) => set((s) => ({ params: { ...s.params, ...p }, activeSceneId: null })),
   setTelemetry: (t) => set({ telemetry: t }),
   setPaused: (v) => set({ paused: v }),
   setSpeed: (v) => set({ speed: v }),
@@ -175,6 +178,8 @@ export const useLab = create<LabState>((set, get) => ({
       replaceMode: true,
       spawnId: kind === "pour" || kind === "fall" ? s.spawnId : s.spawnId + 1,
       spawnKind: kind === "pour" || kind === "fall" ? s.spawnKind : kind,
+      // Switching generators diverges from any applied scene.
+      activeSceneId: null,
     }));
   },
   applyScene: (id) => {
@@ -193,7 +198,9 @@ export const useLab = create<LabState>((set, get) => ({
       speed: scene.speed ?? s.speed,
       cap: scene.cap ?? s.cap,
       pouring: false,
-      falling: false,
+      // Deterministic: falling is a definite boolean from the scene (default off),
+      // never a toggle. Only the waterfall scene opts into continuous emission.
+      falling: scene.falling === true,
       replaceMode: true,
       spawnKind: scene.kind,
       spawnId: s.spawnId + 1,
@@ -205,5 +212,7 @@ export const useLab = create<LabState>((set, get) => ({
       clearId: s.clearId + 1,
       pouring: false,
       falling: false,
+      // A manual clear leaves the sim no longer matching the applied scene.
+      activeSceneId: null,
     })),
 }));

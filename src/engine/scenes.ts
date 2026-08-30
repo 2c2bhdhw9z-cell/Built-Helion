@@ -39,6 +39,13 @@ export type Scene = {
   speed?: SceneSpeed;
   /** Optional buffer cap override. */
   cap?: number;
+  /**
+   * When true the scene drives the continuous "fall" emitter (a sustained
+   * stream) instead of a single one-shot spawn burst. applyScene sets the
+   * store's `falling` flag from this (definite true/false, never a toggle), so
+   * scenes stay deterministic. Only meaningful for kind "fall".
+   */
+  falling?: boolean;
 };
 
 /**
@@ -65,7 +72,8 @@ export const SCENES: Scene[] = [
       boundary: "wrap",
       pointSize: 2.2,
     },
-    spawnCount: 6000,
+    // spawnNbody caps at 2400; declare the real ceiling so nothing is dropped.
+    spawnCount: 2400,
   },
   {
     id: "galaxy-collision",
@@ -171,7 +179,7 @@ export const SCENES: Scene[] = [
   {
     id: "waterfall",
     label: "Waterfall",
-    description: "A heavy cascade pouring from the top and splashing off the floor.",
+    description: "A sustained cascade streaming from the top and splashing off the floor.",
     kind: "fall",
     params: {
       gravityY: 0.9,
@@ -183,8 +191,12 @@ export const SCENES: Scene[] = [
       blend: "alpha",
       pointSize: 2.8,
     },
-    spawnCount: 800,
+    // falling:true drives the engine's continuous "fall" emitter so the stream
+    // keeps flowing instead of being a single one-shot burst. spawnCount seeds
+    // the initial sheet (well under spawnFallBurst's 800 cap so the number is honest).
+    spawnCount: 600,
     speed: 1,
+    falling: true,
   },
   {
     id: "cloth",
