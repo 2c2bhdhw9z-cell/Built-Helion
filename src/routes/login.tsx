@@ -5,7 +5,6 @@ import { z } from "zod";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { authProvidersFn } from "@/lib/auth/functions";
 import { signInEmail, signInSocial, signUpEmail } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -22,6 +21,14 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
   loader: async () => {
     try {
+      // Import the server fn dynamically INSIDE the loader (not at module top
+      // level) so its `createServerFn(...).handler(createSsrRpc(...))` call is
+      // not co-located into the route-tree SSR chunk. That top-level call in the
+      // route-tree chunk formed a circular ESM chunk dependency with the chunk
+      // that defines `createSsrRpc`, throwing `TypeError: createSsrRpc is not a
+      // function` in loadEntries() and 500ing every route. Keep the graceful
+      // fallback below so the page never blocks on a metadata failure.
+      const { authProvidersFn } = await import("@/lib/auth/functions");
       return await authProvidersFn();
     } catch {
       // Never block the page on a metadata failure — fall back to

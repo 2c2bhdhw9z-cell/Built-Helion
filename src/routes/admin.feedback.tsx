@@ -2,10 +2,6 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
-  listFeedbackFn,
-  updateFeedbackStatusFn,
-} from "@/lib/feedback/functions";
-import {
   feedbackStatuses,
   type FeedbackItem,
   type FeedbackStatus,
@@ -25,7 +21,15 @@ export const Route = createFileRoute("/admin/feedback")({
     // (assertAdmin). We forward the token from the URL; an unauthorized caller
     // gets a ForbiddenError, which we surface as an access-denied state rather
     // than fabricating rows. Never render PII to an unauthorized viewer.
+    //
+    // Import the server fn dynamically INSIDE the loader (not at module top
+    // level) so its `createServerFn(...).handler(createSsrRpc(...))` call is not
+    // co-located into the route-tree SSR chunk. A top-level call there formed a
+    // circular ESM chunk dependency with the chunk that defines `createSsrRpc`,
+    // throwing `TypeError: createSsrRpc is not a function` and 500ing every
+    // route (see the FEAT-001 login fix). Keep this route matching that pattern.
     try {
+      const { listFeedbackFn } = await import("@/lib/feedback/functions");
       const items = await listFeedbackFn({ data: { token: deps.token } });
       return { items, authorized: true as const };
     } catch (err) {
@@ -64,6 +68,12 @@ function StatusSelect({
         const status = e.target.value as FeedbackStatus;
         setPending(true);
         try {
+          // Import dynamically (not at module top level) so this createServerFn
+          // never anchors a top-level createSsrRpc() call into the route-tree
+          // SSR chunk (the circular-chunk crash class fixed in FEAT-001).
+          const { updateFeedbackStatusFn } = await import(
+            "@/lib/feedback/functions"
+          );
           await updateFeedbackStatusFn({ data: { id: item.id, status, token } });
           toast.success("Status updated");
           onChanged();
