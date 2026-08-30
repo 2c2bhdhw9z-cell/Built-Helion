@@ -7,6 +7,7 @@ import { submitFeedbackSchema, updateStatusSchema } from "./types.ts";
 import type {
   FeedbackItem,
   FeedbackStatus,
+  PublicFeedbackItem,
   SubmitFeedbackInput,
 } from "./types.ts";
 
@@ -20,6 +21,8 @@ register("./pglite-glob-loader.mjs", import.meta.url);
 type FeedbackServer = {
   insertFeedback: (input: SubmitFeedbackInput) => Promise<FeedbackItem>;
   listFeedback: () => Promise<FeedbackItem[]>;
+  listPublicFeedback: () => Promise<PublicFeedbackItem[]>;
+  incrementFeedbackVotes: (id: string) => Promise<PublicFeedbackItem | null>;
   updateFeedbackStatus: (
     id: string,
     status: FeedbackStatus,
@@ -73,6 +76,56 @@ describe("submitFeedbackSchema", () => {
         description: "d",
       }),
     );
+  });
+
+  it("accepts a BLANK email (the optional field) as undefined", () => {
+    // Regression: userEmail was `.email().optional()`, so "" failed .email()
+    // with "Invalid input" even though the field is labeled optional.
+    const blank = submitFeedbackSchema.parse({
+      type: "general",
+      title: "No email",
+      description: "left the email blank",
+      userEmail: "",
+    });
+    assert.equal(blank.userEmail, undefined, "blank email coerces to undefined");
+
+    const whitespace = submitFeedbackSchema.parse({
+      type: "general",
+      title: "Whitespace email",
+      description: "typed only spaces",
+      userEmail: "   ",
+    });
+    assert.equal(whitespace.userEmail, undefined);
+  });
+
+  it("accepts an omitted email", () => {
+    const parsed = submitFeedbackSchema.parse({
+      type: "bug",
+      title: "No email field",
+      description: "userEmail omitted entirely",
+    });
+    assert.equal(parsed.userEmail, undefined);
+  });
+
+  it("still rejects a NON-empty invalid email", () => {
+    assert.throws(() =>
+      submitFeedbackSchema.parse({
+        type: "bug",
+        title: "Bad email",
+        description: "not an email",
+        userEmail: "not-an-email",
+      }),
+    );
+  });
+
+  it("accepts a valid non-empty email", () => {
+    const parsed = submitFeedbackSchema.parse({
+      type: "bug",
+      title: "Good email",
+      description: "valid email",
+      userEmail: "user@example.com",
+    });
+    assert.equal(parsed.userEmail, "user@example.com");
   });
 });
 
@@ -268,6 +321,70 @@ describe("feedback DB round trip (real PGLite)", () => {
       "does-not-exist",
       "planned",
     );
+    assert.equal(missing, null);
+  });
+
+  it("listPublicFeedback OMITS user_email even when the row has one", async () => {
+    // Insert a real row WITH an email, then read the public projection.
+    const inserted = await server.insertFeedback({
+      type: "feature",
+      title: "Public projection test",
+      description: "row has an email that must never surface publicly",
+      userEmail: "private@example.com",
+    });
+    assert.equal(inserted.user_email, "private@example.com");
+
+    const publicRows = await server.listPublicFeedback();
+    const found = publicRows.find((r) => r.id === inserted.id);
+    assert.ok(found, "the inserted row must appear on the public board");
+    // The projection must not carry PII: user_email is absent entirely.
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(found, "user_email"),
+      false,
+      "public rows must not include a user_email field",
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(found, "steps_or_use_cases"),
+      false,
+      "public rows must not include admin-only triage fields",
+    );
+    // The public fields are present.
+    assert.equal(found.title, "Public projection test");
+    assert.equal(found.type, "feature");
+    assert.equal(typeof found.votes, "number");
+  });
+
+  it("incrementFeedbackVotes increments and persists, returning a PII-free row", async () => {
+    const inserted = await server.insertFeedback({
+      type: "feature",
+      title: "Vote target",
+      description: "will be upvoted",
+      userEmail: "voter-owner@example.com",
+    });
+    assert.equal(inserted.votes, 0);
+
+    const first = await server.incrementFeedbackVotes(inserted.id);
+    assert.ok(first);
+    assert.equal(first.votes, 1, "first vote increments to 1");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(first, "user_email"),
+      false,
+      "the vote response must not include user_email",
+    );
+
+    const second = await server.incrementFeedbackVotes(inserted.id);
+    assert.ok(second);
+    assert.equal(second.votes, 2, "second vote increments to 2");
+
+    // Re-read via the admin list to confirm the increment persisted.
+    const list = await server.listFeedback();
+    const persisted = list.find((r) => r.id === inserted.id);
+    assert.ok(persisted);
+    assert.equal(persisted.votes, 2, "the vote count persisted in the DB");
+  });
+
+  it("incrementFeedbackVotes returns null for an unknown id", async () => {
+    const missing = await server.incrementFeedbackVotes("no-such-id");
     assert.equal(missing, null);
   });
 });

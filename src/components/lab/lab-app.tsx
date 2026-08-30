@@ -5,6 +5,7 @@ import { Hud } from "./hud";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { GeneratorBar, ParamDock, ToolBar } from "./menus";
 import { FeedbackDialog } from "./feedback-dialog";
+import { FeedbackBoard } from "./feedback-board";
 
 export function LabApp() {
   const tiltEnabled = useLab((s) => s.params.tiltEnabled);
@@ -61,6 +62,7 @@ export function LabApp() {
     <div className="relative h-dvh min-h-0 overflow-hidden bg-bg text-fg">
       <CanvasStage />
       <FeedbackDialog />
+      <FeedbackBoard />
 
       <div className="pointer-events-none absolute inset-0 z-20 flex min-h-0 flex-col justify-between overflow-hidden">
         <div 

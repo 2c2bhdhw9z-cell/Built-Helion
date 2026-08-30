@@ -31,6 +31,7 @@ type LabState = {
   uiTopOpen: boolean;
   uiBottomOpen: boolean;
   feedbackOpen: boolean;
+  boardOpen: boolean;
   tiltX: number;
   tiltY: number;
   spawnId: number;
@@ -52,6 +53,7 @@ type LabState = {
   toggleUiTop: () => void;
   toggleUiBottom: () => void;
   setFeedbackOpen: (v: boolean) => void;
+  setBoardOpen: (v: boolean) => void;
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
   clearSim: () => void;
@@ -75,6 +77,7 @@ export const useLab = create<LabState>((set, get) => ({
   uiTopOpen: true,
   uiBottomOpen: true,
   feedbackOpen: false,
+  boardOpen: false,
   tiltX: 0,
   tiltY: 0,
   spawnId: 0,
@@ -101,6 +104,7 @@ export const useLab = create<LabState>((set, get) => ({
   toggleUiTop: () => set((s) => ({ uiTopOpen: !s.uiTopOpen })),
   toggleUiBottom: () => set((s) => ({ uiBottomOpen: !s.uiBottomOpen })),
   setFeedbackOpen: (v) => set({ feedbackOpen: v }),
+  setBoardOpen: (v) => set({ boardOpen: v }),
   setTilt: (x, y) => set({ tiltX: x, tiltY: y }),
   runGenerator: (kind) => {
     const patch: Partial<LabParams> = {

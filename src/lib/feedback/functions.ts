@@ -3,7 +3,9 @@ import {
   adminAccessSchema,
   submitFeedbackSchema,
   updateStatusSchema,
+  voteFeedbackSchema,
   type FeedbackItem,
+  type PublicFeedbackItem,
 } from "./types.ts";
 
 /**
@@ -32,6 +34,32 @@ export const submitFeedbackFn = createServerFn({ method: "POST" })
     await throttleSubmit();
     const { insertFeedback } = await import("./server.ts");
     return insertFeedback(data);
+  });
+
+/**
+ * List PUBLIC feedback for the in-sim votable board. Public + unauthed by
+ * design: no login required to view. The payload comes from listPublicFeedback,
+ * which SELECTs only public columns — user_email/PII is never included here.
+ */
+export const listPublicFeedbackFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<PublicFeedbackItem[]> => {
+    const { listPublicFeedback } = await import("./server.ts");
+    return listPublicFeedback();
+  },
+);
+
+/**
+ * Upvote a feedback item and return the updated PUBLIC row (or null if the id is
+ * unknown). Public + unauthed by design (no login required to vote), guarded by
+ * a per-IP throttle to blunt scripted vote floods. Never exposes user_email.
+ */
+export const voteFeedbackFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => voteFeedbackSchema.parse(input))
+  .handler(async ({ data }): Promise<PublicFeedbackItem | null> => {
+    const { throttleVote } = await import("./throttle.server.ts");
+    await throttleVote();
+    const { incrementFeedbackVotes } = await import("./server.ts");
+    return incrementFeedbackVotes(data.id);
   });
 
 /**
