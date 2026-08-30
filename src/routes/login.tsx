@@ -76,6 +76,55 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * GitHub "mark" (Octocat) logo, hand-authored inline SVG.
+ *
+ * Monochrome via `currentColor` so it inherits the outline-button text color
+ * and adapts to the dark theme (unlike the multicolor Google mark, which stays
+ * brand-fixed). lucide-react has no brand logos, so this stays a plain SVG with
+ * no new dependency.
+ */
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 .5C5.73.5.5 5.73.5 12a11.5 11.5 0 0 0 7.86 10.92c.575.106.785-.25.785-.556 0-.274-.01-1-.015-1.963-3.196.695-3.87-1.54-3.87-1.54-.523-1.328-1.277-1.682-1.277-1.682-1.043-.713.079-.699.079-.699 1.153.081 1.76 1.184 1.76 1.184 1.026 1.758 2.692 1.25 3.348.956.104-.743.401-1.25.73-1.538-2.552-.29-5.236-1.276-5.236-5.68 0-1.255.448-2.28 1.183-3.084-.119-.29-.513-1.459.112-3.042 0 0 .965-.309 3.163 1.178a11.02 11.02 0 0 1 2.88-.388c.977.004 1.962.132 2.881.388 2.196-1.487 3.16-1.178 3.16-1.178.627 1.583.233 2.752.114 3.042.737.804 1.182 1.829 1.182 3.084 0 4.415-2.688 5.386-5.248 5.671.413.356.78 1.057.78 2.132 0 1.54-.014 2.782-.014 3.16 0 .309.207.668.79.555A11.502 11.502 0 0 0 23.5 12c0-6.27-5.23-11.5-11.5-11.5z" />
+    </svg>
+  );
+}
+
+/**
+ * Apple logo mark, hand-authored inline SVG.
+ *
+ * Monochrome via `currentColor` so it inherits the outline-button text color
+ * and renders white on the dark theme (Apple's guidelines call for a solid mark
+ * matching the button's foreground). lucide-react has no brand logos, so this
+ * stays a plain SVG with no new dependency. The Apple button only appears when
+ * the owner has fully configured Apple sign-in (resolved server-side).
+ */
+function AppleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M17.05 12.53c-.02-2.02 1.65-2.99 1.72-3.04-.94-1.37-2.4-1.56-2.92-1.58-1.24-.13-2.42.73-3.05.73-.63 0-1.6-.71-2.63-.69-1.35.02-2.6.79-3.29 2-1.4 2.43-.36 6.02 1 8 .67.97 1.46 2.05 2.5 2.01 1.01-.04 1.39-.65 2.61-.65 1.22 0 1.56.65 2.63.63 1.09-.02 1.77-.98 2.43-1.96.77-1.12 1.08-2.21 1.1-2.27-.02-.01-2.11-.81-2.13-3.21zM15.05 6.29c.56-.68.94-1.62.83-2.56-.81.03-1.79.54-2.37 1.22-.52.6-.98 1.56-.86 2.48.9.07 1.83-.46 2.4-1.14z" />
+    </svg>
+  );
+}
+
 const fieldClass =
   "w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm text-fg placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const labelClass = "text-2xs uppercase tracking-[0.12em] text-faint";
@@ -99,7 +148,7 @@ function LoginPage() {
   const router = useRouter();
   const { user, isPending } = useCurrentUserState();
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
-  const [googleBusy, setGoogleBusy] = useState(false);
+  const [socialBusy, setSocialBusy] = useState(false);
 
   const signInForm = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
@@ -157,12 +206,12 @@ function LoginPage() {
     }
   });
 
-  const onGoogle = async (provider: string) => {
-    setGoogleBusy(true);
+  const onSocial = async (provider: string) => {
+    setSocialBusy(true);
     try {
       await signInSocial(provider, "/");
     } catch (err) {
-      setGoogleBusy(false);
+      setSocialBusy(false);
       toast.error(err instanceof Error ? err.message : "Sign-in failed");
     }
   };
@@ -197,13 +246,19 @@ function LoginPage() {
                 variant="outline"
                 size="md"
                 className="w-full"
-                disabled={googleBusy || submitting}
-                onClick={() => void onGoogle(p.id)}
+                disabled={socialBusy || submitting}
+                onClick={() => void onSocial(p.id)}
               >
-                {p.id === "google" && !googleBusy && (
+                {!socialBusy && p.id === "google" && (
                   <GoogleIcon className="shrink-0" />
                 )}
-                {googleBusy ? "Redirecting…" : `Continue with ${p.label}`}
+                {!socialBusy && p.id === "github" && (
+                  <GitHubIcon className="shrink-0" />
+                )}
+                {!socialBusy && p.id === "apple" && (
+                  <AppleIcon className="shrink-0" />
+                )}
+                {socialBusy ? "Redirecting…" : `Continue with ${p.label}`}
               </Button>
             ))}
             <div className="my-1 flex items-center gap-3 text-2xs text-faint">

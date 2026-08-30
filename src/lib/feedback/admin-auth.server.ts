@@ -52,14 +52,22 @@ function databaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
 }
 
-/** Parsed, lower-cased ADMIN_EMAILS allowlist (empty when unset). */
-export function adminEmailAllowlist(): string[] {
-  const raw = env("ADMIN_EMAILS");
+/**
+ * Pure parser for a comma-separated ADMIN_EMAILS value: splits on commas,
+ * trims, lower-cases, and drops blank entries. Dependency-free and does not
+ * read the environment, so it is directly unit-testable.
+ */
+export function parseAdminEmails(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/** Parsed, lower-cased ADMIN_EMAILS allowlist (empty when unset). */
+export function adminEmailAllowlist(): string[] {
+  return parseAdminEmails(env("ADMIN_EMAILS"));
 }
 
 /** Constant-time string compare that tolerates length mismatch. */
@@ -77,8 +85,14 @@ function safeEqual(a: string, b: string): boolean {
 export type AdminAuthInputs = {
   /** Shared secret supplied by the admin (query param / header), if any. */
   token?: string | null;
-  /** Verified session email, if real sign-in is wired up, else null. */
+  /** Session email, if real sign-in is wired up, else null. */
   sessionEmail?: string | null;
+  /**
+   * Whether the session email is VERIFIED. The email allowlist mechanism only
+   * grants admin to a verified address — an allowlisted-but-unverified email
+   * must NOT authorize (defends against a spoofable/unconfirmed address).
+   */
+  sessionEmailVerified?: boolean;
 };
 
 /**
@@ -101,10 +115,13 @@ export function isAuthorizedAdmin(
     if (inputs.token && safeEqual(inputs.token, adminToken)) return true;
   }
 
-  // Mechanism 2: verified-session email allowlist.
+  // Mechanism 2: verified-session email allowlist. Only a VERIFIED allowlisted
+  // email authorizes — an unverified address is rejected even if allowlisted.
   if (emails.length > 0) {
     const email = inputs.sessionEmail?.trim().toLowerCase();
-    if (email && emails.includes(email)) return true;
+    if (email && inputs.sessionEmailVerified === true && emails.includes(email)) {
+      return true;
+    }
   }
 
   // No mechanism configured at all: allow ONLY on the local no-database
@@ -128,19 +145,22 @@ export async function assertAdmin(token?: string | null): Promise<void> {
   const emails = adminEmailAllowlist();
 
   let sessionEmail: string | null = null;
+  let sessionEmailVerified = false;
   if (emails.length > 0) {
     // Only bother resolving the session when an email allowlist is in play.
     try {
       const { getSessionUser } = await import("@/lib/auth/verify.server");
       const user = await getSessionUser();
       sessionEmail = user?.email ?? null;
+      sessionEmailVerified = user?.emailVerified ?? false;
     } catch {
       sessionEmail = null;
+      sessionEmailVerified = false;
     }
   }
 
   const ok = isAuthorizedAdmin(
-    { token, sessionEmail },
+    { token, sessionEmail, sessionEmailVerified },
     { hasDatabase: databaseConfigured(), adminToken, emails },
   );
   if (!ok) throw new ForbiddenError();

@@ -182,20 +182,48 @@ describe("admin authorization (isAuthorizedAdmin)", () => {
     );
   });
 
-  it("authorizes a verified session email on the allowlist (case-insensitive)", () => {
+  it("authorizes a VERIFIED session email on the allowlist (case-insensitive)", () => {
     const config = { hasDatabase: true, emails: ["admin@example.com"] };
     assert.equal(
-      isAuthorizedAdmin({ sessionEmail: "Admin@Example.com" }, config),
+      isAuthorizedAdmin(
+        { sessionEmail: "Admin@Example.com", sessionEmailVerified: true },
+        config,
+      ),
       true,
     );
     assert.equal(
-      isAuthorizedAdmin({ sessionEmail: "someone@else.com" }, config),
+      isAuthorizedAdmin(
+        { sessionEmail: "someone@else.com", sessionEmailVerified: true },
+        config,
+      ),
       false,
     );
-    assert.equal(isAuthorizedAdmin({ sessionEmail: null }, config), false);
+    assert.equal(
+      isAuthorizedAdmin(
+        { sessionEmail: null, sessionEmailVerified: true },
+        config,
+      ),
+      false,
+    );
   });
 
-  it("accepts EITHER a valid token OR an allowlisted email when both are configured", () => {
+  it("does NOT authorize an allowlisted email that is unverified", () => {
+    const config = { hasDatabase: true, emails: ["admin@example.com"] };
+    // Verified flag false, and absent (defaults unverified), both denied.
+    assert.equal(
+      isAuthorizedAdmin(
+        { sessionEmail: "admin@example.com", sessionEmailVerified: false },
+        config,
+      ),
+      false,
+    );
+    assert.equal(
+      isAuthorizedAdmin({ sessionEmail: "admin@example.com" }, config),
+      false,
+    );
+  });
+
+  it("accepts EITHER a valid token OR a verified allowlisted email when both are configured", () => {
     const config = {
       hasDatabase: true,
       adminToken: "s3cret",
@@ -203,11 +231,17 @@ describe("admin authorization (isAuthorizedAdmin)", () => {
     };
     assert.equal(isAuthorizedAdmin({ token: "s3cret" }, config), true);
     assert.equal(
-      isAuthorizedAdmin({ sessionEmail: "admin@example.com" }, config),
+      isAuthorizedAdmin(
+        { sessionEmail: "admin@example.com", sessionEmailVerified: true },
+        config,
+      ),
       true,
     );
     assert.equal(
-      isAuthorizedAdmin({ token: "x", sessionEmail: "y@z.com" }, config),
+      isAuthorizedAdmin(
+        { token: "x", sessionEmail: "y@z.com", sessionEmailVerified: true },
+        config,
+      ),
       false,
     );
   });

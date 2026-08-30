@@ -132,12 +132,13 @@ function AdminFeedback() {
           <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border py-24 text-center">
             <p className="text-sm text-fg">Access denied</p>
             <p className="text-2xs leading-relaxed text-faint">
-              This admin view is protected. Configure an admin mechanism
-              server-side and open it with the shared token, e.g.
+              This admin view is protected. Sign in with an allowlisted,
+              verified email (add it to
+              <span className="mx-1 font-mono">ADMIN_EMAILS</span>), or open it
+              with the shared token, e.g.
               <span className="mx-1 font-mono">/admin/feedback?token=&lt;FEEDBACK_ADMIN_TOKEN&gt;</span>
               (set <span className="font-mono">FEEDBACK_ADMIN_TOKEN</span> in your
-              deploy environment), or add your signed-in email to
-              <span className="mx-1 font-mono">ADMIN_EMAILS</span>.
+              deploy environment).
             </p>
           </div>
         </main>
