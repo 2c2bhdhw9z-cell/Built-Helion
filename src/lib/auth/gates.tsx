@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
-import { Navigate } from "@tanstack/react-router";
-import { LogOut } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, Navigate } from "@tanstack/react-router";
+import { LogOut, ShieldCheck } from "lucide-react";
+import { isAdminFn } from "@/lib/feedback/functions";
 import { authEnabled, signOut } from "./client";
 import { useCurrentUser, useCurrentUserState } from "./use-current-user";
 import {
@@ -68,6 +69,33 @@ export function UserButton() {
   // Sign-out can take a moment (and can fail when deployed), so the control
   // shows it is working and cannot be fired twice.
   const [signingOut, setSigningOut] = useState(false);
+  // Whether the CURRENT account is an admin, decided ENTIRELY server-side via
+  // isAdminFn (verified allowlisted account, or the local no-database dev
+  // fallback). We never derive admin-ness from a client-held email. Defaults to
+  // false so the Admin item stays hidden until the server confirms it: a
+  // non-admin (or a still-loading check) never flashes the entry point.
+  const [isAdmin, setIsAdmin] = useState(false);
+  const userId = user?.id;
+  useEffect(() => {
+    // UserButton returns null when signed out, but userId can be briefly
+    // undefined; only probe once we have an account, and ignore stale results
+    // if the user changes or the component unmounts mid-flight.
+    if (!userId) {
+      setIsAdmin(false);
+      return;
+    }
+    let active = true;
+    void isAdminFn()
+      .then((result) => {
+        if (active) setIsAdmin(result.isAdmin);
+      })
+      .catch(() => {
+        if (active) setIsAdmin(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
   if (!user) return null;
   const label = user.displayName ?? user.primaryEmail ?? "Account";
 
@@ -92,6 +120,17 @@ export function UserButton() {
       <DropdownMenuContent>
         <DropdownMenuLabel>Signed in as</DropdownMenuLabel>
         <div className="truncate px-2 pb-1.5 text-sm font-medium">{label}</div>
+        {isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link to="/admin/feedback">
+                <ShieldCheck className="size-4" />
+                Admin
+              </Link>
+            </DropdownMenuItem>
+          </>
+        )}
         {authEnabled && (
           <>
             <DropdownMenuSeparator />
