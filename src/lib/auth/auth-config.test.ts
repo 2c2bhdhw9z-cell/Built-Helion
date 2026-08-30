@@ -3,11 +3,20 @@ import assert from "node:assert/strict";
 import { SOCIAL_PROVIDERS } from "./providers.ts";
 import { emailAndPasswordEnabled } from "./email-password.ts";
 import {
+  isAppleConfigured,
   isAuthConfigured,
   isAuthDisabled,
   isGithubConfigured,
   isGoogleConfigured,
 } from "./config.ts";
+
+/** A complete, valid Apple credential set (values are placeholders). */
+const FULL_APPLE = {
+  APPLE_CLIENT_ID: "com.example.service",
+  APPLE_TEAM_ID: "TEAM123456",
+  APPLE_KEY_ID: "KEY1234567",
+  APPLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+};
 
 // These test the PURE, dependency-free auth wiring logic (no browser, no
 // server-only Better Auth instance / pg / Kysely dialect). The detection
@@ -38,6 +47,13 @@ describe("social providers list", () => {
     assert.ok(github, "github must be in the social providers list");
     assert.equal(github.label, "GitHub");
     assert.deepEqual(Object.keys(github).sort(), ["id", "label"]);
+  });
+
+  it("offers Apple", () => {
+    const apple = SOCIAL_PROVIDERS.find((p) => p.id === "apple");
+    assert.ok(apple, "apple must be in the social providers list");
+    assert.equal(apple.label, "Apple");
+    assert.deepEqual(Object.keys(apple).sort(), ["id", "label"]);
   });
 });
 
@@ -139,6 +155,51 @@ describe("isGithubConfigured", () => {
   });
 });
 
+describe("isAppleConfigured", () => {
+  it("is false when no Apple vars are set (the default/dormant state)", () => {
+    assert.equal(isAppleConfigured({}), false);
+  });
+
+  it("is false when ANY one of the four vars is missing", () => {
+    for (const key of Object.keys(FULL_APPLE)) {
+      const partial = { ...FULL_APPLE };
+      delete partial[key as keyof typeof FULL_APPLE];
+      assert.equal(
+        isAppleConfigured(partial),
+        false,
+        `expected false when ${key} is missing`,
+      );
+    }
+  });
+
+  it("is true only when ALL FOUR vars are present", () => {
+    assert.equal(isAppleConfigured(FULL_APPLE), true);
+  });
+
+  it("treats whitespace-only credentials as unset", () => {
+    assert.equal(
+      isAppleConfigured({
+        APPLE_CLIENT_ID: "   ",
+        APPLE_TEAM_ID: "   ",
+        APPLE_KEY_ID: "   ",
+        APPLE_PRIVATE_KEY: "   ",
+      }),
+      false,
+    );
+  });
+
+  it("does not depend on any GROK_AUTH_* broker credentials", () => {
+    assert.equal(
+      isAppleConfigured({
+        GROK_AUTH_CLIENT_ID: "x",
+        GROK_AUTH_CLIENT_SECRET: "y",
+        GROK_AUTH_ISSUER: "https://broker.example",
+      }),
+      false,
+    );
+  });
+});
+
 describe("isAuthConfigured (real auth available)", () => {
   it("is true when email/password is on, even with no Google and no broker", () => {
     assert.equal(isAuthConfigured({}, true), true);
@@ -162,6 +223,10 @@ describe("isAuthConfigured (real auth available)", () => {
       ),
       true,
     );
+  });
+
+  it("is true when only the full Apple set is configured (email/password off)", () => {
+    assert.equal(isAuthConfigured(FULL_APPLE, false), true);
   });
 
   it("is false when auth is force-disabled, regardless of methods", () => {

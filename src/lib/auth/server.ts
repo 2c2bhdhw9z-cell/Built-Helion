@@ -33,7 +33,12 @@ import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "@/lib/db";
-import { isAuthConfigured, isGithubConfigured, isGoogleConfigured } from "./config";
+import {
+  isAppleConfigured,
+  isAuthConfigured,
+  isGithubConfigured,
+  isGoogleConfigured,
+} from "./config";
 import { emailAndPasswordEnabled } from "./email-password";
 import { pgliteDialect } from "./pglite-dialect";
 
@@ -79,6 +84,25 @@ const GITHUB_CLIENT_ID = env("GITHUB_CLIENT_ID");
 const GITHUB_CLIENT_SECRET = env("GITHUB_CLIENT_SECRET");
 /** True when both GitHub OAuth credentials are supplied (pure detection). */
 export const githubConfigured = isGithubConfigured();
+
+// ── Apple "Sign in with Apple" (optional, DORMANT until fully configured) ─────
+// Native Better Auth social provider, but Apple has no static secret: its OAuth
+// client secret is a short-lived ES256 JWT the app signs from the developer's
+// `.p8` private key. Active ONLY when the FULL credential set is present —
+// APPLE_CLIENT_ID (Services ID), APPLE_TEAM_ID, APPLE_KEY_ID, and
+// APPLE_PRIVATE_KEY (.p8 contents). Any one missing leaves Apple OFF and the
+// "Continue with Apple" button hidden (see `authProvidersFn` in ./functions).
+// Apple requires a paid Apple Developer account ($99/yr), so this stays dormant
+// until the owner sets these env vars — no code change needed to turn it on. The
+// JWT-signing helper is imported ONLY inside the guarded block below, so `jose`
+// never loads unless Apple is configured.
+const APPLE_CLIENT_ID = env("APPLE_CLIENT_ID");
+const APPLE_TEAM_ID = env("APPLE_TEAM_ID");
+const APPLE_KEY_ID = env("APPLE_KEY_ID");
+const APPLE_PRIVATE_KEY = env("APPLE_PRIVATE_KEY");
+const APPLE_APP_BUNDLE_IDENTIFIER = env("APPLE_APP_BUNDLE_IDENTIFIER");
+/** True when the full Apple credential set is supplied (pure detection). */
+export const appleConfigured = isAppleConfigured();
 
 /**
  * True when REAL auth is available — sign-in not force-disabled AND at least one
@@ -127,6 +151,11 @@ export const SESSION_TOKEN_COOKIE = "__Host-helion-auth.session_token";
 const socialProviders: {
   google?: { clientId: string; clientSecret: string };
   github?: { clientId: string; clientSecret: string };
+  apple?: {
+    clientId: string;
+    clientSecret: string;
+    appBundleIdentifier?: string;
+  };
 } = {};
 if (googleConfigured) {
   socialProviders.google = {
@@ -138,6 +167,26 @@ if (githubConfigured) {
   socialProviders.github = {
     clientId: GITHUB_CLIENT_ID as string,
     clientSecret: GITHUB_CLIENT_SECRET as string,
+  };
+}
+if (appleConfigured) {
+  // Better Auth treats `clientSecret` as an opaque string and does NOT sign
+  // Apple's JWT for us, so mint it up-front (async) BEFORE betterAuth() is
+  // constructed synchronously below. The helper — and `jose` — are imported
+  // dynamically HERE so they never load unless Apple is fully configured.
+  const { generateAppleClientSecret } = await import("./apple-secret.server");
+  socialProviders.apple = {
+    clientId: APPLE_CLIENT_ID as string,
+    clientSecret: await generateAppleClientSecret({
+      teamId: APPLE_TEAM_ID as string,
+      keyId: APPLE_KEY_ID as string,
+      clientId: APPLE_CLIENT_ID as string,
+      privateKey: APPLE_PRIVATE_KEY as string,
+    }),
+    // Only for native iOS/macOS apps that authenticate with Apple directly.
+    ...(APPLE_APP_BUNDLE_IDENTIFIER
+      ? { appBundleIdentifier: APPLE_APP_BUNDLE_IDENTIFIER }
+      : {}),
   };
 }
 
@@ -156,8 +205,7 @@ export const auth = betterAuth({
   // zero-config method: works locally with no env vars.
   ...(emailAndPasswordEnabled ? { emailAndPassword: { enabled: true } } : {}),
 
-  // Native social providers (Google and GitHub, each when configured).
-  // Structured so Apple can be added with one more guarded block.
+  // Native social providers (Google, GitHub, and Apple, each when configured).
   socialProviders,
 
   // Encrypt OAuth tokens at rest and let a returning social identity attach to
@@ -169,7 +217,11 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       // GitHub supplies a verified email via /user/emails, so trust-by-verified
-      // -email linking is correct for both Google and GitHub.
+      // -email linking is correct for both Google and GitHub. Apple is
+      // deliberately NOT trusted here: it can return a private-relay proxy email
+      // and reports `email_verified` as the string 'true', so it must not drive
+      // automatic email-based account linking. Better Auth still maps Apple's
+      // email/email_verified onto the user itself — we just don't auto-link.
       trustedProviders: ["google", "github"],
     },
   },

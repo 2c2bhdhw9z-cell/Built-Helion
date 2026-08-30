@@ -100,6 +100,31 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Apple logo mark, hand-authored inline SVG.
+ *
+ * Monochrome via `currentColor` so it inherits the outline-button text color
+ * and renders white on the dark theme (Apple's guidelines call for a solid mark
+ * matching the button's foreground). lucide-react has no brand logos, so this
+ * stays a plain SVG with no new dependency. The Apple button only appears when
+ * the owner has fully configured Apple sign-in (resolved server-side).
+ */
+function AppleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M17.05 12.53c-.02-2.02 1.65-2.99 1.72-3.04-.94-1.37-2.4-1.56-2.92-1.58-1.24-.13-2.42.73-3.05.73-.63 0-1.6-.71-2.63-.69-1.35.02-2.6.79-3.29 2-1.4 2.43-.36 6.02 1 8 .67.97 1.46 2.05 2.5 2.01 1.01-.04 1.39-.65 2.61-.65 1.22 0 1.56.65 2.63.63 1.09-.02 1.77-.98 2.43-1.96.77-1.12 1.08-2.21 1.1-2.27-.02-.01-2.11-.81-2.13-3.21zM15.05 6.29c.56-.68.94-1.62.83-2.56-.81.03-1.79.54-2.37 1.22-.52.6-.98 1.56-.86 2.48.9.07 1.83-.46 2.4-1.14z" />
+    </svg>
+  );
+}
+
 const fieldClass =
   "w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm text-fg placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const labelClass = "text-2xs uppercase tracking-[0.12em] text-faint";
@@ -229,6 +254,9 @@ function LoginPage() {
                 )}
                 {!socialBusy && p.id === "github" && (
                   <GitHubIcon className="shrink-0" />
+                )}
+                {!socialBusy && p.id === "apple" && (
+                  <AppleIcon className="shrink-0" />
                 )}
                 {socialBusy ? "Redirecting…" : `Continue with ${p.label}`}
               </Button>

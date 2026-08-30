@@ -44,6 +44,28 @@ export function isGithubConfigured(
   );
 }
 
+/**
+ * Apple "Sign in with Apple" is available ONLY when the FULL credential set is
+ * present (each non-empty after trim): the Services ID (`APPLE_CLIENT_ID`), the
+ * `APPLE_TEAM_ID`, the `APPLE_KEY_ID`, and the `.p8` private key contents
+ * (`APPLE_PRIVATE_KEY`). Unlike Google/GitHub, Apple has no static client
+ * secret — the app generates a short-lived ES256 JWT from these four values
+ * (see `apple-secret.server.ts`), so all four are required. Any one missing
+ * leaves Apple OFF and the "Continue with Apple" button hidden. Apple requires a
+ * paid Apple Developer account ($99/yr), so this stays dormant until the owner
+ * sets these env vars — no code change is needed to turn it on.
+ */
+export function isAppleConfigured(
+  source: Record<string, string | undefined> = process.env,
+): boolean {
+  return Boolean(
+    readEnv("APPLE_CLIENT_ID", source) &&
+      readEnv("APPLE_TEAM_ID", source) &&
+      readEnv("APPLE_KEY_ID", source) &&
+      readEnv("APPLE_PRIVATE_KEY", source),
+  );
+}
+
 /** True when sign-in is force-disabled via `VITE_AUTH_ENABLED=false`. */
 export function isAuthDisabled(
   source: Record<string, string | undefined> = process.env,
@@ -53,7 +75,7 @@ export function isAuthDisabled(
 
 /**
  * True when REAL auth is available — i.e. sign-in is not force-disabled AND at
- * least one method is on (email/password, Google, or GitHub). No
+ * least one method is on (email/password, Google, GitHub, or Apple). No
  * broker/GROK_AUTH_* is involved. `verify.server.ts` (via `server.ts`) branches
  * on this to decide whether to resolve a real session vs. return the dev user.
  */
@@ -63,6 +85,9 @@ export function isAuthConfigured(
 ): boolean {
   return (
     !isAuthDisabled(source) &&
-    (emailPasswordOn || isGoogleConfigured(source) || isGithubConfigured(source))
+    (emailPasswordOn ||
+      isGoogleConfigured(source) ||
+      isGithubConfigured(source) ||
+      isAppleConfigured(source))
   );
 }
