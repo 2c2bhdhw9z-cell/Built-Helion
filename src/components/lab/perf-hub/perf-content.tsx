@@ -304,9 +304,14 @@ export function PerfContent({
                   <span>Frame breakdown (ms)</span>
                   <span className="text-accent">compute</span>
                   <span className="text-warn">render</span>
-                  <span className="text-faint">other</span>
+                  <span className="text-faint">idle / other</span>
                 </div>
                 <FrameBreakdownChart samples={samples} />
+                <p className="mt-1 text-2xs leading-snug text-faint">
+                  &ldquo;idle / other&rdquo; is mostly the vsync / rAF wait between frames (frame
+                  time is wall-clock frame-to-frame; compute &amp; render bracket only actual work),
+                  not unattributed work to optimize.
+                </p>
               </div>
               <div className="mt-3">
                 <div className="mb-1 text-2xs uppercase tracking-[0.12em] text-faint">
@@ -358,15 +363,37 @@ export function PerfContent({
             <Stat label={drawnLabel} value={formatInt(telemetry.drawnPoints)} tone="muted" />
             <Stat label="Compute path" value={telemetry.compute} tone="muted" />
           </div>
+          <p className="mt-2 text-2xs leading-snug text-faint">
+            {drawCallLabel === "fillRect ops"
+              ? "Canvas2D counts one fillRect per drawn particle, so this figure is much larger than the ~3 GPU passes reported by WebGL / WebGPU."
+              : "GPU backends report a handful of passes here; Canvas2D instead counts one fillRect per particle. The count is backend-relative, so a large jump when switching backends is expected, not a regression."}
+          </p>
           <div className="mt-3">
             <div className="mb-1 text-2xs uppercase tracking-[0.12em] text-faint">
-              Subsystem CPU cost {telemetry.compute === "cpu" ? "(aggregate for active modes)" : "(GPU compute — n/a)"}
+              Subsystem CPU cost {telemetry.compute === "cpu" ? "(shared aggregate)" : "(GPU compute — n/a)"}
             </div>
             {telemetry.subsystems.length > 0 ? (
-              <div className="flex flex-col divide-y divide-border/60">
-                {telemetry.subsystems.map((sub) => (
-                  <InfoRow key={sub.name} label={sub.name} value={formatMs(sub.ms)} />
-                ))}
+              <div className="rounded-md bg-bg/60 p-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-sm tabular-nums text-fg">
+                    {formatMs(telemetry.subsystems[0].ms)}
+                  </span>
+                  <span className="text-2xs text-faint">shared across active modes</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {telemetry.subsystems.map((sub) => (
+                    <span
+                      key={sub.name}
+                      className="rounded bg-elevated px-1.5 py-0.5 text-2xs text-muted"
+                    >
+                      {sub.name}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-2xs leading-snug text-faint">
+                  One aggregate CPU-physics bracket covers all active modes; the value is not split
+                  per mode, so don&rsquo;t sum these.
+                </p>
               </div>
             ) : (
               <div className="text-xs text-faint">

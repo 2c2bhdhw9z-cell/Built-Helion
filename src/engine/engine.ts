@@ -264,6 +264,7 @@ export class ParticleEngine {
     this.springs = [];
     this.totalTime = 0;
     this.emitters = [];
+    this.lastGenerator = "";
     if (this.gpu && this.compute === "webgpu") {
       this.gpu.uploadSoA(this.soa);
     }

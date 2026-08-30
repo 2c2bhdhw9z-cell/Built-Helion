@@ -95,7 +95,10 @@ export function FrameBreakdownChart({
         <YAxis tick={AXIS_TICK} width={34} allowDecimals />
         <Tooltip
           {...tooltipStyle}
-          formatter={(v: number, name: string) => [`${num(v, 2)} ms`, name]}
+          formatter={(v: number, name: string) => [
+            `${num(v, 2)} ms`,
+            name === "other" ? "idle / other" : name,
+          ]}
           isAnimationActive={false}
         />
         <Area
