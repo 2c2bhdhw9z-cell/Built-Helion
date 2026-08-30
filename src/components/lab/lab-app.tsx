@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { GeneratorBar, ParamDock, ToolBar } from "./menus";
 import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackBoard } from "./feedback-board";
+import { PerfHub } from "./perf-hub/perf-hub";
 
 export function LabApp() {
   const tiltEnabled = useLab((s) => s.params.tiltEnabled);
@@ -63,6 +64,7 @@ export function LabApp() {
       <CanvasStage />
       <FeedbackDialog />
       <FeedbackBoard />
+      <PerfHub />
 
       <div className="pointer-events-none absolute inset-0 z-20 flex min-h-0 flex-col justify-between overflow-hidden">
         <div 

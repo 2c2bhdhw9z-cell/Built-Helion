@@ -65,6 +65,7 @@ export class ParticleEngine {
   backend: BackendKind = "canvas";
   compute: ComputeKind = "cpu";
   ready = false;
+  lastGenerator: GeneratorKind | "" = "";
   lastPaintX = 0;
   lastPaintY = 0;
   hasPaint = false;
@@ -80,6 +81,10 @@ export class ParticleEngine {
   private lastTs = 0;
   private acc = 0;
   private totalTime = 0;
+  // Reused buffer for per-frame subsystem cost attribution (no hot-loop allocations).
+  private subsystemBuf: { name: string; ms: number }[] = [];
+  // CPU physics time accumulated across substeps for the current frame (ms).
+  private cpuPhysicsMs = 0;
 
   constructor(canvas: HTMLCanvasElement, cap = pickDefaultCap()) {
     this.canvas = canvas;
@@ -99,6 +104,10 @@ export class ParticleEngine {
       backend: "canvas",
       compute: "cpu",
       ready: false,
+      drawCalls: 0,
+      drawnPoints: 0,
+      subsystems: [],
+      activeGenerator: "",
     };
   }
 
@@ -154,6 +163,36 @@ export class ParticleEngine {
     this.telemetry.ready = true;
     this.telemetry.backend = this.backend;
     this.telemetry.compute = this.compute;
+  }
+
+  /**
+   * Snapshot of the live rendering context for the perf hub. Read lazily (only
+   * when the hub opens) so it adds ZERO per-frame cost. GPU vendor/renderer are
+   * read from the ACTUAL WebGL2 context via WEBGL_debug_renderer_info and may be
+   * masked/unavailable (returned as undefined -> UI shows "masked"/"unavailable").
+   * For WebGPU/Canvas2D backends the raw gl context is null so gpu vendor/renderer
+   * are unavailable by design (no fabrication).
+   */
+  getSystemInfo(): {
+    backend: BackendKind;
+    compute: ComputeKind;
+    dpr: number;
+    cssW: number;
+    cssH: number;
+    backingW: number;
+    backingH: number;
+    gl: WebGL2RenderingContext | null;
+  } {
+    return {
+      backend: this.backend,
+      compute: this.compute,
+      dpr: this.dpr,
+      cssW: this.cssW,
+      cssH: this.cssH,
+      backingW: this.canvas.width,
+      backingH: this.canvas.height,
+      gl: this.backend === "webgl" && this.gl ? this.gl.getRawGl() : null,
+    };
   }
 
   setCap(cap: number): void {
@@ -225,6 +264,7 @@ export class ParticleEngine {
     this.springs = [];
     this.totalTime = 0;
     this.emitters = [];
+    this.lastGenerator = "";
     if (this.gpu && this.compute === "webgpu") {
       this.gpu.uploadSoA(this.soa);
     }
@@ -253,6 +293,7 @@ export class ParticleEngine {
       textInput: this.params.textInput,
     });
     if (result.springs.length) this.springs = result.springs;
+    if (result.spawned > 0) this.lastGenerator = kind;
     if (this.gpu && this.compute === "webgpu") {
       this.gpu.uploadSoA(this.soa);
     }
@@ -273,6 +314,7 @@ export class ParticleEngine {
     }
 
     const t0 = performance.now();
+    this.cpuPhysicsMs = 0;
     if (!paused) {
       this.acc += Math.min(dt, 0.1) * speed;
       let steps = 0;
@@ -303,6 +345,51 @@ export class ParticleEngine {
     this.telemetry.backend = this.backend;
     this.telemetry.compute = this.compute;
     this.telemetry.ready = this.ready;
+
+    // Real per-frame draw-call / point counters from whichever backend rendered.
+    if (this.gpu) {
+      this.telemetry.drawCalls = this.gpu.lastDrawCalls;
+      this.telemetry.drawnPoints = this.gpu.lastDrawnPoints;
+    } else if (this.gl) {
+      this.telemetry.drawCalls = this.gl.lastDrawCalls;
+      this.telemetry.drawnPoints = this.gl.lastDrawnPoints;
+    } else if (this.canvas2d) {
+      this.telemetry.drawCalls = this.canvas2d.lastDrawCalls;
+      this.telemetry.drawnPoints = this.canvas2d.lastDrawnPoints;
+    } else {
+      this.telemetry.drawCalls = 0;
+      this.telemetry.drawnPoints = 0;
+    }
+
+    this.telemetry.activeGenerator = this.lastGenerator;
+    this.updateSubsystems();
+  }
+
+  /**
+   * Attribute the measured CPU physics time (aggregated across substeps this
+   * frame) to the set of currently active physics modes. This is an HONEST
+   * aggregate: the same measured ms is reported against the active mode set, not
+   * a fabricated per-mode split. Only meaningful when compute === "cpu".
+   * Reuses a single buffer array; no per-particle work.
+   */
+  private updateSubsystems(): void {
+    const buf = this.subsystemBuf;
+    buf.length = 0;
+    if (this.compute !== "cpu") {
+      this.telemetry.subsystems = buf;
+      return;
+    }
+    const p = this.params;
+    const ms = this.cpuPhysicsMs;
+    if (p.nbody) buf.push({ name: "nbody", ms });
+    if (p.sph) buf.push({ name: "sph", ms });
+    if (p.flock) buf.push({ name: "flock", ms });
+    if (p.flow) buf.push({ name: "flow", ms });
+    if (p.collide) buf.push({ name: "collide", ms });
+    if (p.settle) buf.push({ name: "settle", ms });
+    if (p.trails) buf.push({ name: "trails", ms });
+    if (buf.length === 0 && ms > 0) buf.push({ name: "physics", ms });
+    this.telemetry.subsystems = buf;
   }
 
   private substep(dt: number, tiltX: number, tiltY: number): void {
@@ -399,6 +486,7 @@ export class ParticleEngine {
     }
     
     if (this.compute === "cpu") {
+      const pt0 = performance.now();
       const st = stepPhysics(
         this.soa,
         this.hash,
@@ -416,6 +504,7 @@ export class ParticleEngine {
         this.totalTime,
         this.walls,
       );
+      this.cpuPhysicsMs += performance.now() - pt0;
       this.telemetry.nanCount += st.nan;
       this.telemetry.oobCount += st.oob;
       this.telemetry.sleeping = st.sleeping;

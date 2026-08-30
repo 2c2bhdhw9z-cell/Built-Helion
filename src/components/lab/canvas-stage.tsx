@@ -61,6 +61,10 @@ export function CanvasStage() {
     if (!canvas) return;
     const engine = new ParticleEngine(canvas);
     engineRef.current = engine;
+    // Expose live system/GL info to the perf hub WITHOUT any per-frame cost:
+    // the hub calls this getter only while open, reading the engine's current
+    // backend/compute/DPR/canvas resolution + raw gl context on demand.
+    useLab.getState().setEngineSystemInfo(() => engine.getSystemInfo());
     let raf = 0;
     let last = performance.now();
     let hudAt = 0;
@@ -137,6 +141,7 @@ export function CanvasStage() {
       ro.disconnect();
       engine.dispose();
       engineRef.current = null;
+      useLab.getState().setEngineSystemInfo(null);
     };
   }, []);
 

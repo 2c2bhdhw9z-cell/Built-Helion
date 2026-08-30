@@ -53,6 +53,10 @@ export class WebGLRenderer {
   private paletteId: PaletteId | null = null;
   private firstFrame = true;
   private maxPoint = 64;
+  /** Draw calls issued during the last render() (fade + particle + post). */
+  lastDrawCalls = 0;
+  /** Particle points submitted to gl.drawArrays(POINTS) during the last render(). */
+  lastDrawnPoints = 0;
   private uWorld: WebGLUniformLocation | null;
   private uSize: WebGLUniformLocation | null;
   private uLifeCurve: WebGLUniformLocation | null;
@@ -64,6 +68,15 @@ export class WebGLRenderer {
   private uPostTexSize: WebGLUniformLocation | null;
   private uPostBloom: WebGLUniformLocation | null;
   private uPostBloomStrength: WebGLUniformLocation | null;
+
+  /**
+   * Expose the underlying WebGL2 context so callers (e.g. the perf hub) can read
+   * unmasked GPU vendor/renderer via WEBGL_debug_renderer_info. Read-only, no
+   * per-frame cost; only touched lazily when the hub opens.
+   */
+  getRawGl(): WebGL2RenderingContext {
+    return this.gl;
+  }
 
   constructor(gl: WebGL2RenderingContext, cap: number) {
     this.gl = gl;
@@ -211,6 +224,8 @@ export class WebGLRenderer {
     dpr: number,
   ): void {
     const gl = this.gl;
+    this.lastDrawCalls = 0;
+    this.lastDrawnPoints = 0;
     if (gl.isContextLost()) return;
     const dw = Math.max(1, gl.drawingBufferWidth);
     const dh = Math.max(1, gl.drawingBufferHeight);
@@ -243,6 +258,7 @@ export class WebGLRenderer {
       const fade = Math.min(0.45, Math.max(0.04, params.trailDecay));
       gl.uniform4f(this.uFade, bgR, bgG, bgB, fade);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      this.lastDrawCalls++;
       gl.bindVertexArray(null);
     }
 
@@ -270,6 +286,8 @@ export class WebGLRenderer {
       if (additive) gl.blendFunc(gl.ONE, gl.ONE);
       else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.drawArrays(gl.POINTS, 0, n);
+      this.lastDrawCalls++;
+      this.lastDrawnPoints = n;
       gl.bindVertexArray(null);
     }
 
@@ -286,6 +304,7 @@ export class WebGLRenderer {
     gl.uniform1f(this.uPostBloomStrength, params.bloomStrength);
     gl.bindVertexArray(this.quadVao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    this.lastDrawCalls++;
     gl.bindVertexArray(null);
 
     void cssW;
