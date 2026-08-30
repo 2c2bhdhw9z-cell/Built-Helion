@@ -14,11 +14,35 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
+
+// Vendored, OFL-licensed IBM Plex faces (Latin subset - the card only uses
+// A-Z + space). Inlined as base64 @font-face so the wordmark/tagline render in
+// the true typeface on any machine, without relying on a system install.
+const ibmPlexSans600 = readFileSync(
+  resolve(__dirname, "fonts/ibm-plex-sans-600.woff2"),
+).toString("base64");
+const ibmPlexMono600 = readFileSync(
+  resolve(__dirname, "fonts/ibm-plex-mono-600.woff2"),
+).toString("base64");
+
+const fontFaceCss = `
+    @font-face {
+      font-family: 'IBM Plex Sans';
+      font-style: normal;
+      font-weight: 600;
+      src: url(data:font/woff2;base64,${ibmPlexSans600}) format('woff2');
+    }
+    @font-face {
+      font-family: 'IBM Plex Mono';
+      font-style: normal;
+      font-weight: 600;
+      src: url(data:font/woff2;base64,${ibmPlexMono600}) format('woff2');
+    }`;
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -139,6 +163,8 @@ const starSvg = stars
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <defs>
+    <style type="text/css">${fontFaceCss}
+    </style>
     <radialGradient id="space" cx="50%" cy="48%" r="75%">
       <stop offset="0%" stop-color="#12131b"/>
       <stop offset="55%" stop-color="#0b0c12"/>
@@ -189,6 +215,7 @@ writeFileSync(svgPath, svg + "\n", "utf8");
 console.log("wrote", svgPath);
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+${fontFaceCss}
   html,body{margin:0;padding:0;background:#08090c;}
   svg{display:block;}
 </style></head><body>${svg}</body></html>`;

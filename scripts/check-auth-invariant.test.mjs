@@ -90,8 +90,10 @@ test("only a divergence warns the smoke verdict", () => {
   }
 });
 
-test("the build side resolves the template's shipped app-env", () => {
-  assert.equal(buildAuthEnabled(projectRoot(), {}), false);
+test("the build side resolves the standalone app as auth-on (no shipped app-env)", () => {
+  // Standalone Helion ships no .grok/app-env.json, so with no override the
+  // build resolves VITE_AUTH_ENABLED as unset and auth defaults ON.
+  assert.equal(buildAuthEnabled(projectRoot(), {}), true);
   assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "true" }), true);
 });
 

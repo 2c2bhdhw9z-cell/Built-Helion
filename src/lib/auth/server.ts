@@ -35,9 +35,6 @@ import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "@/lib/db";
 import { isAuthConfigured, isGoogleConfigured } from "./config";
 import { emailAndPasswordEnabled } from "./email-password";
-// ===== LEGACY COOKIE MIGRATION (grok -> helion): remove this import with the =====
-// ===== `legacyCookieMigration()` plugin entry once sessions have cycled over. =====
-import { legacyCookieMigration } from "./legacy-cookie-migration.server";
 import { pgliteDialect } from "./pglite-dialect";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
@@ -178,21 +175,6 @@ export const auth = betterAuth({
   },
 
   plugins: [
-    // ===== LEGACY COOKIE MIGRATION (grok -> helion): safe to delete once =====
-    // ===== existing sessions have cycled onto __Host-helion-auth.*        =====
-    // A prior build named the session cookies `__Host-grok-auth.*`. Renaming
-    // them to `__Host-helion-auth.*` (below, in advanced.cookies) would sign
-    // every already-signed-in visitor out on the next deploy, because Better
-    // Auth would look for the new name and find only the old cookie. This
-    // self-contained plugin bridges the gap for ONE request cycle: on the way
-    // in it copies a surviving legacy cookie under the new name so Better Auth
-    // resolves the session, and on the way out it expires the legacy cookie so
-    // the browser drops it (tanstackStartCookies writes the new cookie once the
-    // session resolves). Delete this single plugin entry + `legacyCookieMigration`
-    // once the transition window has passed. Nothing else depends on it.
-    legacyCookieMigration(),
-    // ===== END LEGACY COOKIE MIGRATION =====
-
     // Accept `Authorization: Bearer <session-token>` as an alternative to the
     // cookie. Harmless for cookie auth (the hook only fires when an
     // Authorization header is present); kept for parity.
