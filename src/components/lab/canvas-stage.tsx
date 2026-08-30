@@ -4,6 +4,7 @@ import { useLab } from "@/store/lab-store";
 import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
 import { compositeTargetSize } from "@/lib/capture/composite";
 import { captureFilename } from "@/lib/capture/filename";
+import { CanvasRecorder } from "@/lib/capture/recorder";
 import { downloadBlobObject } from "@/lib/perf/export";
 
 
@@ -59,6 +60,13 @@ export function CanvasStage() {
   const engineRef = useRef<ParticleEngine | null>(null);
   const wallsCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Video recording: the recorder captures a LIVE compositing canvas (engine +
+  // walls blitted each rAF tick) so drawn walls appear in the video, matching
+  // the screenshot fidelity. Both are refs so they survive re-renders and the
+  // rAF loop / teardown can reach them without re-subscribing.
+  const recorderRef = useRef<CanvasRecorder | null>(null);
+  const recordCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordingRef = useRef(false);
   const isPointerDownRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
   const [viewportH, setViewportH] = useState(400);
@@ -80,6 +88,13 @@ export function CanvasStage() {
     // composites them, and downloads a PNG. See captureScreenshot() below.
     useLab.getState().setCaptureScreenshot(() => {
       void captureScreenshot();
+    });
+    // Expose record start/stop to the store (any user, no login). Both no-op
+    // safely until an engine frame exists; the HUD only shows these when the
+    // store's `canRecord` flag is true. See startRecording/stopRecording below.
+    useLab.getState().setStartRecording(() => startRecording());
+    useLab.getState().setStopRecording(() => {
+      void stopRecording();
     });
     let raf = 0;
     let last = performance.now();
@@ -108,6 +123,27 @@ export function CanvasStage() {
         falling: s.falling,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
+      // While recording, keep the live compositing canvas in sync with the
+      // freshly-rendered frame: engine first, walls overlay on top. This is the
+      // canvas MediaRecorder is capturing (via captureStream), so the video
+      // includes the walls the user drew — matching the screenshot fidelity.
+      // Only runs during an active recording, so the hot loop is untouched
+      // otherwise. Wrapped so a compositing hiccup never throws into the loop.
+      if (recordingRef.current) {
+        const rc = recordCanvasRef.current;
+        const rctx = rc?.getContext("2d");
+        if (rc && rctx) {
+          try {
+            rctx.drawImage(engine.canvas, 0, 0, rc.width, rc.height);
+            const wc = wallsCanvasRef.current;
+            if (wc && wc.width > 0 && wc.height > 0) {
+              rctx.drawImage(wc, 0, 0, rc.width, rc.height);
+            }
+          } catch {
+            /* never throw into the render loop */
+          }
+        }
+      }
       if (now - hudAt > 120) {
         hudAt = now;
         s.setTelemetry({ ...engine.telemetry });
@@ -155,10 +191,19 @@ export function CanvasStage() {
       dead = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      // Tear down any in-progress recording so navigating away never leaks a
+      // MediaRecorder or an active capture stream (dispose stops both).
+      recordingRef.current = false;
+      recorderRef.current?.dispose();
+      recorderRef.current = null;
+      recordCanvasRef.current = null;
       engine.dispose();
       engineRef.current = null;
       useLab.getState().setEngineSystemInfo(null);
       useLab.getState().setCaptureScreenshot(null);
+      useLab.getState().setStartRecording(null);
+      useLab.getState().setStopRecording(null);
+      useLab.getState().setRecording(false);
     };
   }, []);
 
@@ -187,6 +232,84 @@ export function CanvasStage() {
     const blob = await captureScreenshotBlob(composite);
     if (!blob) return;
     downloadBlobObject(captureFilename("png"), blob);
+  };
+
+  /**
+   * Start recording the sim to a video. Sets up a LIVE compositing canvas sized
+   * to the engine backing resolution and points a CanvasRecorder at it; the rAF
+   * loop blits engine + walls into that canvas each frame while
+   * `recordingRef.current` is true, so the recorded stream includes the walls
+   * overlay (same fidelity as the screenshot). Feature-support is already gated
+   * by the store's `canRecord` flag (the HUD hides/disables the button when
+   * false), but we double-check here and swallow failures rather than throwing.
+   * Never gated on login — anyone can record.
+   */
+  const startRecording = () => {
+    const engine = engineRef.current;
+    if (!engine || recordingRef.current) return;
+    if (!CanvasRecorder.canRecord() || typeof document === "undefined") return;
+    // Build/refresh the offscreen compositing canvas at the engine's current
+    // backing resolution so the video matches on-screen pixels.
+    const size = compositeTargetSize({
+      width: engine.canvas.width,
+      height: engine.canvas.height,
+    });
+    let rc = recordCanvasRef.current;
+    if (!rc) {
+      rc = document.createElement("canvas");
+      recordCanvasRef.current = rc;
+    }
+    rc.width = Math.max(1, size.width);
+    rc.height = Math.max(1, size.height);
+    // Prime the first frame so captureStream starts with real content, not blank.
+    const rctx = rc.getContext("2d");
+    if (rctx) {
+      try {
+        rctx.drawImage(engine.canvas, 0, 0, rc.width, rc.height);
+        const wc = wallsCanvasRef.current;
+        if (wc && wc.width > 0 && wc.height > 0) {
+          rctx.drawImage(wc, 0, 0, rc.width, rc.height);
+        }
+      } catch {
+        /* ignore priming errors */
+      }
+    }
+    const recorder = new CanvasRecorder(() => recordCanvasRef.current);
+    try {
+      recorder.start();
+    } catch (err) {
+      // Should be rare since canRecord() gated us; degrade cleanly.
+      console.error("Failed to start recording:", err);
+      return;
+    }
+    recorderRef.current = recorder;
+    recordingRef.current = true;
+    useLab.getState().setRecording(true);
+  };
+
+  /**
+   * Stop the in-progress recording, download the assembled video blob, and
+   * release the stream. Uses captureFilename('webm') for webm mimes (the picked
+   * mime is webm-first); if a non-webm mime was picked (e.g. mp4 on Safari) we
+   * pick the matching extension so the file is named correctly.
+   */
+  const stopRecording = async () => {
+    const recorder = recorderRef.current;
+    if (!recorder || !recordingRef.current) return;
+    recordingRef.current = false;
+    const mime = recorder.currentMimeType;
+    const blob = await recorder.stop();
+    recorderRef.current = null;
+    useLab.getState().setRecording(false);
+    if (!blob) return;
+    // webm for webm mimes (the common path); mp4 only if that was the picked
+    // codec. captureFilename only knows 'webm' extension, so build the mp4 name
+    // inline to keep the pure helper's kind union tight.
+    const filename =
+      mime && mime.startsWith("video/mp4")
+        ? captureFilename("webm").replace(/\.webm$/, ".mp4")
+        : captureFilename("webm");
+    downloadBlobObject(filename, blob);
   };
 
   const spawnId = useLab((s) => s.spawnId);
