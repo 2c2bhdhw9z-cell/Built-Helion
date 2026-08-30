@@ -4,6 +4,7 @@ import { CanvasStage } from "./canvas-stage";
 import { Hud } from "./hud";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { GeneratorBar, ParamDock, ToolBar } from "./menus";
+import { ScenesBar } from "./scenes-bar";
 import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackBoard } from "./feedback-board";
 import { PerfHub } from "./perf-hub/perf-hub";
@@ -73,6 +74,7 @@ export function LabApp() {
         >
           <Hud />
           <GeneratorBar />
+          <ScenesBar />
           <button 
             onClick={toggleUiTop} 
             className="absolute -bottom-7 right-4 flex h-7 items-center justify-center rounded-b-md border-b border-l border-r border-border bg-surface/80 px-4 backdrop-blur-md text-faint hover:text-fg transition-colors"
