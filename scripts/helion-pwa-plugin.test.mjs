@@ -187,10 +187,19 @@ test("site title is a real name, not a sentinel", () => {
   assert.match(out, /property="og:title" content="Helion"/);
 });
 
-test("rejects Vercel system hosts as og:image origins", () => {
+test("rejects Vercel preview/system hosts but allows the stable project host", () => {
+  // SSO-gated preview/deployment URLs (a deployment hash, or the long
+  // `-<git>-<project>-<org>` preview suffix) and the apex domains are not a
+  // valid og:image origin.
   assert.equal(publicAppHost("01a020b6-803a-71a2-bb47-e2bec57eb9a2-662k8x1l1-xai-org.vercel.app"), "");
-  assert.equal(publicAppHost("demo.vercel.app:443"), "");
+  assert.equal(publicAppHost("helion-git-main-someorg.vercel.app"), "");
   assert.equal(publicAppHost("vercel.app"), "");
+  assert.equal(publicAppHost("foo.vercel.com"), "");
+  assert.equal(publicAppHost("sub.domain.vercel.app"), "");
+  // The stable single-label project host serves the real app + /og.jpg
+  // publicly, so it MUST pass — this is what was regressed (blank iMessage
+  // card because og:image was suppressed on built-helion.vercel.app).
+  assert.equal(publicAppHost("built-helion.vercel.app"), "built-helion.vercel.app");
   assert.equal(publicAppHost("built-helion.example.com"), "built-helion.example.com");
 });
 
@@ -250,6 +259,78 @@ test("emits a custom-card og:image for a public host", () => {
   assert.match(custom, /property="og:image" content="https:\/\/built-helion\.example\.com\/og\.jpg"/);
   assert.match(custom, /property="og:image:width" content="1200"/);
   assert.match(custom, /property="og:type" content="x:game"/);
+});
+
+// Regression: the live iMessage blank-card bug. On the deployed Vercel
+// function the request Host is the stable project host `built-helion.vercel.app`,
+// VITE_PUBLIC_HOSTNAME is NOT set, and public/ is not on the function's disk —
+// only the baked identity is available. og:image (absolute), its dimensions,
+// and twitter:image must all still be emitted. Previously the blanket
+// *.vercel.app system-host guard suppressed the whole block → empty card.
+test("deployed built-helion.vercel.app emits og:image from the baked identity", () => {
+  const prev = process.env.VITE_PUBLIC_HOSTNAME;
+  delete process.env.VITE_PUBLIC_HOSTNAME;
+  try {
+    const out = injectHelionPwaHead(
+      "<html><head><title>Helion</title></head><body></body></html>",
+      {
+        host: "built-helion.vercel.app",
+        // baked snapshot from vite build; the function cannot re-stat public/
+        cwd: join(tmpdir(), "helion-no-public-dir-does-not-exist"),
+        site: { title: "Helion", type: "x:game", card: "custom", image: "/og.jpg" },
+      },
+    );
+    assert.match(out, /name="twitter:card" content="summary_large_image"/);
+    assert.match(
+      out,
+      /property="og:image" content="https:\/\/built-helion\.vercel\.app\/og\.jpg"/,
+    );
+    assert.match(out, /property="og:image:width" content="1200"/);
+    assert.match(out, /property="og:image:height" content="630"/);
+    assert.match(
+      out,
+      /name="twitter:image" content="https:\/\/built-helion\.vercel\.app\/og\.jpg"/,
+    );
+    // and never the SSO-gated apex/preview origin
+    assert.doesNotMatch(out, /content="https:\/\/vercel\.app/);
+  } finally {
+    if (prev === undefined) delete process.env.VITE_PUBLIC_HOSTNAME;
+    else process.env.VITE_PUBLIC_HOSTNAME = prev;
+  }
+});
+
+test("a preview/deployment Vercel host still emits no og:image (SSO-gated)", () => {
+  const prev = process.env.VITE_PUBLIC_HOSTNAME;
+  delete process.env.VITE_PUBLIC_HOSTNAME;
+  try {
+    const out = injectHelionPwaHead("<html><head><title>Helion</title></head></html>", {
+      host: "01a020b6-803a-71a2-bb47-e2bec57eb9a2-662k8x1l1-xai-org.vercel.app",
+      site: { title: "Helion", card: "custom", image: "/og.jpg" },
+    });
+    assert.doesNotMatch(out, /property="og:image"/);
+    assert.doesNotMatch(out, /name="twitter:image"/);
+    assert.doesNotMatch(out, /vercel\.app/);
+  } finally {
+    if (prev === undefined) delete process.env.VITE_PUBLIC_HOSTNAME;
+    else process.env.VITE_PUBLIC_HOSTNAME = prev;
+  }
+});
+
+test("emits twitter:image alongside og:image for a custom card", () => {
+  const out = injectHelionPwaHead("<html><head></head></html>", {
+    host: "built-helion.example.com",
+    site: { title: "Helion", card: "custom", image: "/og.jpg" },
+  });
+  assert.match(
+    out,
+    /name="twitter:image" content="https:\/\/built-helion\.example\.com\/og\.jpg"/,
+  );
+  // exactly one twitter:image even if re-injected
+  const twice = injectHelionPwaHead(out, {
+    host: "built-helion.example.com",
+    site: { title: "Helion", card: "custom", image: "/og.jpg" },
+  });
+  assert.equal(twice.split('name="twitter:image"').length - 1, 1);
 });
 
 test("emits no og:image for a public host without a custom card", () => {
