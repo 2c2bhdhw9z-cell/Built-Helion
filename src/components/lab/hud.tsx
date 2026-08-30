@@ -1,4 +1,4 @@
-import { MessageSquarePlus, Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatInt, formatMs } from "@/lib/utils";
 import { useLab, type SpeedMul } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,6 @@ export function Hud() {
   const setPaused = useLab((s) => s.setPaused);
   const setSpeed = useLab((s) => s.setSpeed);
   const clearSim = useLab((s) => s.clearSim);
-  const setFeedbackOpen = useLab((s) => s.setFeedbackOpen);
 
   return (
     <header className="relative z-20 shrink-0 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-md md:px-4">
@@ -95,16 +94,6 @@ export function Hud() {
           <Button variant="outline" size="sm" className="h-9 px-2.5" aria-label="Clear" onClick={clearSim}>
             <RotateCcw className="size-3.5" />
             <span className="hidden sm:inline">Clear</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 border-accent/30 bg-accent/10 px-2.5 text-accent hover:bg-accent/20"
-            aria-label="Feedback and Bug Reports"
-            onClick={() => setFeedbackOpen(true)}
-          >
-            <MessageSquarePlus className="size-3.5" />
-            <span className="hidden md:inline">Feedback & Bugs</span>
           </Button>
         </div>
       </div>
