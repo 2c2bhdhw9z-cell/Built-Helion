@@ -1,4 +1,5 @@
 import {
+  Camera,
   Gauge,
   Bookmark,
   ListChecks,
@@ -8,7 +9,10 @@ import {
   Play,
   RotateCcw,
   Settings,
+  Square,
+  Video,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useLab, type SpeedMul } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
@@ -40,6 +44,13 @@ function AccountControl() {
 
 const SPEEDS: SpeedMul[] = [0.25, 0.5, 1, 2, 4];
 
+/** Format a whole-second elapsed count as mm:ss for the recording indicator. */
+function formatElapsed(totalSeconds: number): string {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
 export function Hud() {
   const paused = useLab((s) => s.paused);
   const speed = useLab((s) => s.speed);
@@ -50,6 +61,27 @@ export function Hud() {
   const setBoardOpen = useLab((s) => s.setBoardOpen);
   const setCreationsOpen = useLab((s) => s.setCreationsOpen);
   const setPerfHubOpen = useLab((s) => s.setPerfHubOpen);
+  const captureScreenshot = useLab((s) => s.captureScreenshot);
+  const startRecording = useLab((s) => s.startRecording);
+  const stopRecording = useLab((s) => s.stopRecording);
+  const recording = useLab((s) => s.recording);
+  const canRecord = useLab((s) => s.canRecord);
+
+  // Elapsed recording time (seconds), driven by an interval that runs ONLY
+  // while recording is active and is torn down as soon as it stops.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!recording) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(0);
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [recording]);
 
   return (
     <header className="relative z-20 shrink-0 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-md md:px-4">
@@ -114,6 +146,41 @@ export function Hud() {
           >
             <Bookmark className="size-3.5" />
             <span className="hidden sm:inline">Save</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Screenshot"
+            title="Screenshot"
+            disabled={!captureScreenshot}
+            onClick={() => captureScreenshot?.()}
+          >
+            <Camera className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size={recording ? "sm" : "icon"}
+            className={
+              recording
+                ? "h-9 shrink-0 gap-1.5 px-2.5 text-red-500 shadow-[0_0_0_1px_var(--color-red-500,#ef4444)]"
+                : "shrink-0"
+            }
+            aria-label={recording ? "Stop recording" : "Record"}
+            title={
+              !canRecord
+                ? "Recording not supported in this browser"
+                : recording
+                  ? "Stop recording"
+                  : "Record"
+            }
+            disabled={!canRecord || (recording ? !stopRecording : !startRecording)}
+            onClick={() => (recording ? stopRecording?.() : startRecording?.())}
+          >
+            {recording ? <Square className="size-3.5 fill-current" /> : <Video className="size-3.5" />}
+            {recording ? (
+              <span className="tabular-nums text-xs font-medium">{formatElapsed(elapsed)}</span>
+            ) : null}
           </Button>
           <Button
             variant="outline"
