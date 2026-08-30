@@ -1,0 +1,7 @@
+{
+  "task_id": "task-auth-board-settings",
+  "task_description": "Replace the Grok auth-broker federation with REAL self-hosted Better Auth (email+password + optional Google) that works on built-helion.vercel.app with no broker or unobtainable credentials; keep auth OPTIONAL and NON-BLOCKING (sim + feedback fully usable logged out). Build the outstanding PUBLIC votable feedback board inside the sim with no PII exposed, fix the email-optional submit bug, and add a Settings page with an 'auto-fill my email on feedback' toggle that defaults OFF and only pre-fills when ON + logged in. No mock/seed data anywhere; all data is real Postgres.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}
