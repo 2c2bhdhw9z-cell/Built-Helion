@@ -2,7 +2,7 @@ export class AudioManager {
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private src: MediaStreamAudioSourceNode | null = null;
-  private data: Uint8Array | null = null;
+  private data: Uint8Array<ArrayBuffer> | null = null;
 
   public active = false;
   public bass = 0;
@@ -18,7 +18,7 @@ export class AudioManager {
       this.analyser.smoothingTimeConstant = 0.7;
       this.src = this.ctx.createMediaStreamSource(stream);
       this.src.connect(this.analyser);
-      this.data = new Uint8Array(this.analyser.frequencyBinCount);
+      this.data = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
       this.active = true;
     } catch (e) {
       console.error("Audio init failed", e);

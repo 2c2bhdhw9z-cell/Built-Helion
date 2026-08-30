@@ -24,6 +24,10 @@ const srcDir = join(here, "..", "..");
  * Resolve the `@/*` -> `src/*` alias (tsconfig `paths`) that Vite understands
  * but plain node does not, so server.ts's `import { getSql } from "@/lib/db"`
  * loads under `--experimental-strip-types`.
+ *
+ * @param {string} specifier
+ * @param {unknown} context
+ * @param {(specifier: string, context: unknown) => unknown} nextResolve
  */
 export async function resolve(specifier, context, nextResolve) {
   if (specifier.startsWith("@/")) {
@@ -38,6 +42,7 @@ export async function resolve(specifier, context, nextResolve) {
 
 /** Build the { "/migrations/<file>.sql": "<raw sql>" } object Vite would inline. */
 function globbedMigrations() {
+  /** @type {Record<string, string>} */
   const out = {};
   for (const entry of readdirSync(migrationsDir)) {
     if (!entry.endsWith(".sql")) continue; // non-recursive, matches db.ts glob
@@ -46,6 +51,11 @@ function globbedMigrations() {
   return out;
 }
 
+/**
+ * @param {string} url
+ * @param {unknown} context
+ * @param {(url: string, context: unknown) => Promise<{ source: string | Buffer | Uint8Array }>} nextLoad
+ */
 export async function load(url, context, nextLoad) {
   const result = await nextLoad(url, context);
   if (!url.endsWith("/src/lib/db.ts")) return result;
