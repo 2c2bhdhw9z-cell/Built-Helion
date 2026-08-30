@@ -1,8 +1,33 @@
-import { MessageSquare, Pause, Play, RotateCcw } from "lucide-react";
+import { LogIn, MessageSquare, Pause, Play, RotateCcw } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { formatInt, formatMs } from "@/lib/utils";
 import { useLab, type SpeedMul } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
+import { UserButton } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { Chip } from "./controls";
+
+/**
+ * Optional account affordance on the right of the HUD. Signed in -> the identity
+ * chip + sign-out (UserButton); signed out -> a compact "Sign in" link to
+ * /login. Gated on `isPending` so a signed-in visitor never flashes "Sign in" on
+ * hard reload. This is purely optional — it never blocks or overlays the sim.
+ */
+function AccountControl() {
+  const { user, isPending } = useCurrentUserState();
+  if (isPending) return null;
+  if (user) return <UserButton />;
+  return (
+    <Link
+      to="/login"
+      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-fg shadow-[0_0_0_1px_var(--color-border)] transition-colors hover:bg-elevated"
+      aria-label="Sign in"
+    >
+      <LogIn className="size-3.5" />
+      <span className="hidden sm:inline">Sign in</span>
+    </Link>
+  );
+}
 
 const SPEEDS: SpeedMul[] = [0.25, 0.5, 1, 2, 4];
 
@@ -106,6 +131,7 @@ export function Hud() {
             <MessageSquare className="size-3.5" />
             <span className="hidden sm:inline">Feedback</span>
           </Button>
+          <AccountControl />
         </div>
       </div>
     </header>

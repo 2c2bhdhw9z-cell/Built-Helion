@@ -57,16 +57,24 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
 });
 
 test("the auth schema ships outside the globbed directory", () => {
-  const migrationsDir = join(projectRoot(), "migrations");
+  const root = projectRoot();
+  const migrationsDir = join(root, "migrations");
   // The app may ship its own top-level migrations (e.g. the feedback schema),
-  // but the Better Auth schema must never be one of them — it stays under
-  // migrations/auth/ (excluded by the non-recursive glob) until sign-in is
-  // turned on and it is explicitly copied up.
+  // but the Better Auth schema must never LEAK into them by accident — it stays
+  // under migrations/auth/ (excluded by the non-recursive glob) until sign-in is
+  // turned on and it is explicitly copied up. The ONE sanctioned exception is a
+  // byte-identical copy of migrations/auth/0001_auth.sql (the opt-in that turns
+  // sign-in on); any other top-level 0001_auth.sql (edited, or a stray file) is
+  // still forbidden.
   const pending = pendingMigrations(readdirSync(migrationsDir), []);
-  assert.ok(
-    !pending.some(({ name }) => name === AUTH_MIGRATION),
-    "the auth schema must not appear among the globbed top-level migrations",
-  );
+  const authInGlob = pending.some(({ name }) => name === AUTH_MIGRATION);
+  if (authInGlob) {
+    const pair = authSchemaCopy(root);
+    assert.ok(
+      pair !== null && pair.copy === pair.source,
+      "a top-level 0001_auth.sql is only allowed as a byte-identical copy of migrations/auth/0001_auth.sql (the sanctioned sign-in opt-in)",
+    );
+  }
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
 

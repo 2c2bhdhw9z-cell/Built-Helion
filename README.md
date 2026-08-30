@@ -39,24 +39,51 @@ With no `DATABASE_URL` set, the app still boots and runs using an embedded PGLit
 
 ### Authentication
 
-The particle simulator is **fully functional without authentication**, and running unauthenticated is the supported standalone mode — the core simulation has no auth dependency, so you do not need to configure anything to deploy and use it.
+Auth is **optional and non-blocking**. The particle simulator and the feedback system are **fully functional without signing in** — nothing forces a visitor to authenticate, and there is no forced redirect anywhere. Sign-in exists only for visitors who want an account.
 
-The app ships with a built-in federated sign-in that federates to a shared "Grok auth broker". Turning it into a working sign-in requires broker credentials (`GROK_AUTH_CLIENT_ID`, `GROK_AUTH_CLIENT_SECRET`, and `GROK_AUTH_ISSUER`) that **this standalone template does not provide**. Note that:
+This app uses **real, self-hosted [Better Auth](https://www.better-auth.com/)** running at same-origin `/api/auth/*` against **your own database** — there is no external broker and no credentials you cannot obtain:
 
-- `VITE_AUTH_ENABLED` is only read as an off-switch (`=== "false"`); setting it to `true` does **not** by itself enable working sign-in.
-- `BETTER_AUTH_SECRET` is genuinely used to sign sessions, but is **not** sufficient on its own to produce working federated sign-in.
+- **Email + password** — works with **zero extra configuration locally** (persisted to the embedded PGLite database). It is enabled by default.
+- **Google OAuth** — **optional**. It activates only when you supply `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. When those are absent, the "Continue with Google" button is simply hidden and email/password still works.
 
-Because of this, federated sign-in is **not available on a plain Vercel deploy** unless you wire up your own auth broker to supply those credentials. Until then, deploy the app without any auth variables and it runs unauthenticated as intended.
+Sign in / sign up from the **Sign in** button in the HUD (or visit `/login`). Signed-in visitors see their account in the HUD with a **Sign out** control.
+
+#### Required environment variables (for a persistent hosted deploy)
+
+Set these in Vercel → Settings → Environment Variables:
+
+- **`BETTER_AUTH_SECRET`** — a random secret used to sign sessions. Generate one with `openssl rand -hex 32`.
+- **`BETTER_AUTH_URL`** — the public URL of your deployment, e.g. `https://built-helion.vercel.app`. Better Auth uses this as its base URL and trusted origin.
+- **`DATABASE_URL`** — a Postgres connection string (e.g. a free [Neon](https://neon.tech/) database). Required for accounts and sessions to **persist** across serverless invocations. Without it the app falls back to in-memory PGLite and any accounts are ephemeral.
+
+Email/password sign-in works with only those three variables — no OAuth app, no broker.
+
+#### Optional: Google sign-in
+
+To offer "Continue with Google", create an OAuth 2.0 Client ID in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and set:
+
+- **`GOOGLE_CLIENT_ID`**
+- **`GOOGLE_CLIENT_SECRET`**
+
+When registering the OAuth client, add this **Authorized redirect URI** (Better Auth's Google callback path):
+
+```
+https://built-helion.vercel.app/api/auth/callback/google
+```
+
+(replace the host with your own `BETTER_AUTH_URL`). Supplying only one of the two variables leaves Google **off**; its absence never affects email/password or the rest of the app.
+
+Adding more social providers (e.g. GitHub, Apple) later is a small change: add an entry to `SOCIAL_PROVIDERS` in `src/lib/auth/providers.ts` and a matching guarded `socialProviders` block in `src/lib/auth/server.ts`.
+
+> To turn sign-in **off** entirely, set `VITE_AUTH_ENABLED=false` (the app then uses a local dev user and hides sign-in UI).
 
 ### Feedback admin (`/admin/feedback`)
 
 The app includes a feedback system: anyone can submit feedback from the in-app dialog, and `/admin/feedback` lists every submission (including submitter emails) and lets you change each submission's status. Because that view exposes PII and offers write access, it is **protected server-side** and does not rely on hiding the UI.
 
-Since the standalone deploy has no working sign-in, the primary mechanism is a shared admin token:
+There are two supported mechanisms — a shared admin token, or an email allowlist for signed-in users:
 
-- Set **`FEEDBACK_ADMIN_TOKEN`** in your deploy environment (Vercel → Settings → Environment Variables) to any long random secret (e.g. `openssl rand -hex 32`).
-- Open the admin view with that token in the URL: `https://your-app.vercel.app/admin/feedback?token=<FEEDBACK_ADMIN_TOKEN>`. The token is verified on the server (constant-time compare) before any row is read or updated.
-
-If you have wired up real sign-in, you can instead set **`ADMIN_EMAILS`** to a comma-separated allowlist; a signed-in user whose verified email is on the list is authorized.
+- **Admin token:** set **`FEEDBACK_ADMIN_TOKEN`** in your deploy environment (Vercel → Settings → Environment Variables) to any long random secret (e.g. `openssl rand -hex 32`), then open the admin view with that token in the URL: `https://your-app.vercel.app/admin/feedback?token=<FEEDBACK_ADMIN_TOKEN>`. The token is verified on the server (constant-time compare) before any row is read or updated.
+- **Email allowlist:** with real sign-in configured (see [Authentication](#authentication)), set **`ADMIN_EMAILS`** to a comma-separated allowlist; a signed-in user whose verified email is on the list is authorized.
 
 **Fail-closed by default:** on a real deploy (`DATABASE_URL` set) with neither `FEEDBACK_ADMIN_TOKEN` nor `ADMIN_EMAILS` configured, `/admin/feedback` denies access and returns no rows — so submissions are never world-readable by accident. Local development (no `DATABASE_URL`, embedded PGLite) leaves it open for convenience.
