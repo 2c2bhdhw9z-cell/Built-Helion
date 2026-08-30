@@ -73,3 +73,17 @@ export async function throttleSubmit(): Promise<void> {
     throw new RateLimitError("Too many feedback submissions — try again shortly.");
   }
 }
+
+/**
+ * Throttle the PUBLIC upvote path. Voting is unauthenticated (no login), so
+ * this per-IP window is the server-side guard against a scripted vote flood;
+ * the client also tracks voted ids in localStorage as a best-effort
+ * one-vote-per-item nicety. Neither is a hard guarantee (documented).
+ */
+export async function throttleVote(): Promise<void> {
+  const key = await requestKey();
+  // 30 votes per minute per client — comfortably above real human use.
+  if (!allow(`vote:${key}`, 30, 60_000)) {
+    throw new RateLimitError("Too many votes — try again shortly.");
+  }
+}

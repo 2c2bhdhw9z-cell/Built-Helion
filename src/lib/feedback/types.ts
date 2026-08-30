@@ -57,6 +57,24 @@ export interface FeedbackItem {
   created_at: string | Date;
 }
 
+/**
+ * The PUBLIC projection of a feedback row — everything the votable board shows
+ * and NOTHING else. It deliberately OMITS `user_email` (and the admin-only
+ * `steps_or_use_cases`, `severity_or_priority`, `rating` fields) so no PII or
+ * internal triage data ever leaves the server on an unauthenticated path.
+ * `listPublicFeedback`/`incrementFeedbackVotes` SELECT exactly these columns.
+ */
+export interface PublicFeedbackItem {
+  id: string;
+  type: FeedbackType;
+  title: string;
+  category: string | null;
+  description: string;
+  status: FeedbackStatus;
+  votes: number;
+  created_at: string | Date;
+}
+
 /** Validates a new feedback submission (the full field set). */
 export const submitFeedbackSchema = z.object({
   type: z.enum(["bug", "feature", "general"]),
@@ -66,10 +84,24 @@ export const submitFeedbackSchema = z.object({
   stepsOrUseCases: z.string().trim().optional(),
   severityOrPriority: z.string().trim().optional(),
   rating: z.number().int().min(1).max(5).optional(),
-  userEmail: z.string().trim().email().optional(),
+  // Email is genuinely OPTIONAL: a blank/whitespace value (the common case for
+  // the "(optional)" field) must pass, but a NON-empty value is still validated
+  // as an email. Coerce "" -> undefined BEFORE .email() runs so the resolver in
+  // feedback-dialog.tsx no longer rejects a blank field with "Invalid input".
+  userEmail: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().trim().email().optional(),
+  ),
 });
 
 export type SubmitFeedbackInput = z.infer<typeof submitFeedbackSchema>;
+
+/** Validates a public upvote request (no auth, no PII). */
+export const voteFeedbackSchema = z.object({
+  id: z.string().min(1),
+});
+
+export type VoteFeedbackInput = z.infer<typeof voteFeedbackSchema>;
 
 /**
  * The admin surface (list + status update) is authorized server-side. The

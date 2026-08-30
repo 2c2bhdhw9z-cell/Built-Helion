@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import type { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -6,11 +8,22 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLab } from "@/store/lab-store";
 import { submitFeedbackFn } from "@/lib/feedback/functions";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { usePreferences } from "@/lib/settings/use-preferences";
 import {
   feedbackTypes,
   submitFeedbackSchema,
   type SubmitFeedbackInput,
 } from "@/lib/feedback/types";
+
+/**
+ * The form's field-value (INPUT) shape, taken straight from the schema's input
+ * type. Because `userEmail` uses `z.preprocess`, its INPUT is `unknown` (any
+ * value is accepted then coerced) while the OUTPUT is `string | undefined`.
+ * Typing the form with the input type keeps the resolver generic in agreement;
+ * handleSubmit still yields the coerced OUTPUT (`SubmitFeedbackInput`).
+ */
+type FeedbackFormValues = z.input<typeof submitFeedbackSchema>;
 
 const TYPE_LABELS: Record<(typeof feedbackTypes)[number], string> = {
   bug: "Bug",
@@ -22,26 +35,47 @@ const fieldClass =
   "w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm text-fg placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const labelClass = "text-2xs uppercase tracking-[0.12em] text-faint";
 
+const EMPTY_FORM = {
+  type: "bug" as const,
+  title: "",
+  category: "",
+  description: "",
+  stepsOrUseCases: "",
+  severityOrPriority: "",
+  userEmail: "",
+};
+
 export function FeedbackDialog() {
   const open = useLab((s) => s.feedbackOpen);
   const setOpen = useLab((s) => s.setFeedbackOpen);
+
+  const { user } = useCurrentUserState();
+  const { preferences } = usePreferences();
 
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<SubmitFeedbackInput>({
+  } = useForm<FeedbackFormValues, unknown, SubmitFeedbackInput>({
     resolver: zodResolver(submitFeedbackSchema),
-    defaultValues: {
-      type: "bug",
-      title: "",
-      category: "",
-      description: "",
-      stepsOrUseCases: "",
-      severityOrPriority: "",
-    },
+    defaultValues: EMPTY_FORM,
   });
+
+  // Auto-fill the email field ONLY when the preference is ON and the user is
+  // signed in with an email. Off or logged out -> the field stays blank (and
+  // remains optional per the schema fix). Re-applied each time the dialog opens
+  // so a mid-session preference/sign-in change is reflected. The auto-filled
+  // value is stored only to the private user_email column; it never reaches the
+  // public board.
+  useEffect(() => {
+    if (!open) return;
+    const autofillEmail =
+      preferences.autofillFeedbackEmail && user?.primaryEmail
+        ? user.primaryEmail
+        : "";
+    reset({ ...EMPTY_FORM, userEmail: autofillEmail });
+  }, [open, preferences.autofillFeedbackEmail, user?.primaryEmail, reset]);
 
   const onSubmit = handleSubmit(async (values) => {
     try {
@@ -62,7 +96,7 @@ export function FeedbackDialog() {
       };
       await submitFeedbackFn({ data: payload });
       toast.success("Feedback submitted. Thank you!");
-      reset();
+      reset(EMPTY_FORM);
       setOpen(false);
     } catch (err) {
       console.error("Feedback submission failed", err);

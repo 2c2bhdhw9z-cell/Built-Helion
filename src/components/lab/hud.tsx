@@ -1,8 +1,41 @@
-import { MessageSquare, Pause, Play, RotateCcw } from "lucide-react";
+import {
+  ListChecks,
+  LogIn,
+  MessageSquare,
+  Pause,
+  Play,
+  RotateCcw,
+  Settings,
+} from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { formatInt, formatMs } from "@/lib/utils";
 import { useLab, type SpeedMul } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
+import { UserButton } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { Chip } from "./controls";
+
+/**
+ * Optional account affordance on the right of the HUD. Signed in -> the identity
+ * chip + sign-out (UserButton); signed out -> a compact "Sign in" link to
+ * /login. Gated on `isPending` so a signed-in visitor never flashes "Sign in" on
+ * hard reload. This is purely optional — it never blocks or overlays the sim.
+ */
+function AccountControl() {
+  const { user, isPending } = useCurrentUserState();
+  if (isPending) return null;
+  if (user) return <UserButton />;
+  return (
+    <Link
+      to="/login"
+      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-fg shadow-[0_0_0_1px_var(--color-border)] transition-colors hover:bg-elevated"
+      aria-label="Sign in"
+    >
+      <LogIn className="size-3.5" />
+      <span className="hidden sm:inline">Sign in</span>
+    </Link>
+  );
+}
 
 const SPEEDS: SpeedMul[] = [0.25, 0.5, 1, 2, 4];
 
@@ -43,6 +76,7 @@ export function Hud() {
   const setSpeed = useLab((s) => s.setSpeed);
   const clearSim = useLab((s) => s.clearSim);
   const setFeedbackOpen = useLab((s) => s.setFeedbackOpen);
+  const setBoardOpen = useLab((s) => s.setBoardOpen);
 
   return (
     <header className="relative z-20 shrink-0 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-md md:px-4">
@@ -106,6 +140,24 @@ export function Hud() {
             <MessageSquare className="size-3.5" />
             <span className="hidden sm:inline">Feedback</span>
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-2.5"
+            aria-label="Feedback board"
+            onClick={() => setBoardOpen(true)}
+          >
+            <ListChecks className="size-3.5" />
+            <span className="hidden sm:inline">Board</span>
+          </Button>
+          <Link
+            to="/settings"
+            className="inline-flex size-9 items-center justify-center rounded-md text-fg shadow-[0_0_0_1px_var(--color-border)] transition-colors hover:bg-elevated"
+            aria-label="Settings"
+          >
+            <Settings className="size-3.5" />
+          </Link>
+          <AccountControl />
         </div>
       </div>
     </header>
