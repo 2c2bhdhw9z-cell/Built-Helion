@@ -341,7 +341,7 @@ export function spawnText(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   const cy = worldH * 0.5;
   
   // Use offscreen canvas to render text
-  let canvas;
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
   try {
     canvas = new OffscreenCanvas(600, 300);
   } catch {
@@ -355,7 +355,13 @@ export function spawnText(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
     }
   }
   
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  // The union `OffscreenCanvas | HTMLCanvasElement` widens getContext('2d') to
+  // `OffscreenCanvasRenderingContext2D | RenderingContext`; both branches expose
+  // the same 2D drawing API we use here, so narrow to the shared 2D shape.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as
+    | OffscreenCanvasRenderingContext2D
+    | CanvasRenderingContext2D
+    | null;
   if (!ctx) return { spawned: 0, springs: [] };
   
   ctx.fillStyle = 'black';

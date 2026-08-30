@@ -12,6 +12,7 @@ import {
 } from "@/engine/types";
 import { SCENES, type SceneId } from "@/engine/scenes";
 import type { CreationConfig } from "@/lib/creations/types";
+import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -56,6 +57,39 @@ type LabState = {
    * Null until the engine mounts (hub then shows values as unavailable).
    */
   getEngineSystemInfo: null | (() => EngineSystemInfo);
+  /**
+   * Trigger a screenshot of the sim (engine canvas + walls overlay, composited
+   * and downloaded as a PNG). Set by CanvasStage once the engine is running and
+   * cleared on unmount; the HUD capture button calls it. Null until the engine
+   * mounts (button then no-ops). NEVER gated on auth — capture works for anyone.
+   */
+  captureScreenshot: (() => void) | null;
+  /**
+   * Start recording the sim to a video. Set by CanvasStage once the engine is
+   * running and cleared on unmount; the HUD record button calls it. Null until
+   * the engine mounts (button then no-ops). NEVER gated on auth. The HUD should
+   * only surface this when `canRecord` is true.
+   */
+  startRecording: (() => void) | null;
+  /**
+   * Stop the in-progress recording and trigger the video download. Set/cleared
+   * by CanvasStage alongside startRecording. Null until the engine mounts.
+   */
+  stopRecording: (() => void) | null;
+  /**
+   * Whether a recording is currently active. Kept in sync by CanvasStage so the
+   * HUD can toggle the record button label/icon (Record vs Stop) and show it as
+   * active.
+   */
+  recording: boolean;
+  /**
+   * Whether this environment can record a canvas to video (MediaRecorder +
+   * canvas.captureStream + a supported webm/mp4 mime). Computed ONCE at store
+   * creation via the capture module's feature detection so the HUD can
+   * disable/hide the record button (with an explanatory tooltip) instead of the
+   * recorder throwing. Expected false on many iOS Safari versions.
+   */
+  canRecord: boolean;
   tiltX: number;
   tiltY: number;
   spawnId: number;
@@ -84,6 +118,10 @@ type LabState = {
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
+  setCaptureScreenshot: (fn: (() => void) | null) => void;
+  setStartRecording: (fn: (() => void) | null) => void;
+  setStopRecording: (fn: (() => void) | null) => void;
+  setRecording: (v: boolean) => void;
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
   applyScene: (id: SceneId) => void;
@@ -146,6 +184,13 @@ export const useLab = create<LabState>((set, get) => ({
   perfHubOpen: false,
   perfCompact: false,
   getEngineSystemInfo: null,
+  captureScreenshot: null,
+  startRecording: null,
+  stopRecording: null,
+  recording: false,
+  // Computed once: capture works for anyone, but recording needs the browser
+  // APIs. Degrades cleanly to a disabled button where unsupported (iOS Safari).
+  canRecord: canRecordCapability(),
   tiltX: 0,
   tiltY: 0,
   spawnId: 0,
@@ -181,6 +226,10 @@ export const useLab = create<LabState>((set, get) => ({
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
+  setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
+  setStartRecording: (fn) => set({ startRecording: fn }),
+  setStopRecording: (fn) => set({ stopRecording: fn }),
+  setRecording: (v) => set({ recording: v }),
   setTilt: (x, y) => set({ tiltX: x, tiltY: y }),
   runGenerator: (kind) => {
     const patch: Partial<LabParams> = {
