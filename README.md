@@ -47,3 +47,16 @@ The app ships with a built-in federated sign-in that federates to a shared "Grok
 - `BETTER_AUTH_SECRET` is genuinely used to sign sessions, but is **not** sufficient on its own to produce working federated sign-in.
 
 Because of this, federated sign-in is **not available on a plain Vercel deploy** unless you wire up your own auth broker to supply those credentials. Until then, deploy the app without any auth variables and it runs unauthenticated as intended.
+
+### Feedback admin (`/admin/feedback`)
+
+The app includes a feedback system: anyone can submit feedback from the in-app dialog, and `/admin/feedback` lists every submission (including submitter emails) and lets you change each submission's status. Because that view exposes PII and offers write access, it is **protected server-side** and does not rely on hiding the UI.
+
+Since the standalone deploy has no working sign-in, the primary mechanism is a shared admin token:
+
+- Set **`FEEDBACK_ADMIN_TOKEN`** in your deploy environment (Vercel → Settings → Environment Variables) to any long random secret (e.g. `openssl rand -hex 32`).
+- Open the admin view with that token in the URL: `https://your-app.vercel.app/admin/feedback?token=<FEEDBACK_ADMIN_TOKEN>`. The token is verified on the server (constant-time compare) before any row is read or updated.
+
+If you have wired up real sign-in, you can instead set **`ADMIN_EMAILS`** to a comma-separated allowlist; a signed-in user whose verified email is on the list is authorized.
+
+**Fail-closed by default:** on a real deploy (`DATABASE_URL` set) with neither `FEEDBACK_ADMIN_TOKEN` nor `ADMIN_EMAILS` configured, `/admin/feedback` denies access and returns no rows — so submissions are never world-readable by accident. Local development (no `DATABASE_URL`, embedded PGLite) leaves it open for convenience.
