@@ -115,6 +115,13 @@ export type PointerState = {
   inside: boolean;
 };
 
+export type SubsystemCost = {
+  /** Human-readable subsystem/mode label (e.g. "nbody", "flock", "physics"). */
+  name: string;
+  /** CPU cost attributed to the active mode set for the last frame, in ms. */
+  ms: number;
+};
+
 export type Telemetry = {
   fps: number;
   frameMs: number;
@@ -130,6 +137,29 @@ export type Telemetry = {
   backend: BackendKind;
   compute: ComputeKind;
   ready: boolean;
+  /**
+   * Real GPU/renderer draw calls issued last frame.
+   * WebGL: gl.drawArrays count (fade + particle + post passes).
+   * WebGPU: passEncoder.draw count (fade + particle + post passes).
+   * Canvas2D: number of fillRect ops issued (background clear + per drawn particle).
+   */
+  drawCalls: number;
+  /**
+   * Real particle points/instances submitted to the GPU last frame.
+   * WebGL: point count `n` submitted to gl.drawArrays(POINTS).
+   * WebGPU: instance count passed to the particle draw.
+   * Canvas2D: number of particles actually drawn (honoring `step` decimation).
+   */
+  drawnPoints: number;
+  /**
+   * Per-active-subsystem CPU cost for the last frame. Only populated when
+   * compute === "cpu"; the ms is the honestly aggregated CPU physics time for
+   * the active mode set (not fabricated per-mode splits). Empty when GPU compute
+   * is active or nothing is running.
+   */
+  subsystems: SubsystemCost[];
+  /** The last spawned generator/emitter label (GeneratorKind), or "" if none. */
+  activeGenerator: string;
 };
 
 export const DEFAULT_PARAMS: LabParams = {
@@ -199,4 +229,8 @@ export const DEFAULT_TELEMETRY: Telemetry = {
   backend: "canvas",
   compute: "cpu",
   ready: false,
+  drawCalls: 0,
+  drawnPoints: 0,
+  subsystems: [],
+  activeGenerator: "",
 };

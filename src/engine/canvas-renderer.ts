@@ -3,6 +3,11 @@ import type { ParticleSoA } from "./soa";
 import type { LabParams } from "./types";
 
 export class Canvas2DRenderer {
+  /** fillRect ops issued during the last render() (background clear + each drawn particle). */
+  lastDrawCalls = 0;
+  /** Particles actually drawn during the last render() (honoring `step` decimation). */
+  lastDrawnPoints = 0;
+
   constructor(private ctx: CanvasRenderingContext2D) {}
 
   render(
@@ -17,6 +22,8 @@ export class Canvas2DRenderer {
     const ctx = this.ctx;
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
+    this.lastDrawCalls = 0;
+    this.lastDrawnPoints = 0;
     if (params.trails) {
       ctx.globalCompositeOperation = "source-over";
       ctx.fillStyle = `rgba(8,9,12,${Math.min(0.55, params.trailDecay + 0.08)})`;
@@ -26,6 +33,7 @@ export class Canvas2DRenderer {
       ctx.fillStyle = "#08090c";
       ctx.fillRect(0, 0, w, h);
     }
+    this.lastDrawCalls++;
     ctx.globalCompositeOperation = params.blend === "additive" ? "lighter" : "source-over";
     if (params.bloom) {
       ctx.shadowBlur = Math.min(24, 8 * params.bloomStrength);
@@ -39,6 +47,7 @@ export class Canvas2DRenderer {
     const size = Math.max(1, params.pointSize * dpr * 0.5);
     const energy = params.blend === "additive" ? 0.55 / (1 + params.pointSize * params.pointSize * 0.02) : 0.9;
     const step = n > 12000 ? Math.ceil(n / 12000) : 1;
+    let drawn = 0;
     for (let i = 0; i < n; i += step) {
       const life = soa.life[i]!;
       if (life === 0) continue;
@@ -52,7 +61,11 @@ export class Canvas2DRenderer {
       const a = (life < 0 ? 1 : Math.min(1, life)) * energy;
       ctx.fillStyle = `rgba(${(r * 255) | 0},${(g * 255) | 0},${(b * 255) | 0},${a})`;
       ctx.fillRect(soa.posX[i]! * sx, soa.posY[i]! * sy, size, size);
+      drawn++;
     }
+    this.lastDrawnPoints = drawn;
+    // Each drawn particle is a fillRect op; add to the background clear already counted.
+    this.lastDrawCalls += drawn;
     void cssW;
     void cssH;
   }

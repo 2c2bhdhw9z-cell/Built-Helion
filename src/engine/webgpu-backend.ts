@@ -72,6 +72,10 @@ export class WebGPUBackend {
   lastAlive = 0;
   lastNan = 0;
   lastOob = 0;
+  /** passEncoder.draw calls issued during the last render() (fade + particle + post). */
+  lastDrawCalls = 0;
+  /** Instance count passed to the particle draw during the last render(). */
+  lastDrawnPoints = 0;
   private staging = new Float32Array(UNIFORM_BYTES / 4);
   private stagingU = new Uint32Array(this.staging.buffer);
   private lastPalette = "";
@@ -546,6 +550,8 @@ export class WebGPUBackend {
   }
 
   render(count: number, params: LabParams): void {
+    this.lastDrawCalls = 0;
+    this.lastDrawnPoints = 0;
     if (!this.context) return;
     const canvas = this.context.canvas as HTMLCanvasElement;
     const w = Math.max(1, canvas.width);
@@ -586,6 +592,7 @@ export class WebGPUBackend {
       fadePass.setPipeline(this.fadePipe);
       fadePass.setBindGroup(0, this.fadeBG);
       fadePass.draw(6);
+      this.lastDrawCalls++;
       fadePass.end();
     }
 
@@ -605,6 +612,8 @@ export class WebGPUBackend {
       partPass.setBindGroup(0, this.renderBG);
       partPass.setBindGroup(1, this.sampleBG);
       partPass.draw(6, Math.max(count, 0));
+      this.lastDrawCalls++;
+      this.lastDrawnPoints = Math.max(count, 0);
       partPass.end();
     }
 
@@ -631,6 +640,7 @@ export class WebGPUBackend {
     postPass.setPipeline(this.postPipe);
     postPass.setBindGroup(0, this.postBG);
     postPass.draw(6);
+    this.lastDrawCalls++;
     postPass.end();
 
     this.device.queue.submit([enc.finish()]);
