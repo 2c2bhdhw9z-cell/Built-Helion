@@ -35,6 +35,6 @@
 
   <g text-anchor="middle" style="mix-blend-mode:normal">
     <text x="600" y="333" font-family="'IBM Plex Sans','IBM Plex Mono',system-ui,sans-serif" font-size="132" font-weight="600" letter-spacing="34" fill="#f6f8ff" style="paint-order:stroke;">HELION</text>
-    <text x="600" y="391" font-family="'IBM Plex Mono',ui-monospace,monospace" font-size="27" font-weight="500" letter-spacing="14" fill="#9aa4c4">GPU PARTICLE LABORATORY</text>
+    <text x="600" y="391" font-family="'IBM Plex Mono',ui-monospace,monospace" font-size="30" font-weight="600" letter-spacing="13" fill="#b8c2e0">GPU PARTICLE LABORATORY</text>
   </g>
 </svg>

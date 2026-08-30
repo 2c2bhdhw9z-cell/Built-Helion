@@ -180,7 +180,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${
     }" font-family="'IBM Plex Sans','IBM Plex Mono',system-ui,sans-serif" font-size="132" font-weight="600" letter-spacing="34" fill="#f6f8ff" style="paint-order:stroke;">HELION</text>
     <text x="${cx}" y="${
       cy + 76
-    }" font-family="'IBM Plex Mono',ui-monospace,monospace" font-size="27" font-weight="500" letter-spacing="14" fill="#9aa4c4">GPU PARTICLE LABORATORY</text>
+    }" font-family="'IBM Plex Mono',ui-monospace,monospace" font-size="30" font-weight="600" letter-spacing="13" fill="#b8c2e0">GPU PARTICLE LABORATORY</text>
   </g>
 </svg>`;
 
@@ -199,7 +199,7 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
-  await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
+  await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 2 });
   await page.setContent(html, { waitUntil: "networkidle0" });
   // Give the web fonts a moment to load for crisp glyphs.
   await page.evaluate(async () => {
