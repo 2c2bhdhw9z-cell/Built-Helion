@@ -11,6 +11,7 @@ import {
   type ToolKind,
 } from "@/engine/types";
 import { SCENES, type SceneId } from "@/engine/scenes";
+import type { CreationConfig } from "@/lib/creations/types";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -84,8 +85,38 @@ type LabState = {
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
   applyScene: (id: SceneId) => void;
+  /**
+   * Load a saved creation's config into the sim using the same deterministic
+   * clean-apply as `applyScene` (clear first, reset params over DEFAULT_PARAMS,
+   * set spawn kind/count/speed, bump spawnId).
+   *
+   * SECURITY: `config` is assumed to already be a VALIDATED CreationConfig.
+   * Callers that load an untrusted payload (a DB jsonb value or a public
+   * share-link blob) MUST run it through `normalizeCreationConfig` (from
+   * @/lib/creations/types) FIRST — that whitelists known keys, coerces invalid
+   * values to defaults, and returns null on total garbage so the caller can
+   * fall back to the default sim. `applyCreationConfig` performs no validation.
+   */
+  applyCreationConfig: (config: CreationConfig) => void;
   clearSim: () => void;
 };
+
+/**
+ * Snapshot the current sim into a savable CreationConfig. Pure and derivable
+ * from a LabState slice so both the Save UI and unit tests can use it without
+ * React. `spawnKind` falls back to 'galaxy' when null, matching the store's
+ * existing fallbacks in addParticles/runGenerator.
+ */
+export function currentCreationConfig(
+  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed">,
+): CreationConfig {
+  return {
+    params: { ...state.params },
+    spawnKind: state.spawnKind ?? "galaxy",
+    spawnCount: state.spawnCount,
+    speed: state.speed,
+  };
+}
 
 export const useLab = create<LabState>((set, get) => ({
   params: { ...DEFAULT_PARAMS },
@@ -205,6 +236,33 @@ export const useLab = create<LabState>((set, get) => ({
       spawnKind: scene.kind,
       spawnId: s.spawnId + 1,
       activeSceneId: scene.id,
+    }));
+  },
+  // Load a saved creation. Mirrors applyScene's deterministic clean-apply so a
+  // loaded creation reproduces the saved look regardless of prior sim state.
+  // `config` MUST already be a validated CreationConfig (see the type-level
+  // note above / normalizeCreationConfig for untrusted share-link payloads).
+  applyCreationConfig: (config) => {
+    // Layer over a fresh DEFAULT_PARAMS baseline so stale toggles never leak.
+    const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
+    // Same clamp as setSpawnCount/applyScene.
+    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
+    set((s) => ({
+      // Clear first so a loaded creation never stacks on the previous sim.
+      clearId: s.clearId + 1,
+      params: nextParams,
+      spawnCount: nextSpawnCount,
+      speed: config.speed,
+      pouring: false,
+      // Deterministic boolean (default off); only 'fall' streams continuously.
+      falling: config.spawnKind === "fall",
+      replaceMode: true,
+      // creationConfigSchema only ever produces a valid GeneratorKind here; the
+      // zod .catch()/.default() on the enum widens the inferred type to string.
+      spawnKind: config.spawnKind as GeneratorKind,
+      spawnId: s.spawnId + 1,
+      // A loaded creation is not one of the curated scenes.
+      activeSceneId: null,
     }));
   },
   clearSim: () =>
