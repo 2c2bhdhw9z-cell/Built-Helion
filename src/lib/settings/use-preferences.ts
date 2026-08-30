@@ -65,6 +65,13 @@ export type PreferencesController = {
 export function usePreferences(): PreferencesController {
   const { user, isPending } = useCurrentUserState();
   const isSignedIn = Boolean(user);
+  // `useCurrentUserState()` builds a NEW `user` object literal on every render,
+  // so depending on `user` itself would make the load effect below re-run every
+  // render — refetching the server value and clobbering the just-toggled
+  // optimistic state in a loop (the "stuck OFF / rapid flicker" bug). Key the
+  // effect on the STABLE user id (a primitive) so it runs once per identity
+  // change (sign in / sign out / account switch) and not on every render.
+  const userId = user?.id ?? null;
   const [preferences, setPreferences] = useState<UserPreferences>({
     ...DEFAULT_PREFERENCES,
   });
@@ -76,7 +83,7 @@ export function usePreferences(): PreferencesController {
       setIsLoading(true);
       return;
     }
-    if (!user) {
+    if (!userId) {
       // Logged out: localStorage only.
       setPreferences(readLocalPreferences());
       setIsLoading(false);
@@ -97,15 +104,22 @@ export function usePreferences(): PreferencesController {
     return () => {
       cancelled = true;
     };
-  }, [isPending, user]);
+  }, [isPending, userId]);
 
   const setPreference = useCallback(
     async <K extends keyof UserPreferences>(
       key: K,
       value: UserPreferences[K],
     ) => {
-      const next: UserPreferences = { ...preferences, [key]: value };
-      setPreferences(next); // optimistic
+      // Compute + apply the optimistic value from the LATEST state via the
+      // functional updater so this callback never depends on `preferences`
+      // (which would recreate it every render). `next` is captured for the
+      // persistence step below.
+      let next: UserPreferences = { ...DEFAULT_PREFERENCES };
+      setPreferences((current) => {
+        next = { ...current, [key]: value };
+        return next;
+      });
       if (isSignedIn) {
         try {
           const saved = await updatePreferencesFn({ data: next });
@@ -118,7 +132,7 @@ export function usePreferences(): PreferencesController {
         writeLocalPreferences(next);
       }
     },
-    [preferences, isSignedIn],
+    [isSignedIn],
   );
 
   return { preferences, isLoading, isSignedIn, setPreference };
