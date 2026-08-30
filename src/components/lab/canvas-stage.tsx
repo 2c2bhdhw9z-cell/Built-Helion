@@ -67,6 +67,9 @@ export function CanvasStage() {
   const recorderRef = useRef<CanvasRecorder | null>(null);
   const recordCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const recordingRef = useRef(false);
+  // Guards against re-entrant stopRecording() (e.g. the user tapping Stop twice)
+  // while the async recorder flush is still in flight.
+  const stoppingRef = useRef(false);
   const isPointerDownRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
   const [viewportH, setViewportH] = useState(400);
@@ -194,6 +197,7 @@ export function CanvasStage() {
       // Tear down any in-progress recording so navigating away never leaks a
       // MediaRecorder or an active capture stream (dispose stops both).
       recordingRef.current = false;
+      stoppingRef.current = false;
       recorderRef.current?.dispose();
       recorderRef.current = null;
       recordCanvasRef.current = null;
@@ -295,12 +299,27 @@ export function CanvasStage() {
    */
   const stopRecording = async () => {
     const recorder = recorderRef.current;
-    if (!recorder || !recordingRef.current) return;
-    recordingRef.current = false;
-    const mime = recorder.currentMimeType;
-    const blob = await recorder.stop();
-    recorderRef.current = null;
+    if (!recorder || !recordingRef.current || stoppingRef.current) return;
+    // Re-entrancy guard: a second Stop tap while the flush is in flight is a
+    // no-op. We flip the store `recording` flag to false immediately so the HUD
+    // indicator stops right away, but we deliberately KEEP recordingRef.current
+    // true so the rAF loop keeps blitting the live composite until the recorder
+    // has actually flushed its final timeslice — otherwise the tail of the
+    // video would freeze on the last blitted frame. recordingRef is only
+    // cleared in the finally below, after recorder.stop() resolves.
+    stoppingRef.current = true;
     useLab.getState().setRecording(false);
+    const mime = recorder.currentMimeType;
+    let blob: Blob | null = null;
+    try {
+      blob = await recorder.stop();
+    } catch (err) {
+      console.error("Failed to stop recording:", err);
+    } finally {
+      recordingRef.current = false;
+      recorderRef.current = null;
+      stoppingRef.current = false;
+    }
     if (!blob) return;
     // webm for webm mimes (the common path); mp4 only if that was the picked
     // codec. captureFilename only knows 'webm' extension, so build the mp4 name
