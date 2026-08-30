@@ -76,6 +76,27 @@ export const listFeedbackFn = createServerFn({ method: "POST" })
   });
 
 /**
+ * Report whether the CURRENT caller is an admin, resolved entirely server-side.
+ * Calls assertAdmin() with NO token, so it authorizes only a verified
+ * allowlisted signed-in account (or the local no-database dev fallback). It
+ * returns ONLY a boolean — never an email or the ADMIN_EMAILS allowlist — so it
+ * is safe to call from the client (e.g. to reveal an Admin entry point in the
+ * UI). The dynamic import keeps the server-only admin module out of the client
+ * bundle, matching the other feedback fns.
+ */
+export const isAdminFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ isAdmin: boolean }> => {
+    try {
+      const { assertAdmin } = await import("./admin-auth.server.ts");
+      await assertAdmin();
+      return { isAdmin: true };
+    } catch {
+      return { isAdmin: false };
+    }
+  },
+);
+
+/**
  * Update an existing submission's status; returns the updated row or null.
  * ADMIN-ONLY: authorized server-side via assertAdmin.
  */
