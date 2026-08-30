@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getPreferencesFn, updatePreferencesFn } from "./functions";
 import {
@@ -19,6 +19,23 @@ import {
  * imports NO server-only code — the server functions dynamically import their
  * server layer inside their own handlers.
  */
+
+/**
+ * Build the value to persist for a single-preference change: the current
+ * preferences with `key` overridden by `value`. Kept as a pure exported helper
+ * so the "the write persists the value the user just chose" contract is unit
+ * testable WITHOUT React. `setPreference` must compute this SYNCHRONOUSLY from
+ * the latest known preferences (not inside an async `setPreferences` updater),
+ * or the value captured for the network/localStorage write is the stale default
+ * — the regression where the toggle turned ON then immediately snapped OFF.
+ */
+export function nextPreferences<K extends keyof UserPreferences>(
+  current: UserPreferences,
+  key: K,
+  value: UserPreferences[K],
+): UserPreferences {
+  return { ...current, [key]: value };
+}
 
 /** Read the logged-out preference store from localStorage (safe on SSR). */
 export function readLocalPreferences(): UserPreferences {
@@ -76,6 +93,15 @@ export function usePreferences(): PreferencesController {
     ...DEFAULT_PREFERENCES,
   });
   const [isLoading, setIsLoading] = useState(true);
+  // Mirror the latest preferences in a ref so `setPreference` can read the
+  // current value SYNCHRONOUSLY when it builds the value to persist. A
+  // functional `setPreferences` updater cannot be used for that: React does not
+  // run the updater synchronously during the event handler, so the value the
+  // network/localStorage write captured would be the stale initial default
+  // (the "toggle turns on then snaps back OFF" bug — the write persisted the
+  // default `false` regardless of the click, and the reload read it back).
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
 
   useEffect(() => {
     let cancelled = false;
@@ -111,15 +137,14 @@ export function usePreferences(): PreferencesController {
       key: K,
       value: UserPreferences[K],
     ) => {
-      // Compute + apply the optimistic value from the LATEST state via the
-      // functional updater so this callback never depends on `preferences`
-      // (which would recreate it every render). `next` is captured for the
-      // persistence step below.
-      let next: UserPreferences = { ...DEFAULT_PREFERENCES };
-      setPreferences((current) => {
-        next = { ...current, [key]: value };
-        return next;
-      });
+      // Compute the next value SYNCHRONOUSLY from the latest preferences (read
+      // via the ref, so this callback stays stable and does not depend on
+      // `preferences`). Applying it optimistically AND persisting it must both
+      // use this same concrete value — reading it back out of an async
+      // `setPreferences` updater would race and capture the stale default.
+      const next = nextPreferences(preferencesRef.current, key, value);
+      preferencesRef.current = next;
+      setPreferences(next);
       if (isSignedIn) {
         try {
           const saved = await updatePreferencesFn({ data: next });

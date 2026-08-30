@@ -93,6 +93,25 @@ describe("preferences DB round trip (real PGLite, migration 0003)", () => {
     assert.equal(loaded.autofillFeedbackEmail, true);
   });
 
+  it("round-trips a STRICT boolean true (not a truthy 't'/1 string)", async () => {
+    // Guards the snake_case column (autofill_feedback_email) <-> camelCase field
+    // (autofillFeedbackEmail) mapping AND the boolean parse across pg/PGLite: the
+    // value the client persisted must come back as a real JS `true`, so the
+    // client's `updatePreferencesFn` result (and the reload's getPreferences)
+    // renders the switch ON. A truthy string like 't' would pass `Boolean(...)`
+    // here but is exactly the class of bug this asserts against.
+    const userId = "user-strict-boolean";
+    const saved = await server.upsertPreferences(userId, {
+      autofillFeedbackEmail: true,
+    });
+    assert.strictEqual(saved.autofillFeedbackEmail, true);
+    assert.strictEqual(typeof saved.autofillFeedbackEmail, "boolean");
+
+    const loaded = await server.getPreferences(userId);
+    assert.strictEqual(loaded.autofillFeedbackEmail, true);
+    assert.strictEqual(typeof loaded.autofillFeedbackEmail, "boolean");
+  });
+
   it("upsertPreferences updates an existing row (idempotent on user_id)", async () => {
     const userId = "user-update";
     await server.upsertPreferences(userId, { autofillFeedbackEmail: true });
