@@ -28,7 +28,6 @@ type LabState = {
   pouring: boolean;
   falling: boolean;
   tab: ParamTab;
-  feedbackOpen: boolean;
   uiTopOpen: boolean;
   uiBottomOpen: boolean;
   tiltX: number;
@@ -49,7 +48,6 @@ type LabState = {
   setSpawnCount: (n: number) => void;
   addParticles: () => void;
   setTab: (t: ParamTab) => void;
-  setFeedbackOpen: (open: boolean) => void;
   toggleUiTop: () => void;
   toggleUiBottom: () => void;
   setTilt: (x: number, y: number) => void;
@@ -72,7 +70,6 @@ export const useLab = create<LabState>((set, get) => ({
   pouring: false,
   falling: false,
   tab: "physics",
-  feedbackOpen: false,
   uiTopOpen: true,
   uiBottomOpen: true,
   tiltX: 0,
@@ -98,7 +95,6 @@ export const useLab = create<LabState>((set, get) => ({
       spawnKind: s.spawnKind ?? "galaxy",
     })),
   setTab: (t) => set({ tab: t }),
-  setFeedbackOpen: (open) => set({ feedbackOpen: open }),
   toggleUiTop: () => set((s) => ({ uiTopOpen: !s.uiTopOpen })),
   toggleUiBottom: () => set((s) => ({ uiBottomOpen: !s.uiBottomOpen })),
   setTilt: (x, y) => set({ tiltX: x, tiltY: y }),
