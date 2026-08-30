@@ -33,7 +33,7 @@ import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "@/lib/db";
-import { isAuthConfigured, isGoogleConfigured } from "./config";
+import { isAuthConfigured, isGithubConfigured, isGoogleConfigured } from "./config";
 import { emailAndPasswordEnabled } from "./email-password";
 import { pgliteDialect } from "./pglite-dialect";
 
@@ -69,6 +69,16 @@ const GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID");
 const GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET");
 /** True when both Google OAuth credentials are supplied (pure detection). */
 export const googleConfigured = isGoogleConfigured();
+
+// ── GitHub OAuth (optional) ──────────────────────────────────────────────────
+// Native Better Auth social provider. Active ONLY when BOTH credentials are
+// present; otherwise the "Continue with GitHub" button is hidden (see
+// `authProvidersFn` in ./functions). GitHub OAuth is free — the owner registers
+// an OAuth App at https://github.com/settings/developers.
+const GITHUB_CLIENT_ID = env("GITHUB_CLIENT_ID");
+const GITHUB_CLIENT_SECRET = env("GITHUB_CLIENT_SECRET");
+/** True when both GitHub OAuth credentials are supplied (pure detection). */
+export const githubConfigured = isGithubConfigured();
 
 /**
  * True when REAL auth is available — sign-in not force-disabled AND at least one
@@ -110,16 +120,26 @@ const database = databaseUrl
 /** Session token cookie name. */
 export const SESSION_TOKEN_COOKIE = "__Host-helion-auth.session_token";
 
-// Google social provider, added only when both credentials are present. Absence
-// leaves `socialProviders` empty so email/password still works.
-const socialProviders = googleConfigured
-  ? {
-      google: {
-        clientId: GOOGLE_CLIENT_ID as string,
-        clientSecret: GOOGLE_CLIENT_SECRET as string,
-      },
-    }
-  : {};
+// Native social providers, each added only when its credentials are present.
+// Assembled incrementally so Google and GitHub can both be active at once;
+// absence of all of them leaves `socialProviders` empty so email/password still
+// works.
+const socialProviders: {
+  google?: { clientId: string; clientSecret: string };
+  github?: { clientId: string; clientSecret: string };
+} = {};
+if (googleConfigured) {
+  socialProviders.google = {
+    clientId: GOOGLE_CLIENT_ID as string,
+    clientSecret: GOOGLE_CLIENT_SECRET as string,
+  };
+}
+if (githubConfigured) {
+  socialProviders.github = {
+    clientId: GITHUB_CLIENT_ID as string,
+    clientSecret: GITHUB_CLIENT_SECRET as string,
+  };
+}
 
 export const auth = betterAuth({
   baseURL,
@@ -136,8 +156,8 @@ export const auth = betterAuth({
   // zero-config method: works locally with no env vars.
   ...(emailAndPasswordEnabled ? { emailAndPassword: { enabled: true } } : {}),
 
-  // Native social providers (Google only for now, when configured). Structured
-  // so GitHub/Apple can be added with one more guarded block.
+  // Native social providers (Google and GitHub, each when configured).
+  // Structured so Apple can be added with one more guarded block.
   socialProviders,
 
   // Encrypt OAuth tokens at rest and let a returning social identity attach to
@@ -148,7 +168,9 @@ export const auth = betterAuth({
     encryptOAuthTokens: true,
     accountLinking: {
       enabled: true,
-      trustedProviders: ["google"],
+      // GitHub supplies a verified email via /user/emails, so trust-by-verified
+      // -email linking is correct for both Google and GitHub.
+      trustedProviders: ["google", "github"],
     },
   },
 

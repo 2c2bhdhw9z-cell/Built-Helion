@@ -30,6 +30,20 @@ export function isGoogleConfigured(
   );
 }
 
+/**
+ * GitHub OAuth is available ONLY when BOTH credentials are present (non-empty
+ * after trim). One-or-none means GitHub is off and the app carries on with its
+ * other methods; the "Continue with GitHub" button is hidden. GitHub OAuth is
+ * free — the owner registers an OAuth App at https://github.com/settings/developers.
+ */
+export function isGithubConfigured(
+  source: Record<string, string | undefined> = process.env,
+): boolean {
+  return Boolean(
+    readEnv("GITHUB_CLIENT_ID", source) && readEnv("GITHUB_CLIENT_SECRET", source),
+  );
+}
+
 /** True when sign-in is force-disabled via `VITE_AUTH_ENABLED=false`. */
 export function isAuthDisabled(
   source: Record<string, string | undefined> = process.env,
@@ -39,13 +53,16 @@ export function isAuthDisabled(
 
 /**
  * True when REAL auth is available — i.e. sign-in is not force-disabled AND at
- * least one method is on (email/password, or Google). No broker/GROK_AUTH_* is
- * involved. `verify.server.ts` (via `server.ts`) branches on this to decide
- * whether to resolve a real session vs. return the dev user.
+ * least one method is on (email/password, Google, or GitHub). No
+ * broker/GROK_AUTH_* is involved. `verify.server.ts` (via `server.ts`) branches
+ * on this to decide whether to resolve a real session vs. return the dev user.
  */
 export function isAuthConfigured(
   source: Record<string, string | undefined>,
   emailPasswordOn: boolean,
 ): boolean {
-  return !isAuthDisabled(source) && (emailPasswordOn || isGoogleConfigured(source));
+  return (
+    !isAuthDisabled(source) &&
+    (emailPasswordOn || isGoogleConfigured(source) || isGithubConfigured(source))
+  );
 }

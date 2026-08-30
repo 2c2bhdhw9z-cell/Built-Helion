@@ -25,9 +25,10 @@ export const authProvidersFn = createServerFn({ method: "GET" }).handler(
     social: EnabledProvider[];
   }> => {
     const { emailAndPasswordEnabled } = await import("./email-password.ts");
-    const { googleConfigured } = await import("./server.ts");
+    const { googleConfigured, githubConfigured } = await import("./server.ts");
     const enabledIds = new Set<string>();
     if (googleConfigured) enabledIds.add("google");
+    if (githubConfigured) enabledIds.add("github");
     const social = SOCIAL_PROVIDERS.filter((p) => enabledIds.has(p.id));
     return { emailAndPassword: emailAndPasswordEnabled, social };
   },

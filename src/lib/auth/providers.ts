@@ -28,4 +28,5 @@ export type SocialProvider = {
 
 export const SOCIAL_PROVIDERS: readonly SocialProvider[] = [
   { id: "google", label: "Google" },
+  { id: "github", label: "GitHub" },
 ];
