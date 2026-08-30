@@ -13,6 +13,18 @@ import {
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
+/** Live engine rendering-context snapshot exposed to the perf hub (see engine.getSystemInfo). */
+export type EngineSystemInfo = {
+  backend: string;
+  compute: string;
+  dpr: number;
+  cssW: number;
+  cssH: number;
+  backingW: number;
+  backingH: number;
+  gl: WebGL2RenderingContext | null;
+};
+
 type LabState = {
   params: LabParams;
   telemetry: Telemetry;
@@ -32,6 +44,15 @@ type LabState = {
   uiBottomOpen: boolean;
   feedbackOpen: boolean;
   boardOpen: boolean;
+  perfHubOpen: boolean;
+  perfCompact: boolean;
+  /**
+   * Lazily-populated reader for live engine system/GL info. Set by CanvasStage
+   * once the engine is running; the perf hub calls it (only while open) to read
+   * backend/compute/DPR/canvas resolution + the raw gl context for GPU vendor.
+   * Null until the engine mounts (hub then shows values as unavailable).
+   */
+  getEngineSystemInfo: null | (() => EngineSystemInfo);
   tiltX: number;
   tiltY: number;
   spawnId: number;
@@ -54,6 +75,9 @@ type LabState = {
   toggleUiBottom: () => void;
   setFeedbackOpen: (v: boolean) => void;
   setBoardOpen: (v: boolean) => void;
+  setPerfHubOpen: (v: boolean) => void;
+  setPerfCompact: (v: boolean) => void;
+  setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
   clearSim: () => void;
@@ -78,6 +102,9 @@ export const useLab = create<LabState>((set, get) => ({
   uiBottomOpen: true,
   feedbackOpen: false,
   boardOpen: false,
+  perfHubOpen: false,
+  perfCompact: false,
+  getEngineSystemInfo: null,
   tiltX: 0,
   tiltY: 0,
   spawnId: 0,
@@ -105,6 +132,9 @@ export const useLab = create<LabState>((set, get) => ({
   toggleUiBottom: () => set((s) => ({ uiBottomOpen: !s.uiBottomOpen })),
   setFeedbackOpen: (v) => set({ feedbackOpen: v }),
   setBoardOpen: (v) => set({ boardOpen: v }),
+  setPerfHubOpen: (v) => set({ perfHubOpen: v }),
+  setPerfCompact: (v) => set({ perfCompact: v }),
+  setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setTilt: (x, y) => set({ tiltX: x, tiltY: y }),
   runGenerator: (kind) => {
     const patch: Partial<LabParams> = {

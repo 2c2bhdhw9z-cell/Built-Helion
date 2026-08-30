@@ -69,6 +69,15 @@ export class WebGLRenderer {
   private uPostBloom: WebGLUniformLocation | null;
   private uPostBloomStrength: WebGLUniformLocation | null;
 
+  /**
+   * Expose the underlying WebGL2 context so callers (e.g. the perf hub) can read
+   * unmasked GPU vendor/renderer via WEBGL_debug_renderer_info. Read-only, no
+   * per-frame cost; only touched lazily when the hub opens.
+   */
+  getRawGl(): WebGL2RenderingContext {
+    return this.gl;
+  }
+
   constructor(gl: WebGL2RenderingContext, cap: number) {
     this.gl = gl;
     this.particleProg = program(gl, GL_VS, GL_FS);

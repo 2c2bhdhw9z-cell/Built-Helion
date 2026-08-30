@@ -165,6 +165,36 @@ export class ParticleEngine {
     this.telemetry.compute = this.compute;
   }
 
+  /**
+   * Snapshot of the live rendering context for the perf hub. Read lazily (only
+   * when the hub opens) so it adds ZERO per-frame cost. GPU vendor/renderer are
+   * read from the ACTUAL WebGL2 context via WEBGL_debug_renderer_info and may be
+   * masked/unavailable (returned as undefined -> UI shows "masked"/"unavailable").
+   * For WebGPU/Canvas2D backends the raw gl context is null so gpu vendor/renderer
+   * are unavailable by design (no fabrication).
+   */
+  getSystemInfo(): {
+    backend: BackendKind;
+    compute: ComputeKind;
+    dpr: number;
+    cssW: number;
+    cssH: number;
+    backingW: number;
+    backingH: number;
+    gl: WebGL2RenderingContext | null;
+  } {
+    return {
+      backend: this.backend,
+      compute: this.compute,
+      dpr: this.dpr,
+      cssW: this.cssW,
+      cssH: this.cssH,
+      backingW: this.canvas.width,
+      backingH: this.canvas.height,
+      gl: this.backend === "webgl" && this.gl ? this.gl.getRawGl() : null,
+    };
+  }
+
   setCap(cap: number): void {
     const next = Math.max(1024, Math.min(SYSTEM_LIMIT, cap | 0));
     if (next === this.soa.capacity) return;

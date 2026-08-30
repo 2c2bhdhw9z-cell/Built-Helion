@@ -53,6 +53,40 @@ test("lab-store clears simulation", () => {
   expect(useLab.getState().clearId).toBe(initialId + 1);
 });
 
+test("lab-store toggles perf hub open state", () => {
+  expect(useLab.getState().perfHubOpen).toBe(false);
+  useLab.getState().setPerfHubOpen(true);
+  expect(useLab.getState().perfHubOpen).toBe(true);
+  useLab.getState().setPerfHubOpen(false);
+  expect(useLab.getState().perfHubOpen).toBe(false);
+});
+
+test("lab-store toggles perf compact mode", () => {
+  expect(useLab.getState().perfCompact).toBe(false);
+  useLab.getState().setPerfCompact(true);
+  expect(useLab.getState().perfCompact).toBe(true);
+  useLab.getState().setPerfCompact(false);
+  expect(useLab.getState().perfCompact).toBe(false);
+});
+
+test("lab-store stores engine system-info reader and clears it", () => {
+  expect(useLab.getState().getEngineSystemInfo).toBe(null);
+  const reader = () => ({
+    backend: "webgl",
+    compute: "cpu",
+    dpr: 2,
+    cssW: 100,
+    cssH: 100,
+    backingW: 200,
+    backingH: 200,
+    gl: null,
+  });
+  useLab.getState().setEngineSystemInfo(reader);
+  expect(useLab.getState().getEngineSystemInfo).toBe(reader);
+  useLab.getState().setEngineSystemInfo(null);
+  expect(useLab.getState().getEngineSystemInfo).toBe(null);
+});
+
 test("lab-store triggers generator", () => {
   const initialId = useLab.getState().spawnId;
   useLab.getState().runGenerator("ring");
