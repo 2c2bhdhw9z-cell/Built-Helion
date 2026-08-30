@@ -1,5 +1,4 @@
 import { getRequest } from "@tanstack/react-start/server";
-import { gateIdentityEnabled } from "./gate-identity.server";
 import { auth, authConfigured } from "./server";
 
 /**
@@ -54,10 +53,8 @@ export type VerifiedUser = { id: string; email: string | null };
  * as a bearer token, which we present as `Authorization: Bearer …` (the `bearer`
  * plugin resolves it). When deployed no token is passed and the cookie is used.
  */
-export async function getSessionUser(
-  bearerToken?: string,
-): Promise<VerifiedUser | null> {
-  if (!authConfigured && !gateIdentityEnabled()) return null;
+export async function getSessionUser(bearerToken?: string): Promise<VerifiedUser | null> {
+  if (!authConfigured) return null;
   const request = getRequest();
   if (!request) return null;
   let headers = request.headers;
@@ -82,7 +79,7 @@ export async function getSessionUser(
  * - Auth disabled + no database -> the shared dev user id.
  */
 export async function requireUserId(bearerToken?: string): Promise<string> {
-  if (!authConfigured && !gateIdentityEnabled()) {
+  if (!authConfigured) {
     if (databaseConfigured) {
       throw new Error(
         "Auth is disabled (VITE_AUTH_ENABLED=false) but DATABASE_URL is set — " +
