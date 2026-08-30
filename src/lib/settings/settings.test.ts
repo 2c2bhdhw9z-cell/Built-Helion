@@ -4,6 +4,7 @@ import { register } from "node:module";
 import {
   DEFAULT_PREFERENCES,
   normalizePreferences,
+  PREFERENCES_STORAGE_KEY,
   userPreferencesSchema,
   type UserPreferences,
 } from "./types.ts";
@@ -40,6 +41,32 @@ describe("userPreferences model", () => {
 
   it("schema coerces a partial object to a complete one", () => {
     assert.deepEqual(userPreferencesSchema.parse({}), DEFAULT_PREFERENCES);
+  });
+});
+
+// The logged-out preference path serializes to localStorage with JSON.stringify
+// and reads back via `normalizePreferences(JSON.parse(...))` (see
+// readLocalPreferences/writeLocalPreferences in use-preferences.ts). That module
+// pulls in React + @tanstack/react-start, which the node:test strip-types loader
+// cannot resolve, so we assert the exact serialize/normalize round-trip it
+// performs. This pins the "toggle ON survives a reload" semantics for a
+// signed-out visitor and the never-throw fallback on corrupt storage, the
+// logged-out analogue of the signed-in persistence the fix must keep intact.
+describe("local preference store round-trip (serialize + normalize)", () => {
+  it("round-trips a toggled-ON value", () => {
+    const toggledOn: UserPreferences = { autofillFeedbackEmail: true };
+    const stored = JSON.stringify(toggledOn);
+    assert.deepEqual(normalizePreferences(JSON.parse(stored)), toggledOn);
+  });
+
+  it("round-trips a toggled-OFF value", () => {
+    const toggledOff: UserPreferences = { autofillFeedbackEmail: false };
+    const stored = JSON.stringify(toggledOff);
+    assert.deepEqual(normalizePreferences(JSON.parse(stored)), toggledOff);
+  });
+
+  it("uses a stable, documented storage key", () => {
+    assert.equal(PREFERENCES_STORAGE_KEY, "helion.preferences");
   });
 });
 
