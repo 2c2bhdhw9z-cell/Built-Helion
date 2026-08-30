@@ -1,13 +1,12 @@
 /**
- * Single source of truth for platform head chrome (PWA, extensions.js, OG),
- * shared by the Vite plugin and Nitro middleware. Plain ESM so `node --test`
- * and the Nitro bundler can both consume it.
+ * Single source of truth for the Helion head chrome (PWA + OG), shared by the
+ * Vite plugin and Nitro middleware. Plain ESM so `node --test` and the Nitro
+ * bundler can both consume it.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const DEFAULT_APP_NAME = "Grok App";
-export const OG_SERVICE_URL_DEFAULT = "https://og.grok.me";
+export const DEFAULT_APP_NAME = "Helion";
 export const OG_SITE_REL_PATH = "src/lib/og/site.json";
 
 const SHARE_META_KEYS = new Set([
@@ -47,38 +46,13 @@ function unescapeHtml(value) {
     .replaceAll("&amp;", "&");
 }
 
-/** 6-digit hex for the og.grok.me placeholder, or "" if site.color is missing/invalid. */
-function placeholderCardColor(site = {}) {
-  const raw = String(site.color ?? "").trim();
-  const hex = raw.startsWith("#") ? raw.slice(1) : raw;
-  return /^[0-9a-fA-F]{6}$/.test(hex) ? hex : "";
-}
-
 /**
- * "wild-race.grok.me" → "Wild Race". Only published app hosts encode the
- * display name in the first label. Preview / guest hosts are image origins
- * only — slugifying them produced internal names like "Hds Abc 3000 Xy".
+ * Standalone Helion deploys serve from a single host (built-helion.vercel.app),
+ * so there is no per-host app name to derive — always the default. The argument
+ * is kept so call sites reading a request Host stay unchanged.
  */
-export function appNameFromHost(hostHeader) {
-  const host = String(hostHeader ?? "")
-    .split(",")[0]
-    .trim()
-    .split(":")[0]
-    .toLowerCase();
-  if (!host.endsWith(".grok.me")) {
-    return DEFAULT_APP_NAME;
-  }
-  const slug = host.split(".")[0] ?? "";
-  if (!slug || slug === "www" || !/^[a-z0-9-]{1,63}$/.test(slug)) {
-    return DEFAULT_APP_NAME;
-  }
-  return (
-    slug
-      .split("-")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ") || DEFAULT_APP_NAME
-  );
+export function appNameFromHost(_hostHeader) {
+  return DEFAULT_APP_NAME;
 }
 
 /** True for Vercel system domains. Envoy rewrites origin Host to these; they SSO-protect `/og.jpg`. */
@@ -105,10 +79,10 @@ export function publicAppHost(hostHeader) {
 }
 
 /**
- * Published apps always use `VITE_PUBLIC_HOSTNAME` (the grok.me host the
- * deployer injects). Live preview has no such env, so fall back to the
- * request host / X-Forwarded-Host. Never prefer request Host on a published
- * app — Envoy rewrites it to `*.vercel.app`.
+ * Prefer `VITE_PUBLIC_HOSTNAME` (the public host the deploy injects) over the
+ * request host — Envoy rewrites the request Host to `*.vercel.app`, which is
+ * not a valid og:image origin. Live preview has no such env, so fall back to
+ * the request host / X-Forwarded-Host.
  */
 export function resolvePublicHost(hostHeader) {
   return (
@@ -128,7 +102,7 @@ export function isInstallQuery(url) {
 export function isDocumentPath(pathname) {
   const path = String(pathname ?? "");
   return (
-    !path.startsWith("/__grok/") &&
+    !path.startsWith("/__helion/") &&
     !path.startsWith("/api/") &&
     !path.startsWith("/@") &&
     !path.startsWith("/node_modules") &&
@@ -171,7 +145,7 @@ export function renderWebManifest(hostHeader) {
       theme_color: "#000000",
       icons: [
         {
-          src: "/__grok/icon-180.png",
+          src: "/__helion/icon-180.png",
           sizes: "180x180",
           type: "image/png",
         },
@@ -182,12 +156,12 @@ export function renderWebManifest(hostHeader) {
   );
 }
 
-export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
+export function pwaHeadTags(appName = DEFAULT_APP_NAME) {
   return [
     // Standalone display comes from the manifest ("display": "standalone");
     // the legacy *-web-app-capable metas it replaces are deliberately absent.
-    ["manifest", '<link rel="manifest" href="/__grok/manifest.webmanifest">'],
-    ["apple-touch-icon", '<link rel="apple-touch-icon" href="/__grok/icon-180.png">'],
+    ["manifest", '<link rel="manifest" href="/__helion/manifest.webmanifest">'],
+    ["apple-touch-icon", '<link rel="apple-touch-icon" href="/__helion/icon-180.png">'],
     [
       "apple-mobile-web-app-title",
       `<meta name="apple-mobile-web-app-title" content="${escapeHtml(appName)}">`,
@@ -198,48 +172,6 @@ export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
     ],
     ["theme-color", '<meta name="theme-color" content="#000000">'],
   ];
-}
-
-export const GROK_EXTENSIONS_SCRIPT_SRC = "https://grok.com/grok-app-builder/extensions.js";
-
-export function readGrokProjectId() {
-  const fromProcess = typeof process !== "undefined" ? process.env?.VITE_PROJECT_ID : "";
-  return String(fromProcess ?? "").trim();
-}
-
-export function readXCreator() {
-  const fromProcess = typeof process !== "undefined" ? process.env?.X_CREATOR : "";
-  return String(fromProcess ?? "").trim();
-}
-
-export function readXCreatorId() {
-  const fromProcess = typeof process !== "undefined" ? process.env?.X_CREATOR_ID : "";
-  return String(fromProcess ?? "").trim();
-}
-
-export function grokXCreatorHeadTags(creator = readXCreator(), creatorId = readXCreatorId()) {
-  const name = String(creator ?? "").trim();
-  const id = String(creatorId ?? "").trim();
-  if (!name || !id) return [];
-  return [
-    `<meta property="x:creator" content="${escapeHtml(name)}">`,
-    `<meta property="x:creator:id" content="${escapeHtml(id)}">`,
-  ];
-}
-
-/** Platform "Created with Grok" banner — injected into every HTML document. */
-export function grokExtensionsHeadTags(projectId = readGrokProjectId()) {
-  const id = escapeHtml(projectId);
-  const tags = [];
-  if (projectId) {
-    tags.push(`<meta name="grok-project-id" content="${id}">`);
-  }
-  tags.push(
-    `<script src="${GROK_EXTENSIONS_SCRIPT_SRC}"${
-      projectId ? ` data-project-id="${id}"` : ""
-    } defer></script>`,
-  );
-  return tags;
 }
 
 export function readOgSite(cwd = process.cwd()) {
@@ -287,11 +219,6 @@ export function customOgAssetPath(cwd = process.cwd()) {
   return ogCardPublicPath(cwd) || "/og.jpg";
 }
 
-export function ogServiceUrl() {
-  const fromEnv = String(process.env?.VITE_OG_SERVICE_URL ?? "").trim();
-  return (fromEnv || OG_SERVICE_URL_DEFAULT).replace(/\/+$/, "");
-}
-
 export function titleFromDocument(html) {
   const match = String(html ?? "").match(/<title\b[^>]*>([^<]*)<\/title>/i);
   return match ? unescapeHtml(match[1]).trim() : "";
@@ -320,7 +247,7 @@ export function siteHasCustomCard(site = {}) {
 /**
  * Preview: public/og.jpg|png on disk.
  * Vercel: the bake (`card=custom` / `image`) because the function cannot stat public/.
- * Otherwise empty — caller emits the og.grok.me placeholder.
+ * Otherwise empty — no og:image is emitted.
  */
 export function resolveOgCardAsset(site = {}, cwd = process.cwd()) {
   return ogCardPublicPath(cwd) || (detectCustomOgCard(cwd, site) ? String(site.image ?? "").trim() || "/og.jpg" : "");
@@ -333,7 +260,7 @@ function applyCustomCardFromFs(site, cwd) {
   return { ...site, card: "custom", image: disk };
 }
 
-export function grokOgHeadTags({
+export function ogHeadTags({
   host = "",
   appName = DEFAULT_APP_NAME,
   site = {},
@@ -354,22 +281,21 @@ export function grokOgHeadTags({
     tags.push(`<meta property="og:type" content="x:game">`);
   }
   if (publicHost) {
+    // Only emit og:image when a real custom card asset exists. Without one we
+    // emit no og:image rather than pointing at an external placeholder.
     const asset = resolveOgCardAsset(site, cwd);
-    const custom = Boolean(asset);
-    let image = custom
-      ? `https://${publicHost}${asset.startsWith("/") ? asset : `/${asset}`}`
-      : `${ogServiceUrl()}/v1/card.png?host=${encodeURIComponent(publicHost)}&title=${encodeURIComponent(title)}`;
-    const color = !custom ? placeholderCardColor(site) : "";
-    if (color) image += `&color=${encodeURIComponent(color)}`;
-    tags.push(`<meta property="og:image" content="${escapeHtml(image)}">`);
-    tags.push(`<meta property="og:image:width" content="1200">`);
-    tags.push(`<meta property="og:image:height" content="630">`);
-    const banner = String(site.banner ?? "").trim();
-    if (banner) {
-      const bannerUrl = `https://${publicHost}${banner.startsWith("/") ? banner : `/${banner}`}`;
-      tags.push(`<meta property="x:game:image" content="${escapeHtml(bannerUrl)}">`);
-      tags.push(`<meta property="x:game:image:width" content="1200">`);
-      tags.push(`<meta property="x:game:image:height" content="264">`);
+    if (asset) {
+      const image = `https://${publicHost}${asset.startsWith("/") ? asset : `/${asset}`}`;
+      tags.push(`<meta property="og:image" content="${escapeHtml(image)}">`);
+      tags.push(`<meta property="og:image:width" content="1200">`);
+      tags.push(`<meta property="og:image:height" content="630">`);
+      const banner = String(site.banner ?? "").trim();
+      if (banner) {
+        const bannerUrl = `https://${publicHost}${banner.startsWith("/") ? banner : `/${banner}`}`;
+        tags.push(`<meta property="x:game:image" content="${escapeHtml(bannerUrl)}">`);
+        tags.push(`<meta property="x:game:image:width" content="1200">`);
+        tags.push(`<meta property="x:game:image:height" content="264">`);
+      }
     }
   }
   return tags;
@@ -404,8 +330,8 @@ export function normalizeHeadContext(ctx = {}) {
   const cwd = ctx.cwd ?? process.cwd();
   // Middleware passes a baked `site`. Still consult the workspace so a
   // public/og.jpg generated after that snapshot (or missed by a wrong cwd)
-  // wins over the og.grok.me placeholder. Vercel has no public/ to read, so
-  // a correct bake is unchanged.
+  // is picked up. Vercel has no public/ to read, so a correct bake is
+  // unchanged.
   const site = applyCustomCardFromFs(
     ctx.site !== undefined ? ctx.site : snapshotOgIdentity(cwd).site,
     cwd,
@@ -413,18 +339,15 @@ export function normalizeHeadContext(ctx = {}) {
   const appName = resolveOgTitle(site, ctx.appName ?? DEFAULT_APP_NAME, ctx.host ?? "");
   return {
     appName,
-    projectId: ctx.projectId ?? readGrokProjectId(),
-    creator: ctx.creator ?? readXCreator(),
-    creatorId: ctx.creatorId ?? readXCreatorId(),
     host: ctx.host ?? "",
     cwd,
     site,
   };
 }
 
-export function injectGrokPwaHead(html, ctx = {}) {
+export function injectHelionPwaHead(html, ctx = {}) {
   if (typeof html !== "string") return html;
-  const { site, projectId, creator, creatorId, host, cwd } = normalizeHeadContext(ctx);
+  const { site, host, cwd } = normalizeHeadContext(ctx);
   const documentTitle = titleFromDocument(html);
   const appName = resolveOgTitle(
     site,
@@ -434,39 +357,18 @@ export function injectGrokPwaHead(html, ctx = {}) {
   );
   let next = stripShareMetaTags(html);
 
-  const missing = grokPwaHeadTags(appName)
+  const missing = pwaHeadTags(appName)
     .filter(([key]) => {
-      if (key === "manifest") return !next.includes('href="/__grok/manifest.webmanifest"');
-      if (key === "apple-touch-icon") return !next.includes('href="/__grok/icon-180.png"');
+      if (key === "manifest") return !next.includes('href="/__helion/manifest.webmanifest"');
+      if (key === "apple-touch-icon") return !next.includes('href="/__helion/icon-180.png"');
       return !next.includes(`name="${key}"`);
     })
     .map(([, tag]) => tag);
 
   next = insertAfterHeadOpen(
     next,
-    grokOgHeadTags({ host, appName, site, documentTitle, cwd }).join(""),
+    ogHeadTags({ host, appName, site, documentTitle, cwd }).join(""),
   );
-
-  if (!next.includes("/grok-app-builder/extensions.js")) {
-    missing.push(...grokExtensionsHeadTags(projectId));
-  } else if (projectId && !next.includes('name="grok-project-id"')) {
-    missing.push(`<meta name="grok-project-id" content="${escapeHtml(projectId)}">`);
-  }
-  if (
-    projectId &&
-    !next.includes('property="grok:app_id"') &&
-    !next.includes("property='grok:app_id'")
-  ) {
-    missing.push(`<meta property="grok:app_id" content="${escapeHtml(projectId)}">`);
-  }
-  const creatorTags = grokXCreatorHeadTags(creator, creatorId);
-  if (creatorTags.length > 0) {
-    const hasCreator =
-      next.includes('property="x:creator" content=') ||
-      next.includes("property='x:creator' content=");
-    if (!hasCreator) missing.push(creatorTags[0]);
-    if (!next.includes('property="x:creator:id"')) missing.push(creatorTags[1]);
-  }
 
   if (missing.length === 0) return next;
   return insertBeforeHeadClose(next, missing.join(""));
@@ -490,11 +392,8 @@ export function createHeadInjector(ctx = {}) {
   let done = false;
 
   const apply = (html) =>
-    injectGrokPwaHead(html, {
+    injectHelionPwaHead(html, {
       appName: normalized.appName,
-      projectId: normalized.projectId,
-      creator: normalized.creator,
-      creatorId: normalized.creatorId,
       host: normalized.host,
       cwd: normalized.cwd,
       site: normalized.site,

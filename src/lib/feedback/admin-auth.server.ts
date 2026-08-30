@@ -7,9 +7,9 @@ import { timingSafeEqual } from "node:crypto";
  * dynamically inside their handlers, next to `./server.ts`.
  *
  * WHY A DEDICATED MECHANISM (not just `authMiddleware`):
- * This app's supported standalone deploy runs with NO working federated
- * sign-in (see README "Authentication" + .env.example — the Grok broker
- * credentials the template can't provide). `authMiddleware`/`requireUserId`
+ * This app's supported standalone deploy may run with NO configured sign-in
+ * (see README "Authentication" + .env.example — no federated broker; this app
+ * is self-hosted Better Auth). `authMiddleware`/`requireUserId`
  * FAIL CLOSED when `DATABASE_URL` is set but auth is off, so wiring the admin
  * route through it would reject the legitimate owner too, making the admin view
  * unusable on the exact deploy that most needs it. So we support two

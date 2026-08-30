@@ -1,8 +1,8 @@
 /**
- * Dev/preview (Vite) half of the platform PWA chrome: serves the ?install=1
+ * Dev/preview (Vite) half of the Helion PWA chrome: serves the ?install=1
  * tutorial and the per-app manifest, and injects missing PWA head tags into
- * app documents. The deployed-app half lives in server/middleware/grok-pwa.ts;
- * both share scripts/grok-pwa-shared.mjs.
+ * app documents. The deployed-app half lives in server/middleware/helion-pwa.ts;
+ * both share scripts/helion-pwa-shared.mjs.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,15 +10,15 @@ import { fileURLToPath } from "node:url";
 import {
   acceptsHtml,
   createHeadInjector,
-  injectGrokPwaHead,
+  injectHelionPwaHead,
   isDocumentPath,
   isInstallQuery,
   renderInstallPageHtml,
   renderWebManifest,
   snapshotOgIdentity,
-} from "./grok-pwa-shared.mjs";
+} from "./helion-pwa-shared.mjs";
 
-export const GROK_OG_IDENTITY_ID = "virtual:grok-og-identity";
+export const OG_IDENTITY_ID = "virtual:helion-og-identity";
 
 const INSTALL_PAGE_PATH = join(dirname(fileURLToPath(import.meta.url)), "install-page.html");
 
@@ -42,7 +42,7 @@ function sendHtml(res, html) {
   res.end(body);
 }
 
-function serveGrokPwa(middlewares) {
+function serveHelionPwa(middlewares) {
   middlewares.use((req, res, next) => {
     const rawUrl = req.url ?? "";
     const pathOnly = rawUrl.split("?", 1)[0] ?? "";
@@ -52,7 +52,7 @@ function serveGrokPwa(middlewares) {
       return;
     }
 
-    if (pathOnly === "/__grok/manifest.webmanifest" || pathOnly === "/__grok/manifest.json") {
+    if (pathOnly === "/__helion/manifest.webmanifest" || pathOnly === "/__helion/manifest.json") {
       const body = Buffer.from(renderWebManifest(requestHost(req)), "utf8");
       res.statusCode = 200;
       res.setHeader("content-type", "application/manifest+json; charset=utf-8");
@@ -66,7 +66,7 @@ function serveGrokPwa(middlewares) {
       try {
         sendHtml(res, renderInstallPage(requestHost(req), rawUrl));
       } catch (err) {
-        console.error("[app-builder] install page missing:", err);
+        console.error("[helion:pwa] install page missing:", err);
         res.statusCode = 500;
         res.end("install page unavailable");
       }
@@ -151,22 +151,22 @@ function wrapHtmlResponses(middlewares, cwd) {
   });
 }
 
-export function grokPwaPlugin() {
+export function helionPwaPlugin() {
   let root = process.cwd();
   return {
-    name: "app-builder:grok-pwa",
+    name: "helion:pwa",
     configResolved(config) {
       root = config.root;
     },
     resolveId(id) {
-      if (id === GROK_OG_IDENTITY_ID) return `\0${GROK_OG_IDENTITY_ID}`;
+      if (id === OG_IDENTITY_ID) return `\0${OG_IDENTITY_ID}`;
     },
     load(id) {
-      if (id !== `\0${GROK_OG_IDENTITY_ID}`) return;
-      return `export const grokOgIdentity = ${JSON.stringify(snapshotOgIdentity(root))};`;
+      if (id !== `\0${OG_IDENTITY_ID}`) return;
+      return `export const ogIdentity = ${JSON.stringify(snapshotOgIdentity(root))};`;
     },
     transformIndexHtml(html) {
-      return injectGrokPwaHead(html, {
+      return injectHelionPwaHead(html, {
         host: process.env.VITE_PUBLIC_HOSTNAME ?? "",
         cwd: root,
       });
@@ -174,11 +174,11 @@ export function grokPwaPlugin() {
     configureServer(server) {
       // Registered directly (not in a returned post-hook) so both run BEFORE
       // TanStack Start's SSR middleware, like the auth-popup plugin.
-      serveGrokPwa(server.middlewares);
+      serveHelionPwa(server.middlewares);
       wrapHtmlResponses(server.middlewares, root);
     },
     configurePreviewServer(server) {
-      serveGrokPwa(server.middlewares);
+      serveHelionPwa(server.middlewares);
       // Post-hook: preview registers compression between the direct hooks and
       // the post-hooks, and the injector must wrap AFTER compression so it
       // sees plaintext HTML (compression then compresses the injected output).
