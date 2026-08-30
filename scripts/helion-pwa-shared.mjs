@@ -55,14 +55,41 @@ export function appNameFromHost(_hostHeader) {
   return DEFAULT_APP_NAME;
 }
 
-/** True for Vercel system domains. Envoy rewrites origin Host to these; they SSO-protect `/og.jpg`. */
+/**
+ * True for Vercel host shapes that SSO-protect `/og.jpg` and are therefore not
+ * a valid og:image origin: the apex domains and the auto-generated preview /
+ * deployment URLs Envoy rewrites the origin Host to.
+ *
+ * A project's STABLE public host — a single clean subdomain like
+ * `built-helion.vercel.app` — is NOT one of these. That host serves the real
+ * app (and its /og.jpg) publicly, so it must pass. Only the generated preview
+ * URLs (a deployment-hash label, or the long `-<project>-<org>` suffix Vercel
+ * appends to branch/preview deploys) are SSO-gated and rejected here.
+ */
 function isVercelSystemHost(host) {
-  return (
-    host === "vercel.app" ||
-    host.endsWith(".vercel.app") ||
-    host === "vercel.com" ||
-    host.endsWith(".vercel.com")
-  );
+  if (host === "vercel.app" || host === "vercel.com") return true;
+  if (host.endsWith(".vercel.com")) return true;
+  if (!host.endsWith(".vercel.app")) return false;
+  const label = host.slice(0, -".vercel.app".length);
+  // Only the leftmost label identifies the project; a dotted label (e.g.
+  // a nested system subdomain) is not a plain project host.
+  if (label === "" || label.includes(".")) return true;
+  return isVercelPreviewLabel(label);
+}
+
+/**
+ * A Vercel preview/deployment subdomain label vs. a stable project label.
+ * Preview URLs embed a generated deployment id: a long hex run and/or many
+ * hyphen-separated segments ending in the `-<project>-<org>` suffix. A stable
+ * project host (`built-helion`) is a short, human slug with no hash.
+ */
+function isVercelPreviewLabel(label) {
+  // A run of 12+ hex chars is a deployment hash, never a hand-picked slug.
+  if (/[0-9a-f]{12,}/.test(label)) return true;
+  // Preview URLs stack several hyphen groups (`<hash>-<git>-<project>-<org>`);
+  // a stable project slug stays short. Treat 4+ hyphen segments as preview.
+  if (label.split("-").length >= 4) return true;
+  return false;
 }
 
 /** Hostname suitable for absolute og:image URLs. Preview guests (X-Forwarded-Host) are allowed. */
@@ -289,6 +316,9 @@ export function ogHeadTags({
       tags.push(`<meta property="og:image" content="${escapeHtml(image)}">`);
       tags.push(`<meta property="og:image:width" content="1200">`);
       tags.push(`<meta property="og:image:height" content="630">`);
+      // `twitter:card=summary_large_image` renders a blank card without its own
+      // image tag; point it at the same absolute asset as og:image.
+      tags.push(`<meta name="twitter:image" content="${escapeHtml(image)}">`);
       const banner = String(site.banner ?? "").trim();
       if (banner) {
         const bannerUrl = `https://${publicHost}${banner.startsWith("/") ? banner : `/${banner}`}`;
