@@ -7,6 +7,7 @@ import { GeneratorBar, ParamDock, ToolBar } from "./menus";
 import { ScenesBar } from "./scenes-bar";
 import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackBoard } from "./feedback-board";
+import { CreationsDialog } from "./creations-dialog";
 import { PerfHub } from "./perf-hub/perf-hub";
 
 export function LabApp() {
@@ -65,6 +66,7 @@ export function LabApp() {
       <CanvasStage />
       <FeedbackDialog />
       <FeedbackBoard />
+      <CreationsDialog />
       <PerfHub />
 
       <div className="pointer-events-none absolute inset-0 z-20 flex min-h-0 flex-col justify-between overflow-hidden">

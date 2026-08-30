@@ -46,6 +46,7 @@ type LabState = {
   uiBottomOpen: boolean;
   feedbackOpen: boolean;
   boardOpen: boolean;
+  creationsOpen: boolean;
   perfHubOpen: boolean;
   perfCompact: boolean;
   /**
@@ -79,6 +80,7 @@ type LabState = {
   toggleUiBottom: () => void;
   setFeedbackOpen: (v: boolean) => void;
   setBoardOpen: (v: boolean) => void;
+  setCreationsOpen: (v: boolean) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
@@ -137,6 +139,7 @@ export const useLab = create<LabState>((set, get) => ({
   uiBottomOpen: true,
   feedbackOpen: false,
   boardOpen: false,
+  creationsOpen: false,
   perfHubOpen: false,
   perfCompact: false,
   getEngineSystemInfo: null,
@@ -171,6 +174,7 @@ export const useLab = create<LabState>((set, get) => ({
   toggleUiBottom: () => set((s) => ({ uiBottomOpen: !s.uiBottomOpen })),
   setFeedbackOpen: (v) => set({ feedbackOpen: v }),
   setBoardOpen: (v) => set({ boardOpen: v }),
+  setCreationsOpen: (v) => set({ creationsOpen: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
