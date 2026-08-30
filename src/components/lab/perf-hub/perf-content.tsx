@@ -33,14 +33,8 @@ import {
   FrameHistogram,
   RamChart,
 } from "./charts";
-import {
-  countTone,
-  fpsTone,
-  frameMsTone,
-  InfoRow,
-  Stat,
-  type Tone,
-} from "./stat";
+import { InfoRow, Stat } from "./stat";
+import { countTone, fpsTone, frameMsTone, type Tone } from "./stat-tones";
 
 function Section({
   title,
