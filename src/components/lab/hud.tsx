@@ -1,5 +1,6 @@
 import {
   Gauge,
+  Bookmark,
   ListChecks,
   LogIn,
   MessageSquare,
@@ -47,6 +48,7 @@ export function Hud() {
   const clearSim = useLab((s) => s.clearSim);
   const setFeedbackOpen = useLab((s) => s.setFeedbackOpen);
   const setBoardOpen = useLab((s) => s.setBoardOpen);
+  const setCreationsOpen = useLab((s) => s.setCreationsOpen);
   const setPerfHubOpen = useLab((s) => s.setPerfHubOpen);
 
   return (
@@ -102,6 +104,16 @@ export function Hud() {
           >
             <RotateCcw className="size-3.5" />
             <span className="hidden sm:inline">Clear</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 px-2.5"
+            aria-label="Save creation"
+            onClick={() => setCreationsOpen(true)}
+          >
+            <Bookmark className="size-3.5" />
+            <span className="hidden sm:inline">Save</span>
           </Button>
           <Button
             variant="outline"

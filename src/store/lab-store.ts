@@ -11,6 +11,7 @@ import {
   type ToolKind,
 } from "@/engine/types";
 import { SCENES, type SceneId } from "@/engine/scenes";
+import type { CreationConfig } from "@/lib/creations/types";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -45,6 +46,7 @@ type LabState = {
   uiBottomOpen: boolean;
   feedbackOpen: boolean;
   boardOpen: boolean;
+  creationsOpen: boolean;
   perfHubOpen: boolean;
   perfCompact: boolean;
   /**
@@ -78,14 +80,48 @@ type LabState = {
   toggleUiBottom: () => void;
   setFeedbackOpen: (v: boolean) => void;
   setBoardOpen: (v: boolean) => void;
+  setCreationsOpen: (v: boolean) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
   applyScene: (id: SceneId) => void;
+  /**
+   * Load a saved creation's config into the sim using the same deterministic
+   * clean-apply as `applyScene` (clear first, reset params over DEFAULT_PARAMS,
+   * set spawn kind/count/speed, bump spawnId).
+   *
+   * SECURITY: `config` is assumed to already be a VALIDATED CreationConfig.
+   * Callers that load an untrusted payload (a DB jsonb value or a public
+   * share-link blob) MUST run it through `normalizeCreationConfig` (from
+   * @/lib/creations/types) FIRST — that whitelists known keys, coerces invalid
+   * values to defaults, and returns null on total garbage so the caller can
+   * fall back to the default sim. `applyCreationConfig` performs no validation.
+   */
+  applyCreationConfig: (config: CreationConfig) => void;
   clearSim: () => void;
 };
+
+/**
+ * Snapshot the current sim into a savable CreationConfig. Pure and derivable
+ * from a LabState slice so both the Save UI and unit tests can use it without
+ * React. `spawnKind` falls back to 'galaxy' when null, matching the store's
+ * existing fallbacks in addParticles/runGenerator.
+ */
+export function currentCreationConfig(
+  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed" | "cap">,
+): CreationConfig {
+  return {
+    params: { ...state.params },
+    spawnKind: state.spawnKind ?? "galaxy",
+    spawnCount: state.spawnCount,
+    speed: state.speed,
+    // Capture the buffer cap so a high-count creation reproduces at full
+    // particle count on load (mirrors how applyScene persists scene.cap).
+    cap: state.cap,
+  };
+}
 
 export const useLab = create<LabState>((set, get) => ({
   params: { ...DEFAULT_PARAMS },
@@ -106,6 +142,7 @@ export const useLab = create<LabState>((set, get) => ({
   uiBottomOpen: true,
   feedbackOpen: false,
   boardOpen: false,
+  creationsOpen: false,
   perfHubOpen: false,
   perfCompact: false,
   getEngineSystemInfo: null,
@@ -140,6 +177,7 @@ export const useLab = create<LabState>((set, get) => ({
   toggleUiBottom: () => set((s) => ({ uiBottomOpen: !s.uiBottomOpen })),
   setFeedbackOpen: (v) => set({ feedbackOpen: v }),
   setBoardOpen: (v) => set({ boardOpen: v }),
+  setCreationsOpen: (v) => set({ creationsOpen: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
@@ -205,6 +243,40 @@ export const useLab = create<LabState>((set, get) => ({
       spawnKind: scene.kind,
       spawnId: s.spawnId + 1,
       activeSceneId: scene.id,
+    }));
+  },
+  // Load a saved creation. Mirrors applyScene's deterministic clean-apply so a
+  // loaded creation reproduces the saved look regardless of prior sim state.
+  // `config` MUST already be a validated CreationConfig (see the type-level
+  // note above / normalizeCreationConfig for untrusted share-link payloads).
+  applyCreationConfig: (config) => {
+    // Layer over a fresh DEFAULT_PARAMS baseline so stale toggles never leak.
+    const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
+    // Same clamp as setSpawnCount/applyScene.
+    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
+    // Restore the saved cap (like applyScene sets `cap: scene.cap ?? s.cap`),
+    // but floor it at spawnCount so the emitter is never starved — the engine
+    // spawns min(capacity - count, count), so a cap below spawnCount would load
+    // the creation truncated. The engine re-clamps to its own 1024..SYSTEM_LIMIT
+    // bounds, so this only ever raises the cap to preserve fidelity.
+    const nextCap = Math.max(config.cap, nextSpawnCount);
+    set((s) => ({
+      // Clear first so a loaded creation never stacks on the previous sim.
+      clearId: s.clearId + 1,
+      params: nextParams,
+      spawnCount: nextSpawnCount,
+      cap: nextCap,
+      speed: config.speed,
+      pouring: false,
+      // Deterministic boolean (default off); only 'fall' streams continuously.
+      falling: config.spawnKind === "fall",
+      replaceMode: true,
+      // creationConfigSchema only ever produces a valid GeneratorKind here; the
+      // zod .catch()/.default() on the enum widens the inferred type to string.
+      spawnKind: config.spawnKind as GeneratorKind,
+      spawnId: s.spawnId + 1,
+      // A loaded creation is not one of the curated scenes.
+      activeSceneId: null,
     }));
   },
   clearSim: () =>
