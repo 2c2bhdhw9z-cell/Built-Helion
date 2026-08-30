@@ -10,6 +10,7 @@ import {
   type Telemetry,
   type ToolKind,
 } from "@/engine/types";
+import { SCENES, type SceneId } from "@/engine/scenes";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -58,6 +59,8 @@ type LabState = {
   spawnId: number;
   spawnKind: GeneratorKind | null;
   clearId: number;
+  /** Id of the most recently applied scene, or null. Purely informational for the picker. */
+  activeSceneId: SceneId | null;
   setParam: <K extends keyof LabParams>(key: K, value: LabParams[K]) => void;
   patchParams: (p: Partial<LabParams>) => void;
   setTelemetry: (t: Telemetry) => void;
@@ -80,6 +83,7 @@ type LabState = {
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
+  applyScene: (id: SceneId) => void;
   clearSim: () => void;
 };
 
@@ -110,6 +114,7 @@ export const useLab = create<LabState>((set, get) => ({
   spawnId: 0,
   spawnKind: "galaxy",
   clearId: 0,
+  activeSceneId: null,
   setParam: (key, value) => set((s) => ({ params: { ...s.params, [key]: value } })),
   patchParams: (p) => set((s) => ({ params: { ...s.params, ...p } })),
   setTelemetry: (t) => set({ telemetry: t }),
@@ -170,6 +175,29 @@ export const useLab = create<LabState>((set, get) => ({
       replaceMode: true,
       spawnId: kind === "pour" || kind === "fall" ? s.spawnId : s.spawnId + 1,
       spawnKind: kind === "pour" || kind === "fall" ? s.spawnKind : kind,
+    }));
+  },
+  applyScene: (id) => {
+    const scene = SCENES.find((s) => s.id === id);
+    if (!scene) return;
+    // Layer the scene patch over a fresh DEFAULT_PARAMS baseline so stale toggles
+    // from a previously applied scene are reset to defaults, not carried over.
+    const nextParams: LabParams = { ...DEFAULT_PARAMS, ...scene.params };
+    // Same clamp as setSpawnCount.
+    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(scene.spawnCount)));
+    set((s) => ({
+      // Clear first so scenes never stack on top of the previous one.
+      clearId: s.clearId + 1,
+      params: nextParams,
+      spawnCount: nextSpawnCount,
+      speed: scene.speed ?? s.speed,
+      cap: scene.cap ?? s.cap,
+      pouring: false,
+      falling: false,
+      replaceMode: true,
+      spawnKind: scene.kind,
+      spawnId: s.spawnId + 1,
+      activeSceneId: scene.id,
     }));
   },
   clearSim: () =>
