@@ -56,6 +56,13 @@ type LabState = {
    * Null until the engine mounts (hub then shows values as unavailable).
    */
   getEngineSystemInfo: null | (() => EngineSystemInfo);
+  /**
+   * Trigger a screenshot of the sim (engine canvas + walls overlay, composited
+   * and downloaded as a PNG). Set by CanvasStage once the engine is running and
+   * cleared on unmount; the HUD capture button calls it. Null until the engine
+   * mounts (button then no-ops). NEVER gated on auth — capture works for anyone.
+   */
+  captureScreenshot: (() => void) | null;
   tiltX: number;
   tiltY: number;
   spawnId: number;
@@ -84,6 +91,7 @@ type LabState = {
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
+  setCaptureScreenshot: (fn: (() => void) | null) => void;
   setTilt: (x: number, y: number) => void;
   runGenerator: (kind: GeneratorKind) => void;
   applyScene: (id: SceneId) => void;
@@ -146,6 +154,7 @@ export const useLab = create<LabState>((set, get) => ({
   perfHubOpen: false,
   perfCompact: false,
   getEngineSystemInfo: null,
+  captureScreenshot: null,
   tiltX: 0,
   tiltY: 0,
   spawnId: 0,
@@ -181,6 +190,7 @@ export const useLab = create<LabState>((set, get) => ({
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
+  setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
   setTilt: (x, y) => set({ tiltX: x, tiltY: y }),
   runGenerator: (kind) => {
     const patch: Partial<LabParams> = {

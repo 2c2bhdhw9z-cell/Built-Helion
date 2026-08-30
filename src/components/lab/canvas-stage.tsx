@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { ParticleEngine } from "@/engine/engine";
 import { useLab } from "@/store/lab-store";
+import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
+import { compositeTargetSize } from "@/lib/capture/composite";
+import { captureFilename } from "@/lib/capture/filename";
+import { downloadBlobObject } from "@/lib/perf/export";
 
 
-function WallsOverlay({ engineRef }: { engineRef: import("react").MutableRefObject<any> }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+function WallsOverlay({
+  engineRef,
+  canvasRef,
+}: {
+  engineRef: import("react").MutableRefObject<any>;
+  canvasRef: import("react").RefObject<HTMLCanvasElement | null>;
+}) {
   useEffect(() => {
     let raf: number;
     const ctx = canvasRef.current?.getContext('2d');
@@ -29,7 +38,7 @@ function WallsOverlay({ engineRef }: { engineRef: import("react").MutableRefObje
     }
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [engineRef]);
+  }, [engineRef, canvasRef]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -41,13 +50,14 @@ function WallsOverlay({ engineRef }: { engineRef: import("react").MutableRefObje
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [canvasRef]);
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" />;
 }
 
 export function CanvasStage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<ParticleEngine | null>(null);
+  const wallsCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const isPointerDownRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
@@ -65,6 +75,12 @@ export function CanvasStage() {
     // the hub calls this getter only while open, reading the engine's current
     // backend/compute/DPR/canvas resolution + raw gl context on demand.
     useLab.getState().setEngineSystemInfo(() => engine.getSystemInfo());
+    // Expose a screenshot action to the store so the HUD (any user, no login)
+    // can trigger a capture. Reads the engine + walls canvases at call time,
+    // composites them, and downloads a PNG. See captureScreenshot() below.
+    useLab.getState().setCaptureScreenshot(() => {
+      void captureScreenshot();
+    });
     let raf = 0;
     let last = performance.now();
     let hudAt = 0;
@@ -142,8 +158,36 @@ export function CanvasStage() {
       engine.dispose();
       engineRef.current = null;
       useLab.getState().setEngineSystemInfo(null);
+      useLab.getState().setCaptureScreenshot(null);
     };
   }, []);
+
+  /**
+   * Capture the sim as it looks (engine canvas + walls overlay) and download it
+   * as a PNG. Works across all three engine backends: the engine reads its own
+   * canvas at the END of a freshly rendered frame (requestScreenshot handles the
+   * WebGPU same-tick requirement and forces a render for a paused sim), and we
+   * composite the walls overlay on top so drawn walls appear in the image. Never
+   * gated on login — anyone can screenshot.
+   */
+  const captureScreenshot = async () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    // Fresh, non-blank engine frame (correct for WebGPU/WebGL2/Canvas2D, and for
+    // a paused sim — see engine.requestScreenshot). We don't use its blob
+    // directly because it lacks the walls overlay; we composite the raw canvases
+    // below. Awaiting it guarantees a fresh render has run this frame.
+    await engine.requestScreenshot();
+    const size = compositeTargetSize({
+      width: engine.canvas.width,
+      height: engine.canvas.height,
+    });
+    const composite = compositeCanvases(engine.canvas, wallsCanvasRef.current, size);
+    if (!composite) return;
+    const blob = await captureScreenshotBlob(composite);
+    if (!blob) return;
+    downloadBlobObject(captureFilename("png"), blob);
+  };
 
   const spawnId = useLab((s) => s.spawnId);
   const spawnKind = useLab((s) => s.spawnKind);
@@ -241,7 +285,7 @@ export function CanvasStage() {
           }
         }}
       />
-      <WallsOverlay engineRef={engineRef} />
+      <WallsOverlay engineRef={engineRef} canvasRef={wallsCanvasRef} />
       {pointer.inside && (
         <div
           className="pointer-events-none absolute rounded-full border border-white/40 shadow-[0_0_8px_rgba(255,255,255,0.15)]"

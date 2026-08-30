@@ -85,6 +85,10 @@ export class ParticleEngine {
   private subsystemBuf: { name: string; ms: number }[] = [];
   // CPU physics time accumulated across substeps for the current frame (ms).
   private cpuPhysicsMs = 0;
+  // Pending screenshot resolver, honored at the END of stepFrame() right after
+  // render()/submit so the canvas read happens in the SAME tick as a fresh frame.
+  // Null (the common case) keeps the hot loop allocation-free.
+  private pendingScreenshot: ((blob: Blob | null) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, cap = pickDefaultCap()) {
     this.canvas = canvas;
@@ -193,6 +197,75 @@ export class ParticleEngine {
       backingH: this.canvas.height,
       gl: this.backend === "webgl" && this.gl ? this.gl.getRawGl() : null,
     };
+  }
+
+  /**
+   * Capture the engine canvas into a PNG Blob at the END of a freshly rendered
+   * frame. The read is deferred to the very end of stepFrame() (after render()
+   * and, for WebGPU, after the queue.submit()) so it lands in the SAME tick as a
+   * fresh frame for ALL backends. See the read site in stepFrame() for the
+   * per-backend timing rationale.
+   *
+   * If the sim is PAUSED the render loop still runs stepFrame() each rAF (it
+   * simply skips the physics substeps), so render() re-runs every tick and the
+   * pending read is honored on the next tick with a non-blank frame. As a
+   * belt-and-braces guard, if no rAF loop is active this also forces one render()
+   * inline so a paused/idle screenshot is never blank.
+   *
+   * Resolves null if the browser can't produce a blob (SSR/node or toBlob
+   * unsupported). Never gated on auth — capture works for anyone.
+   */
+  requestScreenshot(): Promise<Blob | null> {
+    if (typeof document === "undefined") return Promise.resolve(null);
+    // If a request is already pending, resolve the previous one with null so we
+    // never leave a dangling promise; only the latest request is honored.
+    if (this.pendingScreenshot) {
+      const prev = this.pendingScreenshot;
+      this.pendingScreenshot = null;
+      prev(null);
+    }
+    return new Promise<Blob | null>((resolve) => {
+      this.pendingScreenshot = resolve;
+      // Guard for the idle/paused case where no rAF loop is currently driving
+      // stepFrame(): force one render() so the pending read has a fresh frame to
+      // grab this same tick. When the loop IS running this is a harmless extra
+      // render immediately followed by the loop's own render.
+      if (this.ready) {
+        try {
+          this.render();
+          this.flushScreenshot();
+        } catch {
+          /* fall through: the running loop's stepFrame will honor it */
+        }
+      }
+    });
+  }
+
+  /**
+   * Read the canvas into a PNG blob and resolve the pending screenshot promise.
+   * MUST be called immediately after render()/submit within the same tick.
+   *
+   * Per-backend read correctness:
+   * - WebGL2: context created with preserveDrawingBuffer:true (see start()), so
+   *   toBlob reflects the last rendered frame reliably. VERIFIED-SOUND.
+   * - Canvas2D: the 2D backing store persists between frames, toBlob reads it
+   *   directly. VERIFIED-SOUND.
+   * - WebGPU: the swapchain uses alphaMode:'opaque' and render() calls
+   *   getCurrentTexture()+submit() PER FRAME, so the surface is only guaranteed
+   *   to hold this frame's contents right after submit(). We therefore read here,
+   *   in the same tick, immediately after render()/submit — NOT on a stale/next
+   *   tick which could return a blank/black frame. REASONED-SOUND (can't be
+   *   exercised headless).
+   */
+  private flushScreenshot(): void {
+    const resolve = this.pendingScreenshot;
+    if (!resolve) return;
+    this.pendingScreenshot = null;
+    try {
+      this.canvas.toBlob((blob) => resolve(blob), "image/png");
+    } catch {
+      resolve(null);
+    }
   }
 
   setCap(cap: number): void {
@@ -363,6 +436,13 @@ export class ParticleEngine {
 
     this.telemetry.activeGenerator = this.lastGenerator;
     this.updateSubsystems();
+
+    // End-of-frame screenshot read: render() ran above (and for WebGPU the
+    // per-frame getCurrentTexture()+submit() has completed), so the canvas holds
+    // a fresh frame in THIS tick. Reading here is the only place that is correct
+    // for the WebGPU opaque swapchain (a stale/next-tick read can be blank).
+    // The `if` keeps the hot loop allocation-free when no capture is pending.
+    if (this.pendingScreenshot) this.flushScreenshot();
   }
 
   /**

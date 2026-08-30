@@ -92,3 +92,22 @@ export function downloadBlob(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Browser-only helper that triggers a client-side download of an already-built
+ * `Blob` (e.g. a PNG/WebM from a canvas or MediaRecorder). Mirrors `downloadBlob`
+ * but takes the Blob directly instead of a string body. Guarded on
+ * `typeof document`/`URL` so importing/calling it under SSR/node is a safe no-op.
+ * Not unit tested (DOM side-effect only).
+ */
+export function downloadBlobObject(filename: string, blob: Blob): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
