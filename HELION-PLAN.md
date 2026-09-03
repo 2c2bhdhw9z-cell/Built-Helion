@@ -16,8 +16,8 @@ STANDING RULES (yours, override the bullets)
 - Production does not move until you merge.
 - Every reply includes this checklist. No exceptions.
 
-Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body + public share links (merged). Fill frame is live.
-Preview now: nothing queued.
+Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body + public share links (on GitHub). Fill frame is live.
+Preview now: Vercel git deploys paused (hobby quota / failed-build mail). Public lab stays on the last good Fill-frame host.
 
 WHERE WE ARE
 - Phase 1: shipped, including Fill frame.
@@ -26,6 +26,7 @@ WHERE WE ARE
 - Generator identity: shipped (Crystal snowflakes, Helix DNA, Mandala 8-fold, Molecule ball-and-stick). Not galaxies.
 - SPH / n-body: deeper (pressure, viscosity, cohesion, surface tension, XSPH; n-body pairwise to 1,600 then 32×24 mass grid). Honest, not Barnes-Hut, not a chemistry suite.
 - Public share: Copy link / embed use the public lab. No Grok account. Merged.
+- Vercel: git deploys paused (`ignoreCommand`). Hobby quota was cooking failed preview+production builds. Public host is the last successful Fill-frame deploy until quota resets.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
