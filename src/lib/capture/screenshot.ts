@@ -49,11 +49,13 @@ export function compositeCanvases(
  */
 export function captureScreenshotBlob(
   composite: HTMLCanvasElement,
+  mime: "image/png" | "image/jpeg" = "image/png",
+  quality = 0.92,
 ): Promise<Blob | null> {
   if (typeof document === "undefined") return Promise.resolve(null);
   return new Promise<Blob | null>((resolve) => {
     try {
-      composite.toBlob((blob) => resolve(blob), "image/png");
+      composite.toBlob((blob) => resolve(blob), mime, quality);
     } catch {
       resolve(null);
     }

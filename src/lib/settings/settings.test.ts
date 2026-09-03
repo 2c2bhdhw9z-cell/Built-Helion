@@ -23,8 +23,9 @@ type SettingsServer = {
 };
 
 describe("userPreferences model", () => {
-  it("DEFAULT_PREFERENCES has autofill OFF", () => {
+  it("DEFAULT_PREFERENCES has autofill OFF and theme dark", () => {
     assert.equal(DEFAULT_PREFERENCES.autofillFeedbackEmail, false);
+    assert.equal(DEFAULT_PREFERENCES.theme, "dark");
   });
 
   it("normalizePreferences fills missing fields with the default", () => {
@@ -36,6 +37,14 @@ describe("userPreferences model", () => {
   it("normalizePreferences keeps a valid provided value", () => {
     assert.deepEqual(normalizePreferences({ autofillFeedbackEmail: true }), {
       autofillFeedbackEmail: true,
+      theme: "dark",
+    });
+  });
+
+  it("normalizePreferences keeps a light theme", () => {
+    assert.deepEqual(normalizePreferences({ theme: "light" }), {
+      autofillFeedbackEmail: false,
+      theme: "light",
     });
   });
 
@@ -54,15 +63,21 @@ describe("userPreferences model", () => {
 // logged-out analogue of the signed-in persistence the fix must keep intact.
 describe("local preference store round-trip (serialize + normalize)", () => {
   it("round-trips a toggled-ON value", () => {
-    const toggledOn: UserPreferences = { autofillFeedbackEmail: true };
+    const toggledOn: UserPreferences = { autofillFeedbackEmail: true, theme: "dark" };
     const stored = JSON.stringify(toggledOn);
     assert.deepEqual(normalizePreferences(JSON.parse(stored)), toggledOn);
   });
 
   it("round-trips a toggled-OFF value", () => {
-    const toggledOff: UserPreferences = { autofillFeedbackEmail: false };
+    const toggledOff: UserPreferences = { autofillFeedbackEmail: false, theme: "dark" };
     const stored = JSON.stringify(toggledOff);
     assert.deepEqual(normalizePreferences(JSON.parse(stored)), toggledOff);
+  });
+
+  it("round-trips light theme", () => {
+    const light: UserPreferences = { autofillFeedbackEmail: false, theme: "light" };
+    const stored = JSON.stringify(light);
+    assert.deepEqual(normalizePreferences(JSON.parse(stored)), light);
   });
 
   it("uses a stable, documented storage key", () => {
@@ -70,7 +85,7 @@ describe("local preference store round-trip (serialize + normalize)", () => {
   });
 });
 
-describe("preferences DB round trip (real PGLite, migration 0003)", () => {
+describe("preferences DB round trip (real PGLite, migration 0003 + 0005)", () => {
   let server: SettingsServer;
 
   before(async () => {
@@ -79,13 +94,14 @@ describe("preferences DB round trip (real PGLite, migration 0003)", () => {
 
   it("returns the default for an unknown user (no row)", async () => {
     const prefs = await server.getPreferences("unknown-user-id");
-    assert.deepEqual(prefs, { autofillFeedbackEmail: false });
+    assert.deepEqual(prefs, { autofillFeedbackEmail: false, theme: "dark" });
   });
 
   it("upsertPreferences then getPreferences returns the stored value", async () => {
     const userId = "user-round-trip";
     const saved = await server.upsertPreferences(userId, {
       autofillFeedbackEmail: true,
+      theme: "dark",
     });
     assert.equal(saved.autofillFeedbackEmail, true);
 
@@ -103,6 +119,7 @@ describe("preferences DB round trip (real PGLite, migration 0003)", () => {
     const userId = "user-strict-boolean";
     const saved = await server.upsertPreferences(userId, {
       autofillFeedbackEmail: true,
+      theme: "dark",
     });
     assert.strictEqual(saved.autofillFeedbackEmail, true);
     assert.strictEqual(typeof saved.autofillFeedbackEmail, "boolean");
@@ -114,20 +131,24 @@ describe("preferences DB round trip (real PGLite, migration 0003)", () => {
 
   it("upsertPreferences updates an existing row (idempotent on user_id)", async () => {
     const userId = "user-update";
-    await server.upsertPreferences(userId, { autofillFeedbackEmail: true });
+    await server.upsertPreferences(userId, { autofillFeedbackEmail: true, theme: "dark" });
     const off = await server.upsertPreferences(userId, {
       autofillFeedbackEmail: false,
+      theme: "light",
     });
     assert.equal(off.autofillFeedbackEmail, false);
+    assert.equal(off.theme, "light");
 
     const loaded = await server.getPreferences(userId);
     assert.equal(loaded.autofillFeedbackEmail, false, "the update persisted");
+    assert.equal(loaded.theme, "light");
   });
 
   it("scopes preferences per user id", async () => {
-    await server.upsertPreferences("user-a", { autofillFeedbackEmail: true });
-    await server.upsertPreferences("user-b", { autofillFeedbackEmail: false });
+    await server.upsertPreferences("user-a", { autofillFeedbackEmail: true, theme: "dark" });
+    await server.upsertPreferences("user-b", { autofillFeedbackEmail: false, theme: "light" });
     assert.equal((await server.getPreferences("user-a")).autofillFeedbackEmail, true);
     assert.equal((await server.getPreferences("user-b")).autofillFeedbackEmail, false);
+    assert.equal((await server.getPreferences("user-b")).theme, "light");
   });
 });

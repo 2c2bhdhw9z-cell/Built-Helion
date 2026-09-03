@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { compositeTargetSize } from "./composite.ts";
+import {
+  compositeTargetSize,
+  exportMaxDim,
+  exportTargetSize,
+  FREE_EXPORT_MAX,
+  PRO_EXPORT_MAX,
+} from "./composite.ts";
 
 describe("compositeTargetSize", () => {
   it("returns the engine size unchanged when there is no maxDim", () => {
@@ -38,5 +44,28 @@ describe("compositeTargetSize", () => {
     const result = compositeTargetSize({ width: 10, height: 4000 }, 100);
     assert.ok(result.width >= 1);
     assert.ok(result.height >= 1);
+  });
+});
+
+describe("exportTargetSize", () => {
+  it("caps free stills at 1280", () => {
+    assert.equal(exportMaxDim(false), FREE_EXPORT_MAX);
+    const result = exportTargetSize({ width: 2560, height: 1440 }, false);
+    assert.equal(result.width, 1280);
+    assert.equal(result.height, 720);
+  });
+
+  it("upscales entitled stills to 4K on the long side", () => {
+    assert.equal(exportMaxDim(true), PRO_EXPORT_MAX);
+    const result = exportTargetSize({ width: 1920, height: 1080 }, true);
+    assert.equal(result.width, 3840);
+    assert.equal(result.height, 2160);
+    assert.ok(result.scale > 1);
+  });
+
+  it("downscales entitled stills that already exceed 4K", () => {
+    const result = exportTargetSize({ width: 7680, height: 4320 }, true);
+    assert.equal(result.width, 3840);
+    assert.equal(result.height, 2160);
   });
 });

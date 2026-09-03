@@ -5,16 +5,19 @@ export function Chip({
   children,
   onClick,
   className,
+  title,
 }: {
   active?: boolean;
   children: React.ReactNode;
   onClick?: () => void;
   className?: string;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "h-9 shrink-0 rounded-sm px-2.5 text-xs font-medium tracking-wide transition-[background-color,color,opacity] duration-150",
         active ? "bg-fg text-accent-fg" : "bg-elevated text-muted hover:text-fg",
@@ -59,6 +62,7 @@ export function SliderRow({
         value={safeVal}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
+        suppressHydrationWarning
       />
     </label>
   );
