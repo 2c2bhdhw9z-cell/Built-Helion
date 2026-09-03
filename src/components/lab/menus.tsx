@@ -3,6 +3,7 @@ import { Type,
   ChevronDown,
   Droplets,
   Eraser,
+  Flame,
   Grid3x3,
   Magnet,
   Orbit,
@@ -16,10 +17,25 @@ import { Type,
   Wind,
   CircleDashed,
   Users,
+  Cloud,
+  PartyPopper,
+  Tornado,
+  Zap,
+  CircleDot,
+  Sun,
+  Flower2,
+  Triangle,
+  Droplet,
+  Gem,
+  Lock,
+  Hexagon,
+  Asterisk,
+  Infinity as InfinityIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PALETTE_IDS } from "@/engine/palettes";
-import type { GeneratorKind, ParamTab, ToolKind } from "@/engine/types";
+import { SCENES, type SceneId } from "@/engine/scenes";
+import { isProGenerator, type GeneratorKind, type ParamTab, type ToolKind } from "@/engine/types";
 import { useLab } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
 import { Chip, Segmented, SliderRow, ToggleRow } from "./controls";
@@ -37,6 +53,40 @@ const GENERATORS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
   { id: "text", label: "Text", icon: Type },
 ];
 
+const EFFECTS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
+  { id: "fire", label: "Fire", icon: Flame },
+  { id: "smoke", label: "Smoke", icon: Cloud },
+  { id: "fireworks", label: "Fireworks", icon: PartyPopper },
+  { id: "water", label: "Water", icon: Droplets },
+  { id: "tornado", label: "Tornado", icon: Tornado },
+  { id: "lightning", label: "Lightning", icon: Zap },
+  { id: "blackhole", label: "Black Hole", icon: CircleDot },
+  { id: "supernova", label: "Supernova", icon: Sun },
+  { id: "fibonacci", label: "Fibonacci", icon: Flower2 },
+  { id: "sierpinski", label: "Sierpinski", icon: Triangle },
+];
+
+const PRO_EFFECTS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
+  { id: "crystal", label: "Crystal", icon: Gem },
+  { id: "magma", label: "Magma", icon: Flame },
+  { id: "aurora", label: "Aurora", icon: Wind },
+  { id: "helix", label: "Helix", icon: InfinityIcon },
+  { id: "mandala", label: "Mandala", icon: Hexagon },
+  { id: "confetti", label: "Confetti", icon: Asterisk },
+];
+
+const SCENE_ICONS: Record<SceneId, typeof CircleDot> = {
+  "black-hole": CircleDot,
+  "galaxy-collision": Sparkles,
+  fireworks: PartyPopper,
+  murmuration: Users,
+  whirlpool: Tornado,
+  "flow-field": Wind,
+  waterfall: Droplet,
+  cloth: Grid3x3,
+  nebula: Cloud,
+};
+
 const TOOLS: { id: ToolKind; label: string; icon: typeof Magnet }[] = [
   { id: "attract", label: "Attract", icon: Magnet },
   { id: "repel", label: "Repel", icon: Wind },
@@ -50,6 +100,7 @@ const TOOLS: { id: ToolKind; label: string; icon: typeof Magnet }[] = [
 const TABS: { id: ParamTab; label: string }[] = [
   { id: "physics", label: "Physics" },
   { id: "visuals", label: "Visuals" },
+  { id: "view", label: "View" },
   { id: "trails", label: "Trails" },
   { id: "collide", label: "Collide" },
   { id: "tilt", label: "Tilt" },
@@ -61,38 +112,88 @@ const TABS: { id: ParamTab; label: string }[] = [
   { id: "walls", label: "Walls" },
 ];
 
+const EMOJIS = ["✨", "❤️", "⭐", "🔥", "💧", "💜", "🌸", "⚡", "💎", "🌙"];
+
 export function GeneratorBar() {
   const run = useLab((s) => s.runGenerator);
   const pouring = useLab((s) => s.pouring);
   const falling = useLab((s) => s.falling);
-    const spawnKind = useLab((s) => s.spawnKind);
+  const firing = useLab((s) => s.firing);
+  const smoking = useLab((s) => s.smoking);
+  const spawnKind = useLab((s) => s.spawnKind);
   const textInput = useLab((s) => s.params.textInput);
   const setParam = useLab((s) => s.setParam);
   const spawnCount = useLab((s) => s.spawnCount);
   const setSpawnCount = useLab((s) => s.setSpawnCount);
   const addParticles = useLab((s) => s.addParticles);
   const clearSim = useLab((s) => s.clearSim);
+  const applyScene = useLab((s) => s.applyScene);
+  const activeSceneId = useLab((s) => s.activeSceneId);
+  const entitled = useLab((s) => s.entitled);
+  const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
+
+  const isActive = (id: GeneratorKind) => {
+    if (id === "pour") return pouring;
+    if (id === "fall") return falling;
+    if (id === "fire") return firing || spawnKind === "fire";
+    if (id === "smoke") return smoking || spawnKind === "smoke";
+    return spawnKind === id;
+  };
+
+  const runOrUpgrade = (id: GeneratorKind) => {
+    if (isProGenerator(id) && !entitled) {
+      setUpgradeOpen(true);
+      return;
+    }
+    run(id);
+  };
+
+  const renderChip = (g: { id: GeneratorKind; label: string; icon: typeof Orbit }) => {
+    const Icon = g.icon;
+    const locked = isProGenerator(g.id) && !entitled;
+    return (
+      <Chip
+        key={g.id}
+        active={isActive(g.id)}
+        onClick={() => runOrUpgrade(g.id)}
+        className={cn("gap-1.5", locked && "opacity-70")}
+        title={locked ? "Pro generator — start a trial" : undefined}
+      >
+        <Icon className="size-3" />
+        {g.label}
+        {locked ? <Lock className="size-3" /> : null}
+      </Chip>
+    );
+  };
 
   return (
-    <div className="relative z-20 flex shrink-0 flex-col gap-2 border-b border-border bg-surface/70 px-3 py-2 backdrop-blur-md md:px-4">
+    <div className="relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border bg-surface/70 px-3 py-1.5 backdrop-blur-md md:px-4 md:py-2">
       <div className="flex items-center gap-2">
         <span className="hidden text-2xs uppercase tracking-[0.16em] text-faint sm:inline">Generate</span>
         <div className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
-          {GENERATORS.map((g) => {
-            const Icon = g.icon;
-            const active = g.id === "pour" ? pouring : g.id === "fall" ? falling : spawnKind === g.id;
+          {GENERATORS.map(renderChip)}
+          <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden />
+          {EFFECTS.map(renderChip)}
+          <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden />
+          {PRO_EFFECTS.map(renderChip)}
+          <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden />
+          {SCENES.map((scene) => {
+            const Icon = SCENE_ICONS[scene.id];
             return (
-              <Chip key={g.id} active={active} onClick={() => run(g.id)} className="gap-1.5">
+              <Chip
+                key={scene.id}
+                active={activeSceneId === scene.id}
+                onClick={() => applyScene(scene.id)}
+                className="gap-1.5"
+              >
                 <Icon className="size-3" />
-                {g.label}
+                {scene.label}
               </Chip>
             );
           })}
         </div>
       </div>
       <div className="flex items-end gap-2">
-        
-        
         <div className="min-w-0 flex-1">
           <SliderRow
             label="Count"
@@ -104,11 +205,11 @@ export function GeneratorBar() {
             onChange={setSpawnCount}
           />
           {spawnKind === "text" && (
-            <div className="flex items-center gap-2 mt-2">
+            <div className="mt-2 flex items-center gap-2">
               <span className="text-2xs uppercase tracking-[0.12em] text-faint">Word</span>
-              <input 
-                type="text" 
-                className="flex-1 bg-bg border border-border rounded-sm px-2 py-1 text-xs text-fg focus:outline-none focus:border-accent"
+              <input
+                type="text"
+                className="flex-1 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg focus:border-accent focus:outline-none"
                 value={textInput}
                 onChange={(e) => setParam("textInput", e.target.value.substring(0, 12))}
                 maxLength={12}
@@ -117,8 +218,6 @@ export function GeneratorBar() {
             </div>
           )}
         </div>
-
-
         <Button variant="default" size="sm" className="h-8 shrink-0 px-3" onClick={addParticles}>
           <Plus className="size-3.5" />
           Add
@@ -142,7 +241,7 @@ export function ToolBar() {
   const setParam = useLab((s) => s.setParam);
 
   return (
-    <div className="relative z-20 flex shrink-0 flex-col gap-2 border-t border-border bg-surface/70 px-3 py-2 backdrop-blur-md md:px-4">
+    <div className="relative z-20 flex shrink-0 flex-col gap-1.5 border-t border-border bg-surface/70 px-3 py-1.5 backdrop-blur-md md:px-4 md:py-2">
       <div className="flex items-center gap-2">
         <span className="hidden text-2xs uppercase tracking-[0.16em] text-faint sm:inline">Interact</span>
         <div className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
@@ -199,7 +298,15 @@ export function ParamDock() {
   const setCap = useLab((s) => s.setCap);
   const tiltX = useLab((s) => s.tiltX);
   const tiltY = useLab((s) => s.tiltY);
+  const viewZoom = useLab((s) => s.viewZoom);
+  const viewRotate = useLab((s) => s.viewRotate);
+  const setView = useLab((s) => s.setView);
+  const resetView = useLab((s) => s.resetView);
+  const setBgMedia = useLab((s) => s.setBgMedia);
+  const bgObjectUrl = useLab((s) => s.bgObjectUrl);
   const [open, setOpen] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   const handleToggleTilt = async (v: boolean) => {
     if (v && typeof (DeviceOrientationEvent as any)?.requestPermission === "function") {
@@ -225,6 +332,13 @@ export function ParamDock() {
       }
     }
     setParam("tiltEnabled", v);
+  };
+
+  const pickFile = (kind: "image" | "video", file: File | undefined) => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setBgMedia(url);
+    setParam("background", kind);
   };
 
   return (
@@ -348,17 +462,22 @@ export function ParamDock() {
                 </div>
                 <div className="col-span-2">
                   <div className="mb-1 text-xs text-muted">Color map</div>
-                  <Segmented
-                    value={params.colorMap}
-                    options={[
-                      { id: "speed", label: "Speed" },
-                      { id: "life", label: "Life" },
-                      { id: "density", label: "Density" },
-                      { id: "mass", label: "Mass" },
-                      { id: "palette", label: "Phase" },
-                    ]}
-                    onChange={(v) => setParam("colorMap", v)}
-                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        ["speed", "Speed"],
+                        ["life", "Life"],
+                        ["density", "Density"],
+                        ["mass", "Mass"],
+                        ["palette", "Phase"],
+                        ["position", "Position"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <Chip key={id} active={params.colorMap === id} onClick={() => setParam("colorMap", id)}>
+                        {label}
+                      </Chip>
+                    ))}
+                  </div>
                 </div>
                 <div className="col-span-2">
                   <div className="mb-1 text-xs text-muted">Palette</div>
@@ -370,19 +489,90 @@ export function ParamDock() {
                     ))}
                   </div>
                 </div>
+                <div className="col-span-2 flex items-end gap-3">
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs text-muted">Tint</span>
+                    <input
+                      type="color"
+                      value={params.tint}
+                      onChange={(e) => setParam("tint", e.target.value)}
+                      aria-label="Tint color"
+                      className="size-8 cursor-pointer rounded-sm border border-border bg-elevated p-0.5"
+                    />
+                    <span className="font-mono text-2xs tabular-nums text-fg">{params.tint}</span>
+                  </label>
+                  {params.tint !== "#ffffff" ? (
+                    <Button variant="outline" size="sm" className="h-8" onClick={() => setParam("tint", "#ffffff")}>
+                      Reset tint
+                    </Button>
+                  ) : null}
+                </div>
                 <div className="col-span-2">
                   <div className="mb-1 text-xs text-muted">Shape</div>
-                  <Segmented
-                    value={params.shape}
-                    options={[
-                      { id: "circle", label: "Circle" },
-                      { id: "square", label: "Square" },
-                      { id: "ring", label: "Ring" },
-                      { id: "diamond", label: "Diamond" },
-                    ]}
-                    onChange={(v) => setParam("shape", v as any)}
-                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        ["circle", "Circle"],
+                        ["square", "Square"],
+                        ["ring", "Ring"],
+                        ["diamond", "Diamond"],
+                        ["triangle", "Triangle"],
+                        ["star", "Star"],
+                        ["hex", "Hex"],
+                        ["plus", "Plus"],
+                        ["heart", "Heart"],
+                        ["spark", "Spark"],
+                        ["emoji", "Emoji"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <Chip
+                        key={id}
+                        active={params.shape === id}
+                        onClick={() => {
+                          if (id === "emoji") {
+                            useLab.getState().patchParams({
+                              shape: "emoji",
+                              pointSize: Math.max(params.pointSize, 16),
+                              emoji: params.emoji || "✨",
+                            });
+                          } else {
+                            setParam("shape", id);
+                          }
+                        }}
+                      >
+                        {label}
+                      </Chip>
+                    ))}
+                  </div>
                 </div>
+                {params.shape === "emoji" ? (
+                  <div className="col-span-2">
+                    <div className="mb-1 text-xs text-muted">Glyph</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {EMOJIS.map((glyph) => (
+                        <Chip
+                          key={glyph}
+                          active={params.emoji === glyph}
+                          onClick={() => setParam("emoji", glyph)}
+                          className="h-10 min-w-10 px-1.5 text-lg"
+                        >
+                          {glyph}
+                        </Chip>
+                      ))}
+                      <input
+                        type="text"
+                        inputMode="text"
+                        aria-label="Custom emoji"
+                        maxLength={8}
+                        value={params.emoji}
+                        onChange={(e) => setParam("emoji", e.target.value.slice(0, 8) || "✨")}
+                        className="h-9 w-16 rounded-sm border border-border bg-bg px-2 text-center text-sm text-fg"
+                        placeholder="✨"
+                      />
+                    </div>
+                    <p className="mt-1 text-2xs text-faint">Tap a glyph or paste any emoji. Size it up if it’s tiny.</p>
+                  </div>
+                ) : null}
                 <SliderRow
                   label="Point size"
                   value={params.pointSize}
@@ -408,6 +598,92 @@ export function ParamDock() {
                   step={0.01}
                   onChange={(n) => setParam("lifeFadeOut", n)}
                 />
+              </div>
+            )}
+
+            {tab === "view" && (
+              <div className="grid grid-cols-2 gap-x-5 gap-y-2 md:grid-cols-4">
+                <div className="col-span-2">
+                  <div className="mb-1 text-xs text-muted">Background</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        ["void", "Void"],
+                        ["starfield", "Stars"],
+                        ["gradient", "Gradient"],
+                        ["nebula", "Nebula"],
+                        ["image", "Image"],
+                        ["video", "Video"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <Chip
+                        key={id}
+                        active={params.background === id}
+                        onClick={() => {
+                          setParam("background", id);
+                          if (id === "image") imageInputRef.current?.click();
+                          if (id === "video") videoInputRef.current?.click();
+                        }}
+                      >
+                        {label}
+                      </Chip>
+                    ))}
+                  </div>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      pickFile("image", e.target.files?.[0]);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <input
+                    ref={videoInputRef}
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      pickFile("video", e.target.files?.[0]);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  {(params.background === "image" || params.background === "video") && (
+                    <p className="mt-1 text-2xs text-faint">
+                      {bgObjectUrl
+                        ? "Media stays in this session only — not saved with a creation."
+                        : "Pick a file. It stays in this session only."}
+                    </p>
+                  )}
+                </div>
+                <SliderRow
+                  label="Zoom"
+                  value={viewZoom}
+                  min={0.4}
+                  max={4}
+                  step={0.05}
+                  format={(n) => `${n.toFixed(2)}×`}
+                  onChange={(n) => setView({ zoom: n })}
+                />
+                <SliderRow
+                  label="Orbit"
+                  value={viewRotate}
+                  min={-180}
+                  max={180}
+                  step={1}
+                  format={(n) => `${n.toFixed(0)}°`}
+                  onChange={(n) => setView({ rotate: n })}
+                />
+                <div className="flex items-end">
+                  <Button variant="outline" size="sm" className="h-8 w-full" onClick={resetView}>
+                    Reset view
+                  </Button>
+                </div>
+                <p className="col-span-2 text-xs text-muted md:col-span-4">
+                  Scroll to zoom. Right-drag or Alt-drag to pan. Press 0 to reset.
+                  Pixel density (Low / High) lives under Performance — the gauge in the top bar.
+                </p>
               </div>
             )}
 

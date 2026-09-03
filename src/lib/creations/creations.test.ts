@@ -54,6 +54,9 @@ type CreationsServer = {
   listCreations: (userId: string) => Promise<CreationRow[]>;
   deleteCreation: (userId: string, id: string) => Promise<boolean>;
   getPublicCreation: (id: string) => Promise<PublicCreation | null>;
+  setCreationPublic: (userId: string, id: string, isPublic: boolean) => Promise<boolean>;
+  listLibrary: (sort: "recent" | "featured", viewerId: string | null) => Promise<import("./types.ts").LibraryItem[]>;
+  toggleLike: (userId: string, creationId: string) => Promise<{ liked: boolean; likeCount: number }>;
 };
 
 /** A complete, valid config to persist in the DB round-trip tests. */
@@ -333,5 +336,63 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
 
     const missing = await server.getPublicCreation("no-such-share-id");
     assert.equal(missing, null, "an unknown share id must return null");
+  });
+
+  it("new creations default to unlisted (is_public false)", async () => {
+    const inserted = await server.insertCreation("pub-owner", "Private draft", validConfig());
+    assert.equal(inserted.is_public, false);
+  });
+
+  it("setCreationPublic is owner-scoped and listLibrary only shows public rows", async () => {
+    const owner = "lib-owner";
+    const other = "lib-other";
+    const a = await server.insertCreation(owner, "Aurora public", validConfig());
+    const b = await server.insertCreation(owner, "Kept private", validConfig());
+
+    assert.equal(await server.setCreationPublic(other, a.id, true), false, "non-owner cannot publish");
+    assert.equal(await server.setCreationPublic(owner, a.id, true), true);
+
+    const recent = await server.listLibrary("recent", null);
+    assert.ok(recent.some((row) => row.id === a.id), "published row appears in library");
+    assert.ok(!recent.some((row) => row.id === b.id), "unlisted row stays out of library");
+    const published = recent.find((row) => row.id === a.id)!;
+    assert.equal(published.author, "Helion");
+    assert.equal(published.liked, false);
+    assert.equal(published.likeCount, 0);
+  });
+
+  it("toggleLike only works on public creations and is per-user", async () => {
+    const owner = "like-owner";
+    const fan = "like-fan";
+    const inserted = await server.insertCreation(owner, "Like me", validConfig());
+    const privateLike = await server.toggleLike(fan, inserted.id);
+    assert.equal(privateLike.liked, false, "cannot like an unlisted creation");
+
+    await server.setCreationPublic(owner, inserted.id, true);
+    const liked = await server.toggleLike(fan, inserted.id);
+    assert.equal(liked.liked, true);
+    assert.equal(liked.likeCount, 1);
+
+    const feed = await server.listLibrary("featured", fan);
+    const card = feed.find((row) => row.id === inserted.id);
+    assert.ok(card);
+    assert.equal(card!.liked, true);
+    assert.equal(card!.likeCount, 1);
+
+    const unliked = await server.toggleLike(fan, inserted.id);
+    assert.equal(unliked.liked, false);
+    assert.equal(unliked.likeCount, 0);
+  });
+
+  it("accepts a Pro generator kind in the saved config", () => {
+    const parsed = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS, shape: "heart", emoji: "♥" },
+      spawnKind: "crystal",
+      spawnCount: 4000,
+      speed: 1,
+    });
+    assert.equal(parsed.spawnKind, "crystal");
+    assert.equal(parsed.params.shape, "heart");
+    assert.equal(parsed.params.emoji, "♥");
   });
 });

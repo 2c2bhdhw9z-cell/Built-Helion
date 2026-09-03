@@ -25,6 +25,7 @@ precision highp float;
 in float v_life;
 in float v_metric;
 uniform sampler2D u_palette;
+uniform sampler2D u_glyph;
 uniform vec2 u_lifeCurve;
 uniform float u_energy;
 uniform float u_shape;
@@ -37,6 +38,16 @@ float lifeAlpha(float life) {
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(p, p);
+  if (u_shape == 10.0) {
+    vec4 g = texture(u_glyph, gl_PointCoord);
+    if (g.a < 0.06) discard;
+    float metric = clamp(v_metric, 0.0, 0.92);
+    vec3 pal = texture(u_palette, vec2(metric, 0.5)).rgb;
+    vec3 col = mix(g.rgb, g.rgb * pal, 0.22);
+    float a = g.a * lifeAlpha(v_life);
+    frag = vec4(col * a, a);
+    return;
+  }
   if (r2 > 1.0) discard;
   float dist = sqrt(r2);
   float soft = 0.0;
@@ -52,6 +63,41 @@ void main() {
     dist = abs(p.x) + abs(p.y);
     if (dist > 1.0) discard;
     soft = 1.0 - smoothstep(0.8, 1.0, dist);
+  } else if (u_shape == 4.0) { // Triangle
+    float hw = 0.85 * (p.y + 1.0) / 1.7;
+    if (p.y > 0.72 || abs(p.x) > hw) discard;
+    float edge = max(p.y - 0.72, abs(p.x) - hw);
+    soft = 1.0 - smoothstep(-0.12, 0.0, edge);
+  } else if (u_shape == 5.0) { // Star
+    float an = atan(p.y, p.x);
+    float r = dist;
+    float sector = 6.28318530718 / 5.0;
+    float a = mod(an + 1.5707963, sector) - sector * 0.5;
+    float t = abs(a) / (sector * 0.5);
+    float edge = mix(1.0, 0.38, t);
+    if (r > edge) discard;
+    soft = 1.0 - smoothstep(edge * 0.78, edge, r);
+  } else if (u_shape == 6.0) { // Hex
+    float hex = max(abs(p.x), abs(p.x) * 0.5 + abs(p.y) * 0.866025);
+    if (hex > 0.95) discard;
+    soft = 1.0 - smoothstep(0.78, 0.95, hex);
+  } else if (u_shape == 7.0) { // Plus
+    float plus = min(max(abs(p.x) * 3.2, abs(p.y)), max(abs(p.y) * 3.2, abs(p.x)));
+    if (plus > 1.0) discard;
+    soft = 1.0 - smoothstep(0.8, 1.0, plus);
+  } else if (u_shape == 8.0) { // Heart
+    vec2 hp = vec2(p.x, p.y + 0.2);
+    float ax = abs(hp.x);
+    float hy = hp.y;
+    float heart = pow(ax, 2.0) + pow(hy - 0.18 * sqrt(ax), 2.0);
+    if (heart > 0.42) discard;
+    soft = 1.0 - smoothstep(0.28, 0.42, heart);
+  } else if (u_shape == 9.0) { // Spark
+    float plus = min(max(abs(p.x) * 4.2, abs(p.y)), max(abs(p.y) * 4.2, abs(p.x)));
+    float dia = abs(p.x) + abs(p.y);
+    float spark = min(plus, dia * 0.72);
+    if (spark > 1.0) discard;
+    soft = 1.0 - smoothstep(0.72, 1.0, spark);
   } else { // Circle
     if (dist > 1.0) discard;
     soft = 1.0 - smoothstep(0.85, 1.0, dist);
@@ -424,34 +470,48 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
   }
 
   let mode = params.mouseMode;
+  var kick = vec2<f32>(0.0);
+  var inBrush = false;
   if (mode > 0u) {
     let d = vec2<f32>(params.mouseX, params.mouseY) - p;
     let d2 = dot(d, d);
     let R = params.mouseRadius;
     if (d2 < R * R) {
+      inBrush = true;
       let dist = sqrt(d2) + 0.000001;
       let fall = 1.0 - dist / R;
+      let fluid = (params.flags & 4u) != 0u;
       let s = params.mouseForce * fall;
       let n = d / dist;
       if (mode == 6u) {
         v = vec2<f32>(0.0, 0.0);
       } else if (mode == 1u) {
-        acc += n * s * 24.0;
+        if (fluid) { kick += n * s * 2.2; } else { acc += n * s * 24.0; }
       } else if (mode == 2u) {
-        acc -= n * s * 26.0;
+        if (fluid) { kick -= n * s * 2.6; } else { acc -= n * s * 26.0; }
       } else if (mode == 3u) {
-        acc -= d * ((s * 32.0) / (d2 + 0.0004));
+        if (fluid) { kick -= d * ((s * 0.9) / (d2 + 0.0004)); }
+        else { acc -= d * ((s * 32.0) / (d2 + 0.0004)); }
       } else if (mode == 4u) {
-        acc += vec2<f32>(-n.y, n.x) * s * 28.0;
+        let tang = vec2<f32>(-n.y, n.x);
+        if (fluid) { kick += tang * s * 2.4; } else { acc += tang * s * 28.0; }
       }
     }
   }
+  let fluidBrush = inBrush && (params.flags & 4u) != 0u && mode != 6u;
+  if (fluidBrush) {
+    acc *= 0.08;
+  }
   acc = clamp(acc, vec2<f32>(-80.0, -80.0), vec2<f32>(80.0, 80.0));
   let damp = exp(-params.drag * params.dt);
-  v = (v + acc * params.dt) * damp;
+  v = (v + acc * params.dt) * damp + kick;
+  let maxS = select(12.0, 22.2, fluidBrush);
   let sp2 = dot(v, v);
-  if (sp2 > 144.0) {
-    v *= 12.0 / sqrt(sp2);
+  if (sp2 > maxS * maxS) {
+    v *= maxS / sqrt(sp2);
+  }
+  if (fluidBrush) {
+    p += kick * 0.022;
   }
   let old_p = p;
   p += v * params.dt;
@@ -560,6 +620,7 @@ struct Params {
 @group(0) @binding(3) var<storage, read> lifeMassPhase: array<vec4<f32>>;
 @group(1) @binding(0) var palTex: texture_2d<f32>;
 @group(1) @binding(1) var palSamp: sampler;
+@group(1) @binding(2) var glyphTex: texture_2d<f32>;
 
 struct VSOut {
   @builtin(position) position: vec4<f32>,
@@ -603,6 +664,9 @@ fn vs(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VSO
     metric = clamp(mass / 3.0, 0.0, 1.0);
   } else if (cm == 4u) {
     metric = clamp(phase, 0.0, 1.0);
+  } else if (cm == 5u) {
+    let cpos = vec2<f32>(params.worldW * 0.5, params.worldH * 0.5);
+    metric = clamp(length(p - cpos) / max(0.5 * min(params.worldW, params.worldH), 0.0001), 0.0, 1.0);
   }
   
   out.metric = metric;
@@ -612,7 +676,7 @@ fn vs(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VSO
 
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4<f32> {
-  let shp = (params.flags >> 11u) & 7u;
+  let shp = (params.flags >> 11u) & 15u;
   var dist = length(in.coord);
   var soft = 0.0;
   
@@ -628,6 +692,52 @@ fn fs(in: VSOut) -> @location(0) vec4<f32> {
     dist = abs(in.coord.x) + abs(in.coord.y);
     if (dist > 1.0) { discard; }
     soft = 1.0 - smoothstep(0.8, 1.0, dist);
+  } else if (shp == 4u) { // Triangle
+    let hw = 0.85 * (in.coord.y + 1.0) / 1.7;
+    if (in.coord.y > 0.72 || abs(in.coord.x) > hw) { discard; }
+    let edge = max(in.coord.y - 0.72, abs(in.coord.x) - hw);
+    soft = 1.0 - smoothstep(-0.12, 0.0, edge);
+  } else if (shp == 5u) { // Star
+    let an = atan2(in.coord.y, in.coord.x);
+    let r = dist;
+    let sector = 6.28318530718 / 5.0;
+    let a = (an + 1.5707963) % sector - sector * 0.5;
+    let t = abs(a) / (sector * 0.5);
+    let edge = mix(1.0, 0.38, t);
+    if (r > edge) { discard; }
+    soft = 1.0 - smoothstep(edge * 0.78, edge, r);
+  } else if (shp == 6u) { // Hex
+    let hex = max(abs(in.coord.x), abs(in.coord.x) * 0.5 + abs(in.coord.y) * 0.866025);
+    if (hex > 0.95) { discard; }
+    soft = 1.0 - smoothstep(0.78, 0.95, hex);
+  } else if (shp == 7u) { // Plus
+    let plus = min(max(abs(in.coord.x) * 3.2, abs(in.coord.y)), max(abs(in.coord.y) * 3.2, abs(in.coord.x)));
+    if (plus > 1.0) { discard; }
+    soft = 1.0 - smoothstep(0.8, 1.0, plus);
+  } else if (shp == 8u) { // Heart
+    let hp = vec2<f32>(in.coord.x, in.coord.y + 0.2);
+    let ax = abs(hp.x);
+    let hy = hp.y;
+    let heart = pow(ax, 2.0) + pow(hy - 0.18 * sqrt(ax), 2.0);
+    if (heart > 0.42) { discard; }
+    soft = 1.0 - smoothstep(0.28, 0.42, heart);
+  } else if (shp == 9u) { // Spark
+    let plus = min(max(abs(in.coord.x) * 4.2, abs(in.coord.y)), max(abs(in.coord.y) * 4.2, abs(in.coord.x)));
+    let dia = abs(in.coord.x) + abs(in.coord.y);
+    let spark = min(plus, dia * 0.72);
+    if (spark > 1.0) { discard; }
+    soft = 1.0 - smoothstep(0.72, 1.0, spark);
+  } else if (shp == 10u) { // Emoji atlas
+    let uv = vec2<f32>(in.coord.x * 0.5 + 0.5, 0.5 - in.coord.y * 0.5);
+    let g = textureSample(glyphTex, palSamp, uv);
+    if (g.a < 0.06) { discard; }
+    let pal = textureSample(palTex, palSamp, vec2<f32>(clamp(in.metric, 0.0, 1.0), 0.5));
+    let col = mix(g.rgb, g.rgb * pal.rgb, 0.22);
+    var ea = g.a;
+    if (in.life >= 0.0) {
+      ea *= smoothstep(0.0, 0.22, in.life);
+    }
+    return vec4<f32>(col * ea, ea);
   } else { // Circle
     if (dist > 1.0) { discard; }
     soft = 1.0 - smoothstep(0.85, 1.0, dist);

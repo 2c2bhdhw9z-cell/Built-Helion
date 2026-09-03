@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { ParticleEngine } from "@/engine/engine";
 import { useLab } from "@/store/lab-store";
 import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
-import { compositeTargetSize } from "@/lib/capture/composite";
+import { compositeTargetSize, exportMaxDim, exportTargetSize } from "@/lib/capture/composite";
 import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
 import { downloadBlobObject } from "@/lib/perf/export";
+import { GifRecorder } from "@/lib/capture/gif";
+import { drawWatermark } from "@/lib/capture/watermark";
+import { Backdrop } from "./backdrop";
+import { SCENES } from "@/engine/scenes";
 
 
 function WallsOverlay({
@@ -55,6 +59,20 @@ function WallsOverlay({
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" />;
 }
 
+function stampComposite(
+  rctx: CanvasRenderingContext2D,
+  rc: HTMLCanvasElement,
+  engineCanvas: HTMLCanvasElement,
+  wallsCanvas: HTMLCanvasElement | null,
+  entitled: boolean,
+) {
+  rctx.drawImage(engineCanvas, 0, 0, rc.width, rc.height);
+  if (wallsCanvas && wallsCanvas.width > 0 && wallsCanvas.height > 0) {
+    rctx.drawImage(wallsCanvas, 0, 0, rc.width, rc.height);
+  }
+  if (!entitled) drawWatermark(rctx, rc.width, rc.height);
+}
+
 export function CanvasStage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<ParticleEngine | null>(null);
@@ -67,11 +85,16 @@ export function CanvasStage() {
   const recorderRef = useRef<CanvasRecorder | null>(null);
   const recordCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const recordingRef = useRef(false);
+  const gifRecorderRef = useRef<GifRecorder | null>(null);
+  const gifRunningRef = useRef(false);
   // Guards against re-entrant stopRecording() (e.g. the user tapping Stop twice)
   // while the async recorder flush is still in flight.
   const stoppingRef = useRef(false);
   const isPointerDownRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
+  const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
   const [viewportH, setViewportH] = useState(400);
 
   const brush = useLab((s) => s.brushRadius);
@@ -89,8 +112,8 @@ export function CanvasStage() {
     // Expose a screenshot action to the store so the HUD (any user, no login)
     // can trigger a capture. Reads the engine + walls canvases at call time,
     // composites them, and downloads a PNG. See captureScreenshot() below.
-    useLab.getState().setCaptureScreenshot(() => {
-      void captureScreenshot();
+    useLab.getState().setCaptureScreenshot((kind) => {
+      void captureScreenshot(kind);
     });
     // Expose record start/stop to the store (any user, no login). Both no-op
     // safely until an engine frame exists; the HUD only shows these when the
@@ -98,6 +121,10 @@ export function CanvasStage() {
     useLab.getState().setStartRecording(() => startRecording());
     useLab.getState().setStopRecording(() => {
       void stopRecording();
+    });
+    useLab.getState().setStartGif(() => startGif());
+    useLab.getState().setStopGif(() => {
+      void stopGif();
     });
     let raf = 0;
     let last = performance.now();
@@ -124,6 +151,9 @@ export function CanvasStage() {
         tiltY: s.tiltY * s.params.tiltScale,
         pouring: s.pouring,
         falling: s.falling,
+        firing: s.firing,
+        smoking: s.smoking,
+        quality: s.quality,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
       // While recording, keep the live compositing canvas in sync with the
@@ -132,16 +162,12 @@ export function CanvasStage() {
       // includes the walls the user drew — matching the screenshot fidelity.
       // Only runs during an active recording, so the hot loop is untouched
       // otherwise. Wrapped so a compositing hiccup never throws into the loop.
-      if (recordingRef.current) {
+      if (recordingRef.current || gifRunningRef.current) {
         const rc = recordCanvasRef.current;
         const rctx = rc?.getContext("2d");
         if (rc && rctx) {
           try {
-            rctx.drawImage(engine.canvas, 0, 0, rc.width, rc.height);
-            const wc = wallsCanvasRef.current;
-            if (wc && wc.width > 0 && wc.height > 0) {
-              rctx.drawImage(wc, 0, 0, rc.width, rc.height);
-            }
+            stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, s.entitled);
           } catch {
             /* never throw into the render loop */
           }
@@ -153,9 +179,18 @@ export function CanvasStage() {
       }
     };
 
+    const stageSize = () => {
+      const wrap = wrapRef.current;
+      return {
+        w: wrap?.clientWidth ?? 0,
+        h: wrap?.clientHeight ?? 0,
+      };
+    };
+
     const trySpawn = () => {
       if (dead || spawned || !engine.ready) return;
-      engine.resize();
+      const { w, h } = stageSize();
+      engine.resize(w, h);
       if (engine.cssH < 80 || engine.cssW < 80) return;
       spawned = true;
       const { spawnCount, spawnKind } = useLab.getState();
@@ -164,7 +199,8 @@ export function CanvasStage() {
     };
 
     const ro = new ResizeObserver(() => {
-      engine.resize();
+      const { w, h } = stageSize();
+      engine.resize(w, h);
       if (wrapRef.current) {
         setViewportH(wrapRef.current.clientHeight || 400);
       }
@@ -178,7 +214,8 @@ export function CanvasStage() {
       .start()
       .then(() => {
         if (dead) return;
-        engine.resize();
+        const { w, h } = stageSize();
+        engine.resize(w, h);
         if (wrapRef.current) {
           setViewportH(wrapRef.current.clientHeight || 400);
         }
@@ -201,13 +238,19 @@ export function CanvasStage() {
       recorderRef.current?.dispose();
       recorderRef.current = null;
       recordCanvasRef.current = null;
+      gifRecorderRef.current?.dispose();
+      gifRecorderRef.current = null;
+      gifRunningRef.current = false;
       engine.dispose();
       engineRef.current = null;
       useLab.getState().setEngineSystemInfo(null);
       useLab.getState().setCaptureScreenshot(null);
       useLab.getState().setStartRecording(null);
       useLab.getState().setStopRecording(null);
+      useLab.getState().setStartGif(null);
+      useLab.getState().setStopGif(null);
       useLab.getState().setRecording(false);
+      useLab.getState().setGifRecording(false);
     };
   }, []);
 
@@ -219,23 +262,30 @@ export function CanvasStage() {
    * composite the walls overlay on top so drawn walls appear in the image. Never
    * gated on login — anyone can screenshot.
    */
-  const captureScreenshot = async () => {
+  const captureScreenshot = async (kind: "png" | "jpg" = "png") => {
     const engine = engineRef.current;
     if (!engine) return;
-    // Fresh, non-blank engine frame (correct for WebGPU/WebGL2/Canvas2D, and for
-    // a paused sim — see engine.requestScreenshot). We don't use its blob
-    // directly because it lacks the walls overlay; we composite the raw canvases
-    // below. Awaiting it guarantees a fresh render has run this frame.
     await engine.requestScreenshot();
-    const size = compositeTargetSize({
-      width: engine.canvas.width,
-      height: engine.canvas.height,
-    });
+    const entitled = useLab.getState().entitled;
+    const size = exportTargetSize(
+      {
+        width: engine.canvas.width,
+        height: engine.canvas.height,
+      },
+      entitled,
+    );
     const composite = compositeCanvases(engine.canvas, wallsCanvasRef.current, size);
     if (!composite) return;
-    const blob = await captureScreenshotBlob(composite);
+    if (!entitled) {
+      const ctx = composite.getContext("2d");
+      if (ctx) drawWatermark(ctx, composite.width, composite.height);
+    }
+    const blob = await captureScreenshotBlob(
+      composite,
+      kind === "jpg" ? "image/jpeg" : "image/png",
+    );
     if (!blob) return;
-    downloadBlobObject(captureFilename("png"), blob);
+    downloadBlobObject(captureFilename(kind), blob);
   };
 
   /**
@@ -254,10 +304,14 @@ export function CanvasStage() {
     if (!CanvasRecorder.canRecord() || typeof document === "undefined") return;
     // Build/refresh the offscreen compositing canvas at the engine's current
     // backing resolution so the video matches on-screen pixels.
-    const size = compositeTargetSize({
-      width: engine.canvas.width,
-      height: engine.canvas.height,
-    });
+    const entitled = useLab.getState().entitled;
+    const size = compositeTargetSize(
+      {
+        width: engine.canvas.width,
+        height: engine.canvas.height,
+      },
+      exportMaxDim(entitled),
+    );
     let rc = recordCanvasRef.current;
     if (!rc) {
       rc = document.createElement("canvas");
@@ -269,11 +323,7 @@ export function CanvasStage() {
     const rctx = rc.getContext("2d");
     if (rctx) {
       try {
-        rctx.drawImage(engine.canvas, 0, 0, rc.width, rc.height);
-        const wc = wallsCanvasRef.current;
-        if (wc && wc.width > 0 && wc.height > 0) {
-          rctx.drawImage(wc, 0, 0, rc.width, rc.height);
-        }
+        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, entitled);
       } catch {
         /* ignore priming errors */
       }
@@ -331,6 +381,62 @@ export function CanvasStage() {
     downloadBlobObject(filename, blob);
   };
 
+  const ensureCompositeCanvas = () => {
+    const engine = engineRef.current;
+    if (!engine || typeof document === "undefined") return null;
+    const entitled = useLab.getState().entitled;
+    const size = compositeTargetSize(
+      {
+        width: engine.canvas.width,
+        height: engine.canvas.height,
+      },
+      exportMaxDim(entitled),
+    );
+    let rc = recordCanvasRef.current;
+    if (!rc) {
+      rc = document.createElement("canvas");
+      recordCanvasRef.current = rc;
+    }
+    rc.width = Math.max(1, size.width);
+    rc.height = Math.max(1, size.height);
+    const rctx = rc.getContext("2d");
+    if (rctx) {
+      try {
+        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, entitled);
+      } catch {
+        /* ignore priming errors */
+      }
+    }
+    return rc;
+  };
+
+  const startGif = () => {
+    if (gifRunningRef.current || recordingRef.current) return;
+    if (!ensureCompositeCanvas()) return;
+    const recorder = new GifRecorder(() => recordCanvasRef.current);
+    recorder.start();
+    gifRecorderRef.current = recorder;
+    gifRunningRef.current = true;
+    useLab.getState().setGifRecording(true);
+  };
+
+  const stopGif = async () => {
+    const recorder = gifRecorderRef.current;
+    if (!recorder || !gifRunningRef.current) return;
+    useLab.getState().setGifRecording(false);
+    let blob: Blob | null = null;
+    try {
+      blob = await recorder.stop();
+    } catch (err) {
+      console.error("Failed to encode GIF:", err);
+    } finally {
+      gifRunningRef.current = false;
+      gifRecorderRef.current = null;
+    }
+    if (!blob) return;
+    downloadBlobObject(captureFilename("gif"), blob);
+  };
+
   const spawnId = useLab((s) => s.spawnId);
   const spawnKind = useLab((s) => s.spawnKind);
   const clearId = useLab((s) => s.clearId);
@@ -349,7 +455,21 @@ export function CanvasStage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) return;
       const s = useLab.getState();
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) s.redo();
+        else s.undo();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        s.redo();
+        return;
+      }
       if (e.code === "Space") {
         e.preventDefault();
         s.setPaused(!s.paused);
@@ -358,6 +478,20 @@ export function CanvasStage() {
       else if (e.key === "3") s.setSpeed(1);
       else if (e.key === "4") s.setSpeed(2);
       else if (e.key === "5") s.setSpeed(4);
+      else if (e.key === "0") s.resetView();
+      else if (e.key === "+" || e.key === "=") s.setView({ zoom: s.viewZoom * 1.12 });
+      else if (e.key === "-" || e.key === "_") s.setView({ zoom: s.viewZoom / 1.12 });
+      else if (e.key === "f" || e.key === "F") {
+        if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.();
+        else void document.exitFullscreen?.();
+      } else if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        s.setHelpOpen(!s.helpOpen);
+      } else if (e.key === "[" ) s.setQuality(s.quality === "high" ? "medium" : "low");
+      else if (e.key === "]") s.setQuality(s.quality === "low" ? "medium" : "high");
+      else if (!e.metaKey && !e.ctrlKey && e.key >= "6" && e.key <= "9") {
+        const scene = SCENES[Number(e.key) - 6];
+        if (scene) s.applyScene(scene.id);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -365,6 +499,24 @@ export function CanvasStage() {
 
   const setPointer = useLab((s) => s.setPointer);
   const params = useLab((s) => s.params);
+  const viewZoom = useLab((s) => s.viewZoom);
+  const viewPanX = useLab((s) => s.viewPanX);
+  const viewPanY = useLab((s) => s.viewPanY);
+  const viewRotate = useLab((s) => s.viewRotate);
+  const bgObjectUrl = useLab((s) => s.bgObjectUrl);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const s = useLab.getState();
+      const factor = e.deltaY > 0 ? 0.9 : 1.11;
+      s.setView({ zoom: s.viewZoom * factor });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const toWorld = (e: React.PointerEvent) => {
     const canvas = canvasRef.current;
@@ -377,69 +529,132 @@ export function CanvasStage() {
     };
   };
 
+  const isPanEvent = (e: React.PointerEvent) => e.button === 1 || e.button === 2 || e.altKey;
+
   return (
-    <div ref={wrapRef} className="absolute inset-0 bg-bg">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 size-full touch-none"
-        style={{ filter: params.bloom ? `drop-shadow(0 0 ${params.bloomStrength * 5}px var(--glow-color, rgba(255,255,255,0.6))) brightness(1.2)` : "none" }}
-        onPointerDown={(e) => {
-          isPointerDownRef.current = true;
-          activePointerIdRef.current = e.pointerId;
-          try {
-            (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
-          } catch {
-            /* ignore capture errors */
-          }
-          const w = toWorld(e);
-          setPointer({ ...w, down: true, inside: true });
+    <div ref={wrapRef} className="absolute inset-0 overflow-hidden bg-bg">
+      <div
+        className="absolute inset-0 origin-center"
+        style={{
+          transform: `translate(${viewPanX}px, ${viewPanY}px) rotate(${viewRotate}deg) scale(${viewZoom})`,
         }}
-        onPointerMove={(e) => {
-          const w = toWorld(e);
-          const isDown = isPointerDownRef.current || (e.buttons & 1) !== 0 || e.pointerType === "touch";
-          setPointer({
-            ...w,
-            inside: true,
-            down: isDown,
-          });
-        }}
-        onPointerUp={(e) => {
-          if (e.pointerId === activePointerIdRef.current || activePointerIdRef.current === null) {
+      >
+        <canvas
+          ref={canvasRef}
+          id="particle-stage"
+          data-testid="particle-stage"
+          className="absolute inset-0 size-full touch-none"
+          style={{
+            filter: params.bloom
+              ? `drop-shadow(0 0 ${params.bloomStrength * 5}px var(--glow-color, rgba(255,255,255,0.6))) brightness(1.2)`
+              : "none",
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+          onPointerDown={(e) => {
+            pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            try {
+              (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+            } catch {
+              /* ignore */
+            }
+            if (pointersRef.current.size >= 2) {
+              const pts = [...pointersRef.current.values()];
+              const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
+              pinchRef.current = { dist: Math.max(dist, 1), zoom: useLab.getState().viewZoom };
+              isPointerDownRef.current = false;
+              setPointer({ down: false, inside: true });
+              return;
+            }
+            if (isPanEvent(e)) {
+              panRef.current = {
+                x: e.clientX,
+                y: e.clientY,
+                panX: useLab.getState().viewPanX,
+                panY: useLab.getState().viewPanY,
+              };
+              return;
+            }
+            isPointerDownRef.current = true;
+            activePointerIdRef.current = e.pointerId;
+            const w = toWorld(e);
+            const s = useLab.getState();
+            s.setHelpOpen(false);
+            s.setPointer({ ...w, down: true, inside: true });
+          }}
+          onPointerMove={(e) => {
+            if (pointersRef.current.has(e.pointerId)) {
+              pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            }
+            if (pinchRef.current && pointersRef.current.size >= 2) {
+              const pts = [...pointersRef.current.values()];
+              const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
+              useLab.getState().setView({
+                zoom: pinchRef.current.zoom * (dist / pinchRef.current.dist),
+              });
+              return;
+            }
+            if (panRef.current) {
+              const dx = e.clientX - panRef.current.x;
+              const dy = e.clientY - panRef.current.y;
+              useLab.getState().setView({
+                panX: panRef.current.panX + dx,
+                panY: panRef.current.panY + dy,
+              });
+              return;
+            }
+            const w = toWorld(e);
+            const isDown = isPointerDownRef.current || (e.buttons & 1) !== 0 || e.pointerType === "touch";
+            setPointer({
+              ...w,
+              inside: true,
+              down: isDown,
+            });
+          }}
+          onPointerUp={(e) => {
+            pointersRef.current.delete(e.pointerId);
+            if (pointersRef.current.size < 2) pinchRef.current = null;
+            panRef.current = null;
+            if (e.pointerId === activePointerIdRef.current || activePointerIdRef.current === null) {
+              isPointerDownRef.current = false;
+              activePointerIdRef.current = null;
+            }
+            try {
+              (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+            } catch {
+              /* ignore */
+            }
+            const isTouch = e.pointerType === "touch";
+            setPointer({ down: false, inside: !isTouch });
+          }}
+          onPointerCancel={(e) => {
+            pointersRef.current.delete(e.pointerId);
+            pinchRef.current = null;
+            panRef.current = null;
             isPointerDownRef.current = false;
             activePointerIdRef.current = null;
-          }
-          try {
-            (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
-          } catch {
-            /* ignore */
-          }
-          const isTouch = e.pointerType === "touch";
-          setPointer({ down: false, inside: !isTouch });
-        }}
-        onPointerCancel={() => {
-          isPointerDownRef.current = false;
-          activePointerIdRef.current = null;
-          setPointer({ down: false, inside: false });
-        }}
-        onPointerLeave={() => {
-          if (!isPointerDownRef.current) {
             setPointer({ down: false, inside: false });
-          }
-        }}
-      />
-      <WallsOverlay engineRef={engineRef} canvasRef={wallsCanvasRef} />
-      {pointer.inside && (
-        <div
-          className="pointer-events-none absolute rounded-full border border-white/40 shadow-[0_0_8px_rgba(255,255,255,0.15)]"
-          style={{
-            width: brush * 2 * viewportH,
-            height: brush * 2 * viewportH,
-            left: pointer.x * viewportH,
-            top: pointer.y * viewportH,
-            transform: "translate(-50%, -50%)",
+          }}
+          onPointerLeave={() => {
+            if (!isPointerDownRef.current && !panRef.current && !pinchRef.current) {
+              setPointer({ down: false, inside: false });
+            }
           }}
         />
-      )}
+        <WallsOverlay engineRef={engineRef} canvasRef={wallsCanvasRef} />
+        <Backdrop kind={params.background} mediaUrl={bgObjectUrl} />
+        {pointer.inside && (
+          <div
+            className="pointer-events-none absolute rounded-full border border-white/40 shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+            style={{
+              width: brush * 2 * viewportH,
+              height: brush * 2 * viewportH,
+              left: pointer.x * viewportH,
+              top: pointer.y * viewportH,
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        )}
+      </div>
       <div className="lab-vignette pointer-events-none absolute inset-0" />
     </div>
   );

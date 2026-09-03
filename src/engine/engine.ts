@@ -8,6 +8,7 @@ import {
   DEFAULT_PARAMS,
   FIXED_DT,
   MAX_SUBSTEPS,
+  QUALITY_DPR,
   SYSTEM_LIMIT,
   type BackendKind,
   type ComputeKind,
@@ -15,6 +16,7 @@ import {
   type GeneratorKind,
   type LabParams,
   type PointerState,
+  type QualityMode,
   type Spring,
   type Telemetry,
   type ToolKind,
@@ -36,6 +38,9 @@ export type EngineSync = {
   tiltY: number;
   pouring: boolean;
   falling: boolean;
+  firing: boolean;
+  smoking: boolean;
+  quality: QualityMode;
 };
 
 function pickDefaultCap(): number {
@@ -62,6 +67,7 @@ export class ParticleEngine {
   cssW = 1;
   cssH = 1;
   dpr = 1;
+  quality: QualityMode = "high";
   backend: BackendKind = "canvas";
   compute: ComputeKind = "cpu";
   ready = false;
@@ -276,12 +282,21 @@ export class ParticleEngine {
     this.telemetry.ramBytes = this.soa.byteSize();
   }
 
-  resize(): void {
+  resize(cssW?: number, cssH?: number): void {
     const parent = this.canvas.parentElement ?? this.canvas;
-    const rect = parent.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const w = Math.max(16, Math.floor(rect.width));
-    const h = Math.max(16, Math.floor(rect.height));
+    const w = Math.max(16, Math.floor(cssW ?? parent.clientWidth));
+    const h = Math.max(16, Math.floor(cssH ?? parent.clientHeight));
+    let dpr: number;
+    const native = window.devicePixelRatio || 1;
+    if (this.quality === "low") {
+      // Always sub-1× of a 1× screen so Low is visibly softer on phones AND 1× desktops.
+      dpr = Math.min(native, 1) * 0.7;
+    } else if (this.quality === "medium") {
+      dpr = Math.min(native, QUALITY_DPR.medium);
+    } else {
+      dpr = Math.min(native, QUALITY_DPR.high);
+    }
+    dpr = Math.max(0.5, dpr);
     const prevW = this.worldW;
     this.cssW = w;
     this.cssH = h;
@@ -309,24 +324,39 @@ export class ParticleEngine {
     this.brushRadius = s.brushRadius;
     this.brushStrength = s.brushStrength;
     if (s.cap !== this.soa.capacity) this.setCap(s.cap);
+    if (s.quality !== this.quality) {
+      this.quality = s.quality;
+      this.resize(this.cssW, this.cssH);
+    }
     if (s.pouring) this.ensureEmitter("pour", s);
     else this.emitters = this.emitters.filter((e) => e.kind !== "pour");
     if (s.falling) this.ensureEmitter("fall", s);
     else this.emitters = this.emitters.filter((e) => e.kind !== "fall");
+    if (s.firing) this.ensureEmitter("fire", s);
+    else this.emitters = this.emitters.filter((e) => e.kind !== "fire");
+    if (s.smoking) this.ensureEmitter("smoke", s);
+    else this.emitters = this.emitters.filter((e) => e.kind !== "smoke");
   }
 
-  private ensureEmitter(kind: "pour" | "fall", s: EngineSync): void {
+  private ensureEmitter(kind: "pour" | "fall" | "fire" | "smoke", s: EngineSync): void {
     if (this.emitters.some((e) => e.kind === kind)) return;
+    const specs = {
+      pour: { x: this.worldW * 0.5, y: 0.06, dirX: 0, dirY: 1, rate: 420, spread: 0.35, speed: 0.55, life: s.params.lifespan || -1 },
+      fall: { x: this.worldW * 0.5, y: 0.02, dirX: 0, dirY: 1, rate: 280, spread: 0.35, speed: 0.22, life: s.params.lifespan || -1 },
+      fire: { x: this.worldW * 0.5, y: 0.92, dirX: 0, dirY: -1, rate: 360, spread: 0.42, speed: 0.72, life: s.params.lifespan || 1.8 },
+      smoke: { x: this.worldW * 0.5, y: 0.9, dirX: 0, dirY: -1, rate: 180, spread: 0.55, speed: 0.22, life: s.params.lifespan || 4.4 },
+    } as const;
+    const spec = specs[kind];
     this.emitters.push({
       kind,
-      x: this.worldW * 0.5,
-      y: kind === "pour" ? 0.06 : 0.02,
-      dirX: 0,
-      dirY: 1,
-      rate: kind === "pour" ? 420 : 280,
-      spread: 0.35,
-      speed: kind === "pour" ? 0.55 : 0.22,
-      life: s.params.lifespan || -1,
+      x: spec.x,
+      y: spec.y,
+      dirX: spec.dirX,
+      dirY: spec.dirY,
+      rate: spec.rate,
+      spread: spec.spread,
+      speed: spec.speed,
+      life: spec.life,
       mass: s.params.mass,
       acc: 0,
     });
@@ -357,9 +387,24 @@ export class ParticleEngine {
       worldH: this.worldH,
       count: budget,
       mass: this.params.mass,
-      lifespan: kind === "burst" ? this.params.lifespan || 2.8 : this.params.lifespan,
+      lifespan:
+        kind === "burst" || kind === "fireworks" || kind === "lightning" || kind === "fire" || kind === "smoke" || kind === "supernova"
+          ? this.params.lifespan ||
+            (kind === "smoke" ? 4.2 : kind === "lightning" ? 0.55 : kind === "supernova" ? 3.4 : 2.2)
+          : this.params.lifespan,
       spread: 0.85,
-      speed: kind === "flock" ? 0.35 : kind === "burst" ? 0.42 : 0.7,
+      speed:
+        kind === "flock"
+          ? 0.35
+          : kind === "burst" || kind === "fireworks"
+            ? 0.42
+            : kind === "supernova"
+              ? 1.15
+              : kind === "fire"
+                ? 0.85
+                : kind === "tornado"
+                  ? 0.9
+                  : 0.7,
       originX: origin?.x ?? this.worldW * 0.5,
       originY: origin?.y ?? this.worldH * 0.5,
       centralMass: this.params.centralMass,
@@ -540,6 +585,32 @@ export class ParticleEngine {
             e.mass,
           );
         }
+      } else if (e.kind === "fire") {
+        emitContinuous(
+          this.soa,
+          this.worldW * 0.5 + (Math.random() - 0.5) * 0.22,
+          0.92,
+          0,
+          -1,
+          n,
+          0.45,
+          e.speed,
+          e.life,
+          e.mass,
+        );
+      } else if (e.kind === "smoke") {
+        emitContinuous(
+          this.soa,
+          this.worldW * 0.5 + (Math.random() - 0.5) * 0.12,
+          0.9,
+          0,
+          -1,
+          n,
+          0.6,
+          e.speed,
+          e.life,
+          e.mass,
+        );
       } else {
         emitContinuous(this.soa, e.x, e.y, e.dirX, e.dirY, n, e.spread, e.speed, e.life, e.mass);
       }
@@ -652,18 +723,30 @@ function spawnBudget(kind: GeneratorKind, cap: number): number {
     case "cloth":
       return 36 * 26;
     case "nbody":
+    case "blackhole":
       return Math.min(1800, cap);
     case "burst":
+    case "fireworks":
+    case "supernova":
       return Math.min(Math.max(2400, (cap * 0.12) | 0), cap);
     case "flock":
+    case "tornado":
       return Math.min(Math.max(1800, (cap * 0.35) | 0), cap);
     case "galaxy":
+    case "fibonacci":
       return Math.min(Math.max(4500, (cap * 0.08) | 0), 9000);
     case "ring":
+    case "sierpinski":
       return Math.min(Math.max(3500, (cap * 0.06) | 0), 7000);
     case "pour":
     case "fall":
+    case "fire":
+    case "smoke":
       return Math.min(600, cap);
+    case "lightning":
+      return Math.min(Math.max(1600, (cap * 0.08) | 0), 5000);
+    case "water":
+      return Math.min(Math.max(2800, (cap * 0.12) | 0), cap);
     default:
       return Math.min(Math.max(4000, (cap * 0.12) | 0), cap);
   }
