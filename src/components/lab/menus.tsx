@@ -302,6 +302,8 @@ export function ParamDock() {
   const viewRotate = useLab((s) => s.viewRotate);
   const setView = useLab((s) => s.setView);
   const resetView = useLab((s) => s.resetView);
+  const fillFrame = useLab((s) => s.fillFrame);
+  const setFillFrame = useLab((s) => s.setFillFrame);
   const setBgMedia = useLab((s) => s.setBgMedia);
   const bgObjectUrl = useLab((s) => s.bgObjectUrl);
   const [open, setOpen] = useState(false);
@@ -657,6 +659,13 @@ export function ParamDock() {
                     </p>
                   )}
                 </div>
+                <div className="col-span-2" data-testid="fill-frame">
+                  <ToggleRow
+                    label="Fill frame"
+                    checked={fillFrame}
+                    onChange={setFillFrame}
+                  />
+                </div>
                 <SliderRow
                   label="Zoom"
                   value={viewZoom}
@@ -681,7 +690,10 @@ export function ParamDock() {
                   </Button>
                 </div>
                 <p className="col-span-2 text-xs text-muted md:col-span-4">
-                  Scroll to zoom. Right-drag or Alt-drag to pan. Press 0 to reset.
+                  {fillFrame
+                    ? "Fill frame on: zoom-out grows the playground — leftover screen is real space you can pour and attract into. Zoom-in is a closer look."
+                    : "Fill frame off: zoom-out shrinks the picture (letterbox). Toggle on to use that leftover space."}{" "}
+                  Scroll or pinch to zoom. Right-drag or Alt-drag to pan. Press 0 to reset.
                   Pixel density (Low / High) lives under Performance — the gauge in the top bar.
                 </p>
               </div>

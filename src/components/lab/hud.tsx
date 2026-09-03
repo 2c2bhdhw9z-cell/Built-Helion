@@ -441,6 +441,7 @@ export function Hud() {
             <li><kbd className="text-fg">Ctrl+Z / Shift+Z</kbd> undo / redo</li>
             <li><kbd className="text-fg">Scroll</kbd> or <kbd className="text-fg">pinch</kbd> zoom</li>
             <li><kbd className="text-fg">Alt-drag</kbd> pan · <kbd className="text-fg">0</kbd> reset view</li>
+            <li>View → Fill frame uses zoom-out as extra playground</li>
             <li><kbd className="text-fg">F</kbd> fullscreen · <kbd className="text-fg">[ ]</kbd> quality</li>
             <li>Use the chevrons to hide the menus and see the sim</li>
           </ul>

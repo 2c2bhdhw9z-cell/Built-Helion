@@ -15,6 +15,7 @@ import {
 } from "@/engine/types";
 import { GENERATOR_PRESETS } from "@/engine/generator-presets";
 import { SCENES, type SceneId } from "@/engine/scenes";
+import { clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 
@@ -66,6 +67,11 @@ type LabState = {
   viewPanX: number;
   viewPanY: number;
   viewRotate: number;
+  /**
+   * When on, zoom-out grows world bounds so leftover screen is playground.
+   * When off, zoom-out is a CSS letterbox (the old shrink-the-picture behavior).
+   */
+  fillFrame: boolean;
   /** Session-only object URL for an image/video backdrop. Not persisted. */
   bgObjectUrl: string | null;
   quality: QualityMode;
@@ -164,6 +170,7 @@ type LabState = {
   setHelpOpen: (v: boolean) => void;
   setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number }>) => void;
   resetView: () => void;
+  setFillFrame: (v: boolean) => void;
   setQuality: (q: QualityMode) => void;
   undo: () => void;
   redo: () => void;
@@ -230,6 +237,23 @@ function applySnap(s: LabState, snap: HistorySnap) {
   };
 }
 
+function readFillFrame(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  try {
+    return localStorage.getItem("helion.fillFrame") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeFillFrame(v: boolean) {
+  try {
+    localStorage.setItem("helion.fillFrame", v ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
 function revokeBg(url: string | null) {
   if (url && url.startsWith("blob:")) {
     try {
@@ -283,6 +307,7 @@ export const useLab = create<LabState>((set, get) => ({
   viewPanX: 0,
   viewPanY: 0,
   viewRotate: 0,
+  fillFrame: readFillFrame(),
   bgObjectUrl: null,
   quality: "high",
   getEngineSystemInfo: null,
@@ -362,13 +387,17 @@ export const useLab = create<LabState>((set, get) => ({
   },
   setView: (v) =>
     set((s) => ({
-      viewZoom: v.zoom !== undefined ? Math.min(8, Math.max(0.4, v.zoom)) : s.viewZoom,
+      viewZoom: v.zoom !== undefined ? clampViewZoom(v.zoom) : s.viewZoom,
       viewPanX: v.panX !== undefined ? v.panX : s.viewPanX,
       viewPanY: v.panY !== undefined ? v.panY : s.viewPanY,
       viewRotate:
         v.rotate !== undefined ? Math.min(180, Math.max(-180, v.rotate)) : s.viewRotate,
     })),
   resetView: () => set({ viewZoom: 1, viewPanX: 0, viewPanY: 0, viewRotate: 0 }),
+  setFillFrame: (v) => {
+    writeFillFrame(v);
+    set({ fillFrame: v });
+  },
   setQuality: (q) =>
     set(() => ({
       quality: q,
