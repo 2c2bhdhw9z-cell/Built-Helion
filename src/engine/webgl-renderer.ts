@@ -1,9 +1,10 @@
 import { bakePalette, bakeStops, usesCustomStops } from "./palettes";
 import { shapeId } from "./types";
-import { rasterizeGlyph, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
+import { rasterizeGlyph, rasterizeImage, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { GL_FADE_FS, GL_FS, GL_POST_FS, GL_POST_VS, GL_QUAD_VS, GL_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
 import type { ColorMap, LabParams, PaletteId } from "./types";
+import { ORBIT_CAM, trailFadeAlpha } from "./camera";
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
   const sh = gl.createShader(type);
@@ -76,6 +77,11 @@ export class WebGLRenderer {
   private uPostTexSize: WebGLUniformLocation | null;
   private uPostBloom: WebGLUniformLocation | null;
   private uPostBloomStrength: WebGLUniformLocation | null;
+  private uOrbit: WebGLUniformLocation | null;
+  private uCam: WebGLUniformLocation | null;
+  orbitYaw = 0;
+  orbitPitch = 0;
+  private spriteBound = false;
 
   /**
    * Expose the underlying WebGL2 context so callers (e.g. the perf hub) can read
@@ -103,6 +109,8 @@ export class WebGLRenderer {
     this.uPostTexSize = gl.getUniformLocation(this.postProg, "u_texSize");
     this.uPostBloom = gl.getUniformLocation(this.postProg, "u_bloom");
     this.uPostBloomStrength = gl.getUniformLocation(this.postProg, "u_bloomStrength");
+    this.uOrbit = gl.getUniformLocation(this.particleProg, "u_orbit");
+    this.uCam = gl.getUniformLocation(this.particleProg, "u_cam");
 
     const range = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
     if (range && range[1] > 1) this.maxPoint = range[1];
@@ -220,6 +228,7 @@ export class WebGLRenderer {
   }
 
   private setGlyph(ch: string): void {
+    if (this.spriteBound) return;
     const key = ch && ch.trim() ? ch.trim() : "✨";
     if (this.lastGlyph === key) return;
     const src = rasterizeGlyph(key);
@@ -230,6 +239,34 @@ export class WebGLRenderer {
     }
     this.glyphMisses = 0;
     this.lastGlyph = key;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      src.size,
+      src.size,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      src.data,
+    );
+  }
+
+  setSprite(img: ImageBitmap | HTMLImageElement | null): void {
+    if (!img) {
+      this.spriteBound = false;
+      this.lastGlyph = "\0";
+      return;
+    }
+    const src = rasterizeImage(img);
+    if (!src?.hasPixels) return;
+    this.spriteBound = true;
+    this.lastGlyph = "\0SPRITE";
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -323,7 +360,7 @@ export class WebGLRenderer {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.useProgram(this.fadeProg);
       gl.bindVertexArray(this.quadVao);
-      const fade = Math.min(0.45, Math.max(0.04, params.trailDecay));
+      const fade = trailFadeAlpha(params.trailDecay, params.trailLength);
       gl.uniform4f(this.uFade, bgR, bgG, bgB, fade);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       this.lastDrawCalls++;
@@ -337,7 +374,7 @@ export class WebGLRenderer {
       gl.uniform2f(this.uWorld, worldW, worldH);
       const sizePx = Math.min(
         this.maxPoint,
-        Math.max(1.0, params.pointSize * dpr * (params.shape === "emoji" ? 1.7 : 1)),
+        Math.max(1.0, params.pointSize * dpr * (params.shape === "emoji" || params.shape === "sprite" ? 1.7 : 1)),
       );
       gl.uniform1f(this.uSize, sizePx);
       gl.uniform2f(this.uLifeCurve, params.lifeFadeIn, params.lifeFadeOut);
@@ -346,6 +383,8 @@ export class WebGLRenderer {
         : 1;
       gl.uniform1f(this.uEnergy, energy);
       gl.uniform1f(this.uShape, shapeId(params.shape));
+      gl.uniform2f(this.uOrbit, this.orbitYaw, this.orbitPitch);
+      gl.uniform1f(this.uCam, ORBIT_CAM);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.palTex);
       gl.uniform1i(this.uPalette, 0);
@@ -354,7 +393,7 @@ export class WebGLRenderer {
       gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
       gl.uniform1i(this.uGlyph, 1);
       gl.enable(gl.BLEND);
-      if (additive && params.shape !== "emoji") gl.blendFunc(gl.ONE, gl.ONE);
+      if (additive && params.shape !== "emoji" && params.shape !== "sprite") gl.blendFunc(gl.ONE, gl.ONE);
       else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.drawArrays(gl.POINTS, 0, n);
       this.lastDrawCalls++;

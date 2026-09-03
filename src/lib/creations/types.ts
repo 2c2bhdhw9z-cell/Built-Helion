@@ -120,6 +120,7 @@ export const labParamsSchema: z.ZodType<LabParams> = z
     sphPressure: num(DEFAULT_PARAMS.sphPressure),
     sphViscosity: num(DEFAULT_PARAMS.sphViscosity),
     sphSmoothing: num(DEFAULT_PARAMS.sphSmoothing),
+    sphCohesion: num(DEFAULT_PARAMS.sphCohesion),
     settle: bool(DEFAULT_PARAMS.settle),
     settleThreshold: num(DEFAULT_PARAMS.settleThreshold),
     flock: bool(DEFAULT_PARAMS.flock),

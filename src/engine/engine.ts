@@ -76,6 +76,8 @@ export class ParticleEngine {
   cssH = 1;
   dpr = 1;
   quality: QualityMode = "high";
+  orbitYaw = 0;
+  orbitPitch = 0;
   backend: BackendKind = "canvas";
   compute: ComputeKind = "cpu";
   ready = false;
@@ -353,6 +355,23 @@ export class ParticleEngine {
     this.gpu?.configureContext(this.canvas);
   }
 
+  setOrbit(yaw: number, pitch: number): void {
+    this.orbitYaw = Number.isFinite(yaw) ? yaw : 0;
+    this.orbitPitch = Number.isFinite(pitch) ? pitch : 0;
+    if (this.gpu) {
+      this.gpu.orbitYaw = this.orbitYaw;
+      this.gpu.orbitPitch = this.orbitPitch;
+    }
+    if (this.gl) {
+      this.gl.orbitYaw = this.orbitYaw;
+      this.gl.orbitPitch = this.orbitPitch;
+    }
+    if (this.canvas2d) {
+      this.canvas2d.orbitYaw = this.orbitYaw;
+      this.canvas2d.orbitPitch = this.orbitPitch;
+    }
+  }
+
   setWorldScale(scale: number): void {
     const next = Math.max(1, Math.min(1 / MIN_VIEW_ZOOM, Number.isFinite(scale) ? scale : 1));
     if (Math.abs(next - this.worldScale) < 0.0005) return;
@@ -506,6 +525,8 @@ export class ParticleEngine {
 
   setSprite(bitmap: ImageBitmap | HTMLImageElement | null): void {
     if (this.canvas2d) this.canvas2d.sprite = bitmap;
+    this.gl?.setSprite(bitmap);
+    this.gpu?.setSprite(bitmap);
   }
 
   stepFrame(dt: number, paused: boolean, speed: number, tiltX: number, tiltY: number): void {

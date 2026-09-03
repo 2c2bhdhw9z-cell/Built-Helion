@@ -17,7 +17,7 @@ import {
 } from "@/engine/types";
 import { GENERATOR_PRESETS } from "@/engine/generator-presets";
 import { SCENES, type SceneId } from "@/engine/scenes";
-import { clampViewZoom } from "@/engine/camera";
+import { clampViewPitch, clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
@@ -90,6 +90,7 @@ type LabState = {
   viewPanX: number;
   viewPanY: number;
   viewRotate: number;
+  viewPitch: number;
   /**
    * When on, zoom-out grows world bounds so leftover screen is playground.
    * When off, zoom-out is a CSS letterbox (the old shrink-the-picture behavior).
@@ -205,7 +206,7 @@ type LabState = {
   applyCreationConfig: (config: CreationConfig) => void;
   clearSim: () => void;
   setHelpOpen: (v: boolean) => void;
-  setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number }>) => void;
+  setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number; pitch: number }>) => void;
   resetView: () => void;
   setFillFrame: (v: boolean) => void;
   setQuality: (q: QualityMode) => void;
@@ -380,6 +381,7 @@ export const useLab = create<LabState>((set, get) => ({
   viewPanX: 0,
   viewPanY: 0,
   viewRotate: 0,
+  viewPitch: 0,
   fillFrame: readFillFrame(),
   bgObjectUrl: null,
   quality: "high",
@@ -526,8 +528,9 @@ export const useLab = create<LabState>((set, get) => ({
       viewPanY: v.panY !== undefined ? v.panY : s.viewPanY,
       viewRotate:
         v.rotate !== undefined ? Math.min(180, Math.max(-180, v.rotate)) : s.viewRotate,
+      viewPitch: v.pitch !== undefined ? clampViewPitch(v.pitch) : s.viewPitch,
     })),
-  resetView: () => set({ viewZoom: 1, viewPanX: 0, viewPanY: 0, viewRotate: 0 }),
+  resetView: () => set({ viewZoom: 1, viewPanX: 0, viewPanY: 0, viewRotate: 0, viewPitch: 0 }),
   setFillFrame: (v) => {
     writeFillFrame(v);
     set({ fillFrame: v });

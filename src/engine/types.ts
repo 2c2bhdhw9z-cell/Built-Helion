@@ -203,6 +203,7 @@ export type LabParams = {
   sphPressure: number;
   sphViscosity: number;
   sphSmoothing: number;
+  sphCohesion: number;
   settle: boolean;
   settleThreshold: number;
   flock: boolean;
@@ -355,6 +356,7 @@ export const DEFAULT_PARAMS: LabParams = {
   sphPressure: 4.5,
   sphViscosity: 0.08,
   sphSmoothing: 0.028,
+  sphCohesion: 0.28,
   settle: false,
   settleThreshold: 0.035,
   flock: false,

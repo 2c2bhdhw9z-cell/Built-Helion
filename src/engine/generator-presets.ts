@@ -197,6 +197,7 @@ export const GENERATOR_PRESETS: Record<GeneratorKind, Partial<LabParams>> = {
     sphRestDensity: 20,
     sphPressure: 5.2,
     sphViscosity: 0.1,
+    sphCohesion: 0.45,
   },
   tornado: {
     flock: false,

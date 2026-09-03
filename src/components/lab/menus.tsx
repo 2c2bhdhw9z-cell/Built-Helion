@@ -307,6 +307,7 @@ export function ParamDock() {
   const tiltY = useLab((s) => s.tiltY);
   const viewZoom = useLab((s) => s.viewZoom);
   const viewRotate = useLab((s) => s.viewRotate);
+  const viewPitch = useLab((s) => s.viewPitch);
   const setView = useLab((s) => s.setView);
   const resetView = useLab((s) => s.resetView);
   const fillFrame = useLab((s) => s.fillFrame);
@@ -812,6 +813,15 @@ export function ParamDock() {
                   format={(n) => `${n.toFixed(0)}°`}
                   onChange={(n) => setView({ rotate: n })}
                 />
+                <SliderRow
+                  label="Pitch"
+                  value={viewPitch}
+                  min={0}
+                  max={72}
+                  step={1}
+                  format={(n) => `${n.toFixed(0)}°`}
+                  onChange={(n) => setView({ pitch: n })}
+                />
                 <div className="flex items-end">
                   <Button variant="outline" size="sm" className="h-8 w-full" onClick={resetView}>
                     Reset view
@@ -821,7 +831,7 @@ export function ParamDock() {
                   {fillFrame
                     ? "Fill frame on: zoom-out grows the playground — leftover screen is real space you can pour and attract into. Zoom-in is a closer look."
                     : "Fill frame off: zoom-out shrinks the picture (letterbox). Toggle on to use that leftover space."}{" "}
-                  Scroll or pinch to zoom. Right-drag or Alt-drag to pan. Press 0 to reset.
+                  Scroll or pinch to zoom. Right-drag or Alt-drag to pan. Pitch tilts the camera around the particle plane. Press 0 to reset.
                   Pixel density (Low / High) lives under Performance — the gauge in the top bar.
                 </p>
               </div>
@@ -846,6 +856,9 @@ export function ParamDock() {
                   step={0.02}
                   onChange={(n) => setParam("trailLength", n)}
                 />
+                <p className="col-span-2 text-xs text-muted md:col-span-4">
+                  Length is how long motion streaks persist. Decay is how fast the history buffer clears. Both only apply when History buffer is on.
+                </p>
               </div>
             )}
 
@@ -949,6 +962,14 @@ export function ParamDock() {
                   format={(n) => n.toFixed(3)}
                   onChange={(n) => setParam("sphSmoothing", n)}
                 />
+                <SliderRow
+                  label="Cohesion"
+                  value={params.sphCohesion}
+                  min={0}
+                  max={1.2}
+                  step={0.02}
+                  onChange={(n) => setParam("sphCohesion", n)}
+                />
               </div>
             )}
 
@@ -1008,6 +1029,9 @@ export function ParamDock() {
                   format={(n) => n.toFixed(3)}
                   onChange={(n) => setParam("nbodyG", n)}
                 />
+                <p className="col-span-2 text-xs text-muted md:col-span-4">
+                  N-body is pairwise up to 1,600 particles, then a mass grid for the rest — distant masses still pull. Softening lives under Physics.
+                </p>
               </div>
             )}
             {tab === "flow" && (
