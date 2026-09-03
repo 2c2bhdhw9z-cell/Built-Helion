@@ -2,7 +2,7 @@ import type { ForceKind } from "./force-expr";
 
 export const SYSTEM_LIMIT = 1_000_000;
 export const DEFAULT_CAP = 65_536;
-export const HASH_MAX_PER_CELL = 24;
+export const HASH_MAX_PER_CELL = 32;
 export const FIXED_DT = 1 / 60;
 export const MAX_SUBSTEPS = 5;
 export const MAX_ACCEL = 80;
@@ -356,7 +356,7 @@ export const DEFAULT_PARAMS: LabParams = {
   sphPressure: 4.5,
   sphViscosity: 0.08,
   sphSmoothing: 0.028,
-  sphCohesion: 0.28,
+  sphCohesion: 0.42,
   settle: false,
   settleThreshold: 0.035,
   flock: false,

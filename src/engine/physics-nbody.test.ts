@@ -97,4 +97,44 @@ describe("SPH cohesion", () => {
     );
     expect(Math.abs(soa.posX[b]! - soa.posX[a]!)).toBeLessThan(0.04);
   });
+
+  test("surface tension beads a sparse pair tighter than pressure alone", () => {
+    const mk = () => {
+      const soa = new ParticleSoA(8);
+      const a = soa.spawnSlot();
+      const b = soa.spawnSlot();
+      soa.writeParticle(a, 0.78, 0.5, 0, 0, -1, 1);
+      soa.writeParticle(b, 0.83, 0.5, 0, 0, -1, 1);
+      return { soa, a, b };
+    };
+    const withCoh = mk();
+    stepN(
+      withCoh.soa,
+      baseParams({
+        sph: true,
+        sphPressure: 0.2,
+        sphViscosity: 0.02,
+        sphCohesion: 1.4,
+        sphSmoothing: 0.07,
+        sphRestDensity: 10,
+      }),
+      24,
+    );
+    const noCoh = mk();
+    stepN(
+      noCoh.soa,
+      baseParams({
+        sph: true,
+        sphPressure: 0.2,
+        sphViscosity: 0.02,
+        sphCohesion: 0,
+        sphSmoothing: 0.07,
+        sphRestDensity: 10,
+      }),
+      24,
+    );
+    const dCoh = Math.abs(withCoh.soa.posX[withCoh.b]! - withCoh.soa.posX[withCoh.a]!);
+    const dNo = Math.abs(noCoh.soa.posX[noCoh.b]! - noCoh.soa.posX[noCoh.a]!);
+    expect(dCoh).toBeLessThan(dNo);
+  });
 });

@@ -484,7 +484,9 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
                   let press = params.sphPressure * q * q * 18.0;
                   sphPressureForce += normal * press;
                   sphViscForce += (v2 - v) * (params.sphViscosity * q * 35.0);
-                  sphPressureForce -= normal * (params.sphCohesion * q);
+                  let surface = max(0.0, 1.0 - sphDensity / max(params.sphRestDensity * 0.25, 0.2));
+                  sphPressureForce -= normal * (params.sphCohesion * q * (1.0 + 1.4 * surface));
+                  sphViscForce += (v2 - v) * (0.12 * q);
                }
             }
             if ((params.flags & 8u) != 0u) { // N-body (neighborhood + softening)
@@ -510,6 +512,31 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
        let delta = max(sphDensity - params.sphRestDensity * 0.1, 0.0);
        acc += sphPressureForce * (1.0 + delta * 0.15);
        acc += sphViscForce;
+    }
+    // N-body mid-range: 5×5 ring around the 3×3 already sampled. Far field
+    // stays on the CPU mass grid — this host has no Barnes-Hut on GPU.
+    if ((params.flags & 8u) != 0u) {
+      for (var y2: i32 = -2; y2 <= 2; y2 += 1) {
+        for (var x2: i32 = -2; x2 <= 2; x2 += 1) {
+          if (x2 >= -1 && x2 <= 1 && y2 >= -1 && y2 <= 1) { continue; }
+          let cx2 = gridX + x2;
+          let cy2 = gridY + y2;
+          if (cx2 >= 0 && cx2 < i32(params.gridCols) && cy2 >= 0 && cy2 < i32(params.gridRows)) {
+            let cell2 = u32(cy2) * params.gridCols + u32(cx2);
+            let count2 = min(atomicLoad(&hashCounts[cell2]), params.maxPerCell);
+            for (var idx2: u32 = 0u; idx2 < count2; idx2 += 1u) {
+              let j2 = hashBuckets[cell2 * params.maxPerCell + idx2];
+              if (j2 == i) { continue; }
+              let dFar = p - posPrev[j2].xy;
+              let d2s = dot(dFar, dFar) + params.softening * params.softening;
+              if (d2s > 0.0000001) {
+                let inv = (params.nbodyG * mass * lifeMassPhase[j2].y) / (d2s * sqrt(d2s));
+                acc -= dFar * inv;
+              }
+            }
+          }
+        }
+      }
     }
   }
 
