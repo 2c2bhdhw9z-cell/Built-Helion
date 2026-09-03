@@ -1,4 +1,8 @@
 import { test, expect, describe } from "vitest";
+import { SpatialHash } from "./hash";
+import { ParticleSoA } from "./soa";
+import { stepPhysics } from "./physics";
+import { DEFAULT_PARAMS, IDLE_EXTRA_BRUSH } from "./types";
 
 // Testing theoretical physics functions simulating what's in WGSL/JS physics
 describe("Physics Boundaries & Restitution", () => {
@@ -66,5 +70,54 @@ describe("Drag & Gravity Euler Integration", () => {
     const v = eulerStep(10, 0, 1/60, 0.1);
     expect(v).toBeLessThan(10);
     expect(v).toBeCloseTo(9.983);
+  });
+});
+
+describe("Extra session brush", () => {
+  const pointer = { x: 0, y: 0, down: false, inside: false };
+  const params = { ...DEFAULT_PARAMS, drag: 0, gravityX: 0, gravityY: 0, centralMass: 0 };
+
+  function stepN(extra: typeof IDLE_EXTRA_BRUSH, n = 12) {
+    const soa = new ParticleSoA(8);
+    const i = soa.spawnSlot();
+    soa.writeParticle(i, 0.5, 0.5, 0, 0, -1, 1);
+    const hash = new SpatialHash();
+    for (let s = 0; s < n; s++) {
+      stepPhysics(
+        soa,
+        hash,
+        params,
+        pointer,
+        "attract",
+        0.12,
+        0.85,
+        [],
+        1.6,
+        1,
+        1 / 60,
+        0,
+        0,
+        0,
+        [],
+        extra,
+      );
+    }
+    return soa;
+  }
+
+  test("idle extra brush leaves a particle still", () => {
+    const soa = stepN(IDLE_EXTRA_BRUSH, 8);
+    expect(soa.posX[0]!).toBeCloseTo(0.5, 5);
+    expect(soa.posY[0]!).toBeCloseTo(0.5, 5);
+  });
+
+  test("remote attract pulls toward the extra pointer", () => {
+    const soa = stepN({ x: 0.8, y: 0.5, force: 0.9, radius: 0.4, mode: 1 }, 18);
+    expect(soa.posX[0]!).toBeGreaterThan(0.5);
+  });
+
+  test("remote repel pushes away from the extra pointer", () => {
+    const soa = stepN({ x: 0.8, y: 0.5, force: 0.9, radius: 0.4, mode: 2 }, 18);
+    expect(soa.posX[0]!).toBeLessThan(0.5);
   });
 });

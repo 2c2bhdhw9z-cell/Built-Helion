@@ -43,6 +43,7 @@ import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { embedSnippet, shareUrl } from "@/lib/share/codec";
 import { Chip } from "./controls";
+import { SessionHudButton } from "./session-dialog";
 
 /**
  * Optional account affordance on the right of the HUD. Signed in -> the identity
@@ -232,6 +233,7 @@ export function Hud() {
           >
             <Library className="size-3.5" />
           </Button>
+          <SessionHudButton />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

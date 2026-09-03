@@ -228,6 +228,43 @@ export type PointerState = {
   inside: boolean;
 };
 
+/** Second pointer used for a remote session brush. mode 0 = idle. */
+export type ExtraBrush = {
+  x: number;
+  y: number;
+  force: number;
+  radius: number;
+  mode: number;
+};
+
+export const IDLE_EXTRA_BRUSH: ExtraBrush = {
+  x: 0,
+  y: 0,
+  force: 0,
+  radius: 0,
+  mode: 0,
+};
+
+/** Numeric brush id shared by CPU physics and the GPU uniform. */
+export function brushMode(tool: ToolKind, down = true): number {
+  if (!down) return 0;
+  switch (tool) {
+    case "attract":
+      return 1;
+    case "repel":
+      return 2;
+    case "repulsor":
+      return 3;
+    case "vortex":
+      return 4;
+    case "freeze":
+      return 6;
+    default:
+      return 0;
+  }
+};
+
+
 export type SubsystemCost = {
   /** Human-readable subsystem/mode label (e.g. "nbody", "flock", "physics"). */
   name: string;
@@ -365,7 +402,8 @@ export const QUALITY_DPR: Record<QualityMode, number> = {
 };
 
 export const QUALITY_BLURB: Record<QualityMode, string> = {
-  low: "Softer pixels \u2014 cooler on a phone",
+  low: "Softer pixels — cooler on a phone",
   medium: "Balanced sharpness",
-  high: "Full retina \u2014 crisp edges",
+  high: "Full retina — crisp edges",
 };
+

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
@@ -18,6 +19,7 @@ import { SCENES, type SceneId } from "@/engine/scenes";
 import { clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
+import { useSession } from "@/lib/multiplayer/session-store";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -273,6 +275,28 @@ function pushHistory(s: LabState) {
   future = [];
 }
 
+let lastViewToast = 0;
+let remoteApply = 0;
+
+/** SessionRoom wraps inbound mesh events so view-only peers still receive them. */
+export function withRemoteApply(fn: () => void): void {
+  remoteApply += 1;
+  try {
+    fn();
+  } finally {
+    remoteApply -= 1;
+  }
+}
+
+function rejectIfView(): boolean {
+  if (remoteApply > 0) return false;
+  if (useSession.getState().role !== "view") return false;
+  if (Date.now() - lastViewToast > 2500) {
+    lastViewToast = Date.now();
+    toast.error("You're view-only in this session");
+  }
+  return true;
+}
 
 export const useLab = create<LabState>((set, get) => ({
   params: { ...DEFAULT_PARAMS },
@@ -328,29 +352,36 @@ export const useLab = create<LabState>((set, get) => ({
   canUndo: false,
   canRedo: false,
   setParam: (key, value) => {
+    if (rejectIfView()) return;
     set((s) => ({ params: { ...s.params, [key]: value }, activeSceneId: null }));
   },
   patchParams: (p) => {
+    if (rejectIfView()) return;
     set((s) => ({ params: { ...s.params, ...p }, activeSceneId: null }));
   },
   setTelemetry: (t) => set({ telemetry: t }),
   setPaused: (v) => {
+    if (rejectIfView()) return;
     set({ paused: v });
   },
   setSpeed: (v) => {
+    if (rejectIfView()) return;
     set({ speed: v });
   },
   setCap: (v) => set({ cap: v }),
   setTool: (t) => {
+    if (rejectIfView()) return;
     set({ tool: t });
   },
   setBrush: (radius, strength) => {
+    if (rejectIfView()) return;
     set({ brushRadius: radius, brushStrength: strength });
   },
   setPointer: (p) => set((s) => ({ pointer: { ...s.pointer, ...p } })),
   setReplace: (v) => set({ replaceMode: v }),
   setSpawnCount: (n) => set({ spawnCount: Math.max(50, Math.min(200_000, Math.round(n))) }),
   addParticles: () => {
+    if (rejectIfView()) return;
     set((s) => ({
       replaceMode: false,
       spawnId: s.spawnId + 1,
@@ -404,6 +435,7 @@ export const useLab = create<LabState>((set, get) => ({
       cap: QUALITY_CAPS[q],
     })),
   runGenerator: (kind) => {
+    if (rejectIfView()) return;
     if (isProGenerator(kind) && !get().entitled) {
       set({ upgradeOpen: true });
       return;
@@ -427,6 +459,7 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   applyScene: (id) => {
+    if (rejectIfView()) return;
     const scene = SCENES.find((s) => s.id === id);
     if (!scene) return;
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...scene.params };
@@ -451,6 +484,7 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   applyCreationConfig: (config) => {
+    if (rejectIfView()) return;
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
     const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
     const nextCap = Math.max(config.cap, nextSpawnCount);
@@ -474,6 +508,7 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   clearSim: () => {
+    if (rejectIfView()) return;
     pushHistory(get());
     set((s) => ({
       clearId: s.clearId + 1,
@@ -487,6 +522,7 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   undo: () => {
+    if (rejectIfView()) return;
     const snap = past.pop();
     if (!snap) return;
     const s = get();
@@ -494,6 +530,7 @@ export const useLab = create<LabState>((set, get) => ({
     set({ ...applySnap(s, snap), canUndo: past.length > 0, canRedo: true });
   },
   redo: () => {
+    if (rejectIfView()) return;
     const snap = future.pop();
     if (!snap) return;
     const s = get();

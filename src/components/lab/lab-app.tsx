@@ -12,7 +12,11 @@ import { ProfileDialog } from "./profile-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
 import { BillingSync } from "./theme-sync";
 import { PerfHub } from "./perf-hub/perf-hub";
+import { SessionDialog } from "./session-dialog";
+import { SessionRoom } from "./session-room";
 import { isEmbedSearch, readPresetFromSearch } from "@/lib/share/codec";
+import { readSessionFromSearch, writeSessionQuery } from "@/lib/multiplayer/protocol";
+import { useSession } from "@/lib/multiplayer/session-store";
 
 export function LabApp() {
   const tiltEnabled = useLab((s) => s.params.tiltEnabled);
@@ -22,9 +26,18 @@ export function LabApp() {
   const toggleUiTop = useLab((s) => s.toggleUiTop);
   const toggleUiBottom = useLab((s) => s.toggleUiBottom);
   const [embed, setEmbed] = useState(false);
+  const sessionCode = useSession((s) => s.code);
+  const sessionIsHost = useSession((s) => s.isHost);
+
   useEffect(() => {
     const search = window.location.search;
     setEmbed(isEmbedSearch(search));
+    const session = readSessionFromSearch(search);
+    if (session) {
+      writeSessionQuery(session);
+      useSession.getState().enter(session, false);
+      return;
+    }
     const preset = readPresetFromSearch(search);
     if (preset) useLab.getState().applyCreationConfig(preset);
   }, []);
@@ -92,6 +105,8 @@ export function LabApp() {
       <ProfileDialog />
       <UpgradeDialog />
       <PerfHub />
+      <SessionDialog />
+      {sessionCode ? <SessionRoom key={sessionCode} code={sessionCode} isHost={sessionIsHost} /> : null}
 
       {/*
         Chrome docks are ONLY as tall as the visible bars + peek chevron.

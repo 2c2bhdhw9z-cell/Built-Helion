@@ -10,7 +10,11 @@ import { GifRecorder } from "@/lib/capture/gif";
 import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
 import { SCENES } from "@/engine/scenes";
+import { SessionCursors } from "./session-cursors";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale } from "@/engine/camera";
+import { IDLE_EXTRA_BRUSH } from "@/engine/types";
+import { pickLiveExtraBrush } from "@/lib/multiplayer/protocol";
+import { useSession } from "@/lib/multiplayer/session-store";
 
 
 function WallsOverlay({
@@ -146,9 +150,14 @@ export function CanvasStage() {
       last = now;
       const s = useLab.getState();
       const worldScale = engine.worldScale || 1;
+      const session = useSession.getState();
+      const viewOnly = session.role === "view";
+      const extraBrush = session.code
+        ? pickLiveExtraBrush(Object.values(session.cursors), s.brushStrength, s.brushRadius * worldScale)
+        : IDLE_EXTRA_BRUSH;
       engine.sync({
         params: s.params,
-        pointer: s.pointer,
+        pointer: viewOnly ? { ...s.pointer, down: false } : s.pointer,
         tool: s.tool,
         brushRadius: s.brushRadius * worldScale,
         brushStrength: s.brushStrength,
@@ -162,6 +171,7 @@ export function CanvasStage() {
         firing: s.firing,
         smoking: s.smoking,
         quality: s.quality,
+        extraBrush,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
       // While recording, keep the live compositing canvas in sync with the
@@ -667,6 +677,7 @@ export function CanvasStage() {
         />
         <WallsOverlay engineRef={engineRef} canvasRef={wallsCanvasRef} />
         <Backdrop kind={params.background} mediaUrl={bgObjectUrl} />
+        <SessionCursors viewportH={viewportH} worldScale={worldScale} />
         {pointer.inside && (
           <div
             className="pointer-events-none absolute rounded-full border border-white/40 shadow-[0_0_8px_rgba(255,255,255,0.15)]"

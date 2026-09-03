@@ -294,6 +294,14 @@ struct Params {
   sphPressure: f32,
   sphViscosity: f32,
   sphSmoothing: f32,
+  extraX: f32,
+  extraY: f32,
+  extraForce: f32,
+  extraRadius: f32,
+  extraMode: u32,
+  _padExtra0: u32,
+  _padExtra1: u32,
+  _padExtra2: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -498,7 +506,35 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
       }
     }
   }
-  let fluidBrush = inBrush && (params.flags & 4u) != 0u && mode != 6u;
+  let extraMode = params.extraMode;
+  if (extraMode > 0u) {
+    let d = vec2<f32>(params.extraX, params.extraY) - p;
+    let d2 = dot(d, d);
+    let R = params.extraRadius;
+    if (d2 < R * R) {
+      inBrush = true;
+      let dist = sqrt(d2) + 0.000001;
+      let fall = 1.0 - dist / R;
+      let fluid = (params.flags & 4u) != 0u;
+      let s = params.extraForce * fall;
+      let n = d / dist;
+      if (extraMode == 6u) {
+        v = vec2<f32>(0.0, 0.0);
+      } else if (extraMode == 1u) {
+        if (fluid) { kick += n * s * 2.2; } else { acc += n * s * 24.0; }
+      } else if (extraMode == 2u) {
+        if (fluid) { kick -= n * s * 2.6; } else { acc -= n * s * 26.0; }
+      } else if (extraMode == 3u) {
+        if (fluid) { kick -= d * ((s * 0.9) / (d2 + 0.0004)); }
+        else { acc -= d * ((s * 32.0) / (d2 + 0.0004)); }
+      } else if (extraMode == 4u) {
+        let tang = vec2<f32>(-n.y, n.x);
+        if (fluid) { kick += tang * s * 2.4; } else { acc += tang * s * 28.0; }
+      }
+    }
+  }
+  let forceBrush = (mode > 0u && mode != 6u) || (extraMode > 0u && extraMode != 6u);
+  let fluidBrush = inBrush && (params.flags & 4u) != 0u && forceBrush;
   if (fluidBrush) {
     acc *= 0.08;
   }
@@ -612,6 +648,8 @@ struct Params {
   gridCols: u32, gridRows: u32, maxPerCell: u32, _pad: u32,
   flowStrength: f32, flowScale: f32, flowSpeed: f32, time: f32,
   sphRestDensity: f32, sphPressure: f32, sphViscosity: f32, sphSmoothing: f32,
+  extraX: f32, extraY: f32, extraForce: f32, extraRadius: f32,
+  extraMode: u32, _padExtra0: u32, _padExtra1: u32, _padExtra2: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;

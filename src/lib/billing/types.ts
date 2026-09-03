@@ -82,13 +82,13 @@ export const PLANS: {
     label: "Pro",
     price: "$5/mo",
     blurb: "The looks that sell a clip.",
-    perks: ["6 Pro generators", "No watermark", "4K stills", "Community publishing"],
+    perks: ["6 Pro generators", "No watermark", "4K stills", "Live sessions", "Community publishing"],
   },
   {
     id: "enterprise",
     label: "Enterprise",
     price: "$20/mo",
     blurb: "Headroom for studios.",
-    perks: ["Everything in Pro", "4K stills, no watermark", "Team & SSO later"],
+    perks: ["Everything in Pro", "4K stills, no watermark", "Live sessions & roles", "Team & SSO later"],
   },
 ];

@@ -107,3 +107,17 @@ test("lab-store triggers generator", () => {
   expect(state.spawnKind).toBe("ring");
   expect(state.spawnId).toBe(initialId + 1);
 });
+
+test("view-only session rejects sim edits", async () => {
+  const { useSession } = await import("@/lib/multiplayer/session-store.ts");
+  useSession.setState({ role: "view" });
+  const spawnId = useLab.getState().spawnId;
+  const paused = useLab.getState().paused;
+  useLab.getState().runGenerator("galaxy");
+  useLab.getState().setPaused(!paused);
+  useLab.getState().setTool("repel");
+  expect(useLab.getState().spawnId).toBe(spawnId);
+  expect(useLab.getState().paused).toBe(paused);
+  expect(useLab.getState().tool).toBe("attract");
+  useSession.setState({ role: null });
+});

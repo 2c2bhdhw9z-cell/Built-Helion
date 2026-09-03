@@ -7,12 +7,14 @@ import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
   FIXED_DT,
+  IDLE_EXTRA_BRUSH,
   MAX_SUBSTEPS,
   QUALITY_DPR,
   SYSTEM_LIMIT,
   type BackendKind,
   type ComputeKind,
   type ContinuousEmitter,
+  type ExtraBrush,
   type GeneratorKind,
   type LabParams,
   type PointerState,
@@ -42,6 +44,7 @@ export type EngineSync = {
   firing: boolean;
   smoking: boolean;
   quality: QualityMode;
+  extraBrush?: ExtraBrush;
 };
 
 function pickDefaultCap(): number {
@@ -61,6 +64,7 @@ export class ParticleEngine {
   tool: ToolKind = "attract";
   brushRadius = 0.12;
   brushStrength = 0.85;
+  extraBrush: ExtraBrush = { ...IDLE_EXTRA_BRUSH };
   springs: Spring[] = [];
   emitters: ContinuousEmitter[] = [];
   worldW = 1.6;
@@ -361,6 +365,7 @@ export class ParticleEngine {
     this.tool = s.tool;
     this.brushRadius = s.brushRadius;
     this.brushStrength = s.brushStrength;
+    this.extraBrush = s.extraBrush ?? IDLE_EXTRA_BRUSH;
     if (s.cap !== this.soa.capacity) this.setCap(s.cap);
     if (s.quality !== this.quality) {
       this.quality = s.quality;
@@ -692,6 +697,7 @@ export class ParticleEngine {
         tiltY,
         this.totalTime,
         this.walls,
+        this.extraBrush,
       );
       this.cpuPhysicsMs += performance.now() - pt0;
       this.telemetry.nanCount += st.nan;
@@ -716,6 +722,7 @@ export class ParticleEngine {
         tiltY,
         this.totalTime,
         this.walls,
+        this.extraBrush,
       );
       this.gpu.dispatch(this.soa.count);
       this.gpu.readStats().then(() => {
