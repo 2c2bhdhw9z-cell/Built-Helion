@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { ParticleEngine } from "@/engine/engine";
 import { useLab } from "@/store/lab-store";
 import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
@@ -7,6 +8,7 @@ import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
 import { downloadBlobObject } from "@/lib/perf/export";
 import { GifRecorder } from "@/lib/capture/gif";
+import { knockoutVoid } from "@/lib/capture/alpha";
 import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
 import { SCENES } from "@/engine/scenes";
@@ -284,17 +286,23 @@ export function CanvasStage() {
     const engine = engineRef.current;
     if (!engine) return;
     await engine.requestScreenshot();
-    const entitled = useLab.getState().entitled;
+    const s = useLab.getState();
     const size = exportTargetSize(
       {
         width: engine.canvas.width,
         height: engine.canvas.height,
       },
-      entitled,
+      s.entitled,
+      s.exportSize,
+      s.plan,
     );
     const composite = compositeCanvases(engine.canvas, wallsCanvasRef.current, size);
-    if (!composite) return;
-    if (!entitled) {
+    if (!composite) {
+      toast.error("Could not build that still — try a smaller size");
+      return;
+    }
+    if (kind === "png" && s.exportAlpha) knockoutVoid(composite);
+    if (!s.entitled) {
       const ctx = composite.getContext("2d");
       if (ctx) drawWatermark(ctx, composite.width, composite.height);
     }
@@ -320,15 +328,15 @@ export function CanvasStage() {
     const engine = engineRef.current;
     if (!engine || recordingRef.current) return;
     if (!CanvasRecorder.canRecord() || typeof document === "undefined") return;
-    // Build/refresh the offscreen compositing canvas at the engine's current
-    // backing resolution so the video matches on-screen pixels.
-    const entitled = useLab.getState().entitled;
+    // Build/refresh the offscreen compositing canvas at the chosen export cap
+    // (1080 / 4K / 8K) so recordings honor the HUD size + fps.
+    const s = useLab.getState();
     const size = compositeTargetSize(
       {
         width: engine.canvas.width,
         height: engine.canvas.height,
       },
-      exportMaxDim(entitled),
+      exportMaxDim(s.entitled, s.exportSize, s.plan),
     );
     let rc = recordCanvasRef.current;
     if (!rc) {
@@ -341,17 +349,18 @@ export function CanvasStage() {
     const rctx = rc.getContext("2d");
     if (rctx) {
       try {
-        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, entitled);
+        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, s.entitled);
       } catch {
         /* ignore priming errors */
       }
     }
-    const recorder = new CanvasRecorder(() => recordCanvasRef.current);
+    const recorder = new CanvasRecorder(() => recordCanvasRef.current, s.recordFps);
     try {
       recorder.start();
     } catch (err) {
       // Should be rare since canRecord() gated us; degrade cleanly.
       console.error("Failed to start recording:", err);
+      toast.error("Could not start that recording — try 1080 or 4K");
       return;
     }
     recorderRef.current = recorder;
@@ -402,13 +411,13 @@ export function CanvasStage() {
   const ensureCompositeCanvas = () => {
     const engine = engineRef.current;
     if (!engine || typeof document === "undefined") return null;
-    const entitled = useLab.getState().entitled;
+    const s = useLab.getState();
     const size = compositeTargetSize(
       {
         width: engine.canvas.width,
         height: engine.canvas.height,
       },
-      exportMaxDim(entitled),
+      exportMaxDim(s.entitled, s.exportSize, s.plan),
     );
     let rc = recordCanvasRef.current;
     if (!rc) {
@@ -420,7 +429,7 @@ export function CanvasStage() {
     const rctx = rc.getContext("2d");
     if (rctx) {
       try {
-        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, entitled);
+        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, s.entitled);
       } catch {
         /* ignore priming errors */
       }

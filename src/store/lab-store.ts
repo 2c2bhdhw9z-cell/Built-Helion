@@ -4,7 +4,8 @@ import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
   DEFAULT_TELEMETRY,
-  QUALITY_CAPS,
+  qualityCap,
+  SYSTEM_LIMIT,
   isProGenerator,
   type GeneratorKind,
   type LabParams,
@@ -20,6 +21,8 @@ import { clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
+import type { PlanId } from "@/lib/billing/types";
+import type { ExportSize, RecordFps } from "@/lib/capture/composite";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -62,6 +65,12 @@ type LabState = {
   upgradeOpen: boolean;
   /** True when the signed-in plan or active trial unlocks Pro generators / 4K. */
   entitled: boolean;
+  plan: PlanId;
+  historyOpen: boolean;
+  developerOpen: boolean;
+  exportSize: ExportSize;
+  exportAlpha: boolean;
+  recordFps: RecordFps;
   perfHubOpen: boolean;
   perfCompact: boolean;
   helpOpen: boolean;
@@ -153,6 +162,12 @@ type LabState = {
   setProfileOpen: (v: boolean) => void;
   setUpgradeOpen: (v: boolean) => void;
   setEntitled: (v: boolean) => void;
+  setPlan: (p: PlanId) => void;
+  setHistoryOpen: (v: boolean) => void;
+  setDeveloperOpen: (v: boolean) => void;
+  setExportSize: (v: ExportSize) => void;
+  setExportAlpha: (v: boolean) => void;
+  setRecordFps: (v: RecordFps) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
@@ -221,7 +236,7 @@ function takeSnap(s: LabState): HistorySnap {
 
 function applySnap(s: LabState, snap: HistorySnap) {
   const nextParams: LabParams = { ...DEFAULT_PARAMS, ...snap.params };
-  const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(snap.spawnCount)));
+  const nextSpawnCount = Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(snap.spawnCount)));
   return {
     clearId: s.clearId + 1,
     params: nextParams,
@@ -324,6 +339,12 @@ export const useLab = create<LabState>((set, get) => ({
   profileOpen: false,
   upgradeOpen: false,
   entitled: false,
+  plan: "free",
+  historyOpen: false,
+  developerOpen: false,
+  exportSize: "4k",
+  exportAlpha: false,
+  recordFps: 60,
   perfHubOpen: false,
   perfCompact: false,
   helpOpen: false,
@@ -379,7 +400,7 @@ export const useLab = create<LabState>((set, get) => ({
   },
   setPointer: (p) => set((s) => ({ pointer: { ...s.pointer, ...p } })),
   setReplace: (v) => set({ replaceMode: v }),
-  setSpawnCount: (n) => set({ spawnCount: Math.max(50, Math.min(200_000, Math.round(n))) }),
+  setSpawnCount: (n) => set({ spawnCount: Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(n))) }),
   addParticles: () => {
     if (rejectIfView()) return;
     set((s) => ({
@@ -398,7 +419,21 @@ export const useLab = create<LabState>((set, get) => ({
   setLibraryOpen: (v) => set({ libraryOpen: v }),
   setProfileOpen: (v) => set({ profileOpen: v }),
   setUpgradeOpen: (v) => set({ upgradeOpen: v }),
-  setEntitled: (v) => set({ entitled: v }),
+  setEntitled: (v) =>
+    set((s) => ({
+      entitled: v,
+      cap: qualityCap(s.quality, v, s.plan),
+    })),
+  setPlan: (p) =>
+    set((s) => ({
+      plan: p,
+      cap: qualityCap(s.quality, s.entitled, p),
+    })),
+  setHistoryOpen: (v) => set({ historyOpen: v }),
+  setDeveloperOpen: (v) => set({ developerOpen: v }),
+  setExportSize: (v) => set({ exportSize: v }),
+  setExportAlpha: (v) => set({ exportAlpha: v }),
+  setRecordFps: (v) => set({ recordFps: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
@@ -430,9 +465,9 @@ export const useLab = create<LabState>((set, get) => ({
     set({ fillFrame: v });
   },
   setQuality: (q) =>
-    set(() => ({
+    set((s) => ({
       quality: q,
-      cap: QUALITY_CAPS[q],
+      cap: qualityCap(q, s.entitled, s.plan),
     })),
   runGenerator: (kind) => {
     if (rejectIfView()) return;
@@ -463,7 +498,7 @@ export const useLab = create<LabState>((set, get) => ({
     const scene = SCENES.find((s) => s.id === id);
     if (!scene) return;
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...scene.params };
-    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(scene.spawnCount)));
+    const nextSpawnCount = Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(scene.spawnCount)));
     pushHistory(get());
     set((s) => ({
       clearId: s.clearId + 1,
@@ -486,7 +521,7 @@ export const useLab = create<LabState>((set, get) => ({
   applyCreationConfig: (config) => {
     if (rejectIfView()) return;
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
-    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
+    const nextSpawnCount = Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(config.spawnCount)));
     const nextCap = Math.max(config.cap, nextSpawnCount);
     pushHistory(get());
     set((s) => ({

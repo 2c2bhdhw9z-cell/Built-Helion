@@ -21,6 +21,7 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
   const { user } = useCurrentUserState();
   const stored = useSession((s) => s.selfName);
   const name = (stored || user?.displayName || "Guest").slice(0, 32);
+  const micOn = useSession((s) => s.micOn);
   const p2p = useP2PRoom({ room: code, name });
   const applying = useRef(false);
   const rolesRef = useRef<Record<string, SessionRole>>({});
@@ -146,6 +147,14 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
               text: data.text,
               at: data.at,
             });
+          } else if (data.t === "kick") {
+            if (data.peerId === p2p.selfId) {
+              toast.message("You were removed from the session");
+              writeSessionQuery(null);
+              useSession.getState().leave();
+            } else {
+              useSession.getState().dropPeer(data.peerId);
+            }
           }
         } finally {
           applying.current = false;
@@ -238,6 +247,54 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
   useEffect(() => {
     p2p.send({ t: "hello", name, isHost });
   }, [p2p.send, name, isHost, p2p.joined]);
+
+  useEffect(() => {
+    const els = new Map<string, HTMLAudioElement>();
+    const unsub = p2p.onTrack((from, stream) => {
+      let el = els.get(from);
+      if (!el) {
+        el = new Audio();
+        el.autoplay = true;
+        els.set(from, el);
+      }
+      el.srcObject = stream;
+    });
+    return () => {
+      unsub();
+      for (const el of els.values()) {
+        el.srcObject = null;
+        el.pause();
+      }
+    };
+  }, [p2p.onTrack]);
+
+  useEffect(() => {
+    if (!micOn) {
+      p2p.setLocalAudio(null);
+      return;
+    }
+    let stream: MediaStream | null = null;
+    let dead = false;
+    void navigator.mediaDevices
+      .getUserMedia({ audio: true, video: false })
+      .then((s) => {
+        if (dead) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream = s;
+        p2p.setLocalAudio(s);
+      })
+      .catch(() => {
+        toast.error("Microphone blocked");
+        useSession.getState().setMicOn(false);
+      });
+    return () => {
+      dead = true;
+      stream?.getTracks().forEach((t) => t.stop());
+      p2p.setLocalAudio(null);
+    };
+  }, [micOn, p2p.setLocalAudio]);
 
   return null;
 }

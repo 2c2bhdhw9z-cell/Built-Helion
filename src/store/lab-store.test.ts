@@ -43,8 +43,8 @@ test("lab-store caps spawn count constraints", () => {
   useLab.getState().setSpawnCount(10); // below min
   expect(useLab.getState().spawnCount).toBe(50);
   
-  useLab.getState().setSpawnCount(500000); // above max
-  expect(useLab.getState().spawnCount).toBe(200000);
+  useLab.getState().setSpawnCount(5_000_000); // above max
+  expect(useLab.getState().spawnCount).toBe(1_000_000);
 });
 
 test("lab-store clears simulation", () => {
@@ -120,4 +120,20 @@ test("view-only session rejects sim edits", async () => {
   expect(useLab.getState().paused).toBe(paused);
   expect(useLab.getState().tool).toBe("attract");
   useSession.setState({ role: null });
+});
+
+test("high quality on enterprise is 1M particles", () => {
+  const prev = {
+    entitled: useLab.getState().entitled,
+    plan: useLab.getState().plan,
+    quality: useLab.getState().quality,
+    cap: useLab.getState().cap,
+  };
+  useLab.setState({ entitled: true, plan: "enterprise", quality: "medium" });
+  useLab.getState().setQuality("high");
+  expect(useLab.getState().cap).toBe(1_000_000);
+  useLab.setState({ entitled: true, plan: "pro" });
+  useLab.getState().setQuality("high");
+  expect(useLab.getState().cap).toBe(262_144);
+  useLab.setState(prev);
 });

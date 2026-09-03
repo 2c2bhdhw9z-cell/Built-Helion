@@ -180,6 +180,7 @@ export type StreamsMsg = {
 export type RoleMsg = { t: "role"; peerId: string; role: SessionRole };
 export type ChatMsg = { t: "chat"; text: string; name: string; at: number };
 export type HelloMsg = { t: "hello"; name: string; isHost: boolean };
+export type KickMsg = { t: "kick"; peerId: string };
 
 export type SessionMsg =
   | LiveMsg
@@ -193,7 +194,8 @@ export type SessionMsg =
   | StreamsMsg
   | RoleMsg
   | ChatMsg
-  | HelloMsg;
+  | HelloMsg
+  | KickMsg;
 
 export function isSessionMsg(data: unknown): data is SessionMsg {
   return Boolean(data && typeof data === "object" && "t" in data && typeof (data as { t: unknown }).t === "string");

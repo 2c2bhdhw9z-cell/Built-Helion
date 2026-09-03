@@ -3,7 +3,7 @@ import type { ToolKind } from "@/engine/types";
 import type { PeerInfo } from "./p2p";
 import { ensureGuestName } from "./protocol";
 
-export type SessionRole = "host" | "edit" | "view";
+export type SessionRole = "host" | "admin" | "edit" | "view";
 
 export type RemoteCursor = {
   id: string;
@@ -50,6 +50,7 @@ type SessionState = {
   cursors: Record<string, RemoteCursor>;
   chat: ChatLine[];
   wire: SessionWire | null;
+  micOn: boolean;
   setOpen: (v: boolean) => void;
   enter: (code: string, isHost: boolean) => void;
   leave: () => void;
@@ -59,6 +60,7 @@ type SessionState = {
   setCursor: (c: RemoteCursor) => void;
   dropPeer: (id: string) => void;
   pushChat: (line: ChatLine) => void;
+  setMicOn: (v: boolean) => void;
 };
 
 export const useSession = create<SessionState>((set) => ({
@@ -73,6 +75,7 @@ export const useSession = create<SessionState>((set) => ({
   cursors: {},
   chat: [],
   wire: null,
+  micOn: false,
   setOpen: (v) => set({ open: v }),
   enter: (code, isHost) =>
     set({
@@ -87,6 +90,7 @@ export const useSession = create<SessionState>((set) => ({
       selfId: null,
       selfName: ensureGuestName(),
       wire: null,
+      micOn: false,
     }),
   leave: () =>
     set({
@@ -101,6 +105,7 @@ export const useSession = create<SessionState>((set) => ({
       chat: [],
       open: false,
       wire: null,
+      micOn: false,
     }),
   setMeta: (p) => set(p),
   setCursor: (c) => set((s) => ({ cursors: { ...s.cursors, [c.id]: c } })),
@@ -110,4 +115,5 @@ export const useSession = create<SessionState>((set) => ({
       return { cursors, peers: s.peers.filter((p) => p.id !== id) };
     }),
   pushChat: (line) => set((s) => ({ chat: [...s.chat.slice(-80), line] })),
+  setMicOn: (v) => set({ micOn: v }),
 }));

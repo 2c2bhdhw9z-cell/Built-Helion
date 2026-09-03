@@ -21,6 +21,7 @@ export function UpgradeDialog() {
   const open = useLab((s) => s.upgradeOpen);
   const setOpen = useLab((s) => s.setUpgradeOpen);
   const setEntitled = useLab((s) => s.setEntitled);
+  const setPlan = useLab((s) => s.setPlan);
   const { billing, isSignedIn, isLoading, choosePlan } = useBilling();
 
   const onChoose = async (plan: PlanId) => {
@@ -31,7 +32,8 @@ export function UpgradeDialog() {
       return;
     }
     setEntitled(next.entitled);
-    toast.success(plan === "free" ? "Back on Free" : `You\u2019re on ${plan === "pro" ? "Pro" : "Enterprise"}`);
+    setPlan(next.plan);
+    toast.success(plan === "free" ? "Back on Free" : `You’re on ${plan === "pro" ? "Pro" : "Enterprise"}`);
   };
 
   const trial = billing.trialActive ? trialLabel(billing.trialEndsAt) : null;
@@ -111,6 +113,7 @@ export function UpgradeDialog() {
             </div>
             <p className="mt-3 text-2xs text-faint">
               Billing is account-side in this preview — no card is charged. A live Stripe checkout ships when keys are set.
+              Stills go to 4K / 8K in the browser; video is a canvas recording (no FFmpeg farm). Sessions are peer-to-peer, so physics can drift and voice needs a microphone plus a direct link.
             </p>
           </div>
         </Dialog.Content>

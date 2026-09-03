@@ -130,7 +130,9 @@ export function GeneratorBar() {
   const applyScene = useLab((s) => s.applyScene);
   const activeSceneId = useLab((s) => s.activeSceneId);
   const entitled = useLab((s) => s.entitled);
+  const plan = useLab((s) => s.plan);
   const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
+  const countMax = plan === "enterprise" ? 200_000 : entitled ? 50_000 : 20_000;
 
   const isActive = (id: GeneratorKind) => {
     if (id === "pour") return pouring;
@@ -199,7 +201,7 @@ export function GeneratorBar() {
             label="Count"
             value={spawnCount}
             min={200}
-            max={20000}
+            max={countMax}
             step={100}
             format={(n) => n.toLocaleString()}
             onChange={setSpawnCount}

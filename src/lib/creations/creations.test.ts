@@ -133,7 +133,7 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
     assert.equal(parsed.spawnKind, "galaxy");
   });
 
-  it("clamps spawnCount into 50..200000", () => {
+  it("clamps spawnCount into 50..1M", () => {
     const tooLow = creationConfigSchema.parse({
       params: { ...DEFAULT_PARAMS },
       spawnKind: "galaxy",
@@ -149,6 +149,16 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
       speed: 1,
     });
     assert.equal(tooHigh.spawnCount, SPAWN_COUNT_MAX);
+  });
+
+  it("accepts a 1M spawnCount", () => {
+    const parsed = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 1_000_000,
+      speed: 1,
+    });
+    assert.equal(parsed.spawnCount, 1_000_000);
   });
 
   it("defaults an invalid speed to 1", () => {

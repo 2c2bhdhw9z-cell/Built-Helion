@@ -33,7 +33,7 @@ export const speedMuls = [0.25, 0.5, 1, 2, 4] as const;
 
 /** Particle-count clamp, matching the store's setSpawnCount bounds. */
 export const SPAWN_COUNT_MIN = 50;
-export const SPAWN_COUNT_MAX = 200_000;
+export const SPAWN_COUNT_MAX = SYSTEM_LIMIT;
 
 /**
  * Particle-buffer cap clamp. Mirrors the engine's `setCap` floor (1024, i.e.

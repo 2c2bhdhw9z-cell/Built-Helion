@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import {
   ensureGuestName,
+  isSessionMsg,
   normalizeRoomCode,
   pickLiveExtraBrush,
   randomRoomCode,
@@ -56,4 +57,9 @@ test("pickLiveExtraBrush uses the newest down cursor", () => {
   expect(extra.mode).toBe(1);
   expect(extra.force).toBe(0.9);
   expect(extra.radius).toBe(0.15);
+});
+
+test("kick is a session message", () => {
+  expect(isSessionMsg({ t: "kick", peerId: "p-1" })).toBe(true);
+  expect(isSessionMsg({ t: "hello", name: "Nova", isHost: true })).toBe(true);
 });

@@ -10,6 +10,8 @@ import { CreationsDialog } from "./creations-dialog";
 import { LibraryDialog } from "./library-dialog";
 import { ProfileDialog } from "./profile-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
+import { HistoryDialog } from "./history-dialog";
+import { DeveloperDialog } from "./developer-dialog";
 import { BillingSync } from "./theme-sync";
 import { PerfHub } from "./perf-hub/perf-hub";
 import { SessionDialog } from "./session-dialog";
@@ -104,6 +106,8 @@ export function LabApp() {
       <LibraryDialog />
       <ProfileDialog />
       <UpgradeDialog />
+      <HistoryDialog />
+      <DeveloperDialog />
       <PerfHub />
       <SessionDialog />
       {sessionCode ? <SessionRoom key={sessionCode} code={sessionCode} isHost={sessionIsHost} /> : null}

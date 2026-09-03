@@ -11,13 +11,41 @@ export type CompositeSize = {
   scale: number;
 };
 
+export type ExportSize = "1080" | "4k" | "8k";
+export type RecordFps = 24 | 30 | 60;
+
 /** Longest-side cap for free (watermarked) stills and recordings. */
 export const FREE_EXPORT_MAX = 1280;
+/** Longest-side target for HD stills. */
+export const HD_EXPORT_MAX = 1920;
 /** Longest-side target for Pro / trial stills (4K). */
 export const PRO_EXPORT_MAX = 3840;
+/** Longest-side target for Enterprise stills (8K). */
+export const ENTERPRISE_EXPORT_MAX = 7680;
 
-export function exportMaxDim(entitled: boolean): number {
-  return entitled ? PRO_EXPORT_MAX : FREE_EXPORT_MAX;
+export function sizeToMaxDim(size: ExportSize): number {
+  if (size === "8k") return ENTERPRISE_EXPORT_MAX;
+  if (size === "4k") return PRO_EXPORT_MAX;
+  return HD_EXPORT_MAX;
+}
+
+export function clampExportSize(
+  size: ExportSize,
+  entitled: boolean,
+  plan: "free" | "pro" | "enterprise",
+): ExportSize {
+  if (!entitled) return "1080";
+  if (size === "8k" && plan !== "enterprise") return "4k";
+  return size;
+}
+
+export function exportMaxDim(
+  entitled: boolean,
+  size: ExportSize = "4k",
+  plan: "free" | "pro" | "enterprise" = entitled ? "pro" : "free",
+): number {
+  if (!entitled) return FREE_EXPORT_MAX;
+  return sizeToMaxDim(clampExportSize(size, entitled, plan));
 }
 
 /**
@@ -50,11 +78,16 @@ export function compositeTargetSize(
 
 /**
  * Export size for a still. Free plans downscale to 1280 on the long side.
- * Entitled plans upscale (or downscale) so the long side is 3840 — the 4K still.
- * Motion capture should keep using compositeTargetSize (downscale only).
+ * Entitled plans upscale (or downscale) so the long side matches the chosen
+ * 1080 / 4K / 8K target.
  */
-export function exportTargetSize(engine: EngineSize, entitled: boolean): CompositeSize {
-  const maxDim = exportMaxDim(entitled);
+export function exportTargetSize(
+  engine: EngineSize,
+  entitled: boolean,
+  size: ExportSize = "4k",
+  plan: "free" | "pro" | "enterprise" = entitled ? "pro" : "free",
+): CompositeSize {
+  const maxDim = exportMaxDim(entitled, size, plan);
   if (!entitled) return compositeTargetSize(engine, maxDim);
   const width = Math.max(1, Math.floor(engine.width));
   const height = Math.max(1, Math.floor(engine.height));

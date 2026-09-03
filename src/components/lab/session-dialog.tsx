@@ -1,6 +1,6 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Copy, Link2, Radio, Users, X } from "lucide-react";
+import { Copy, Link2, Mic, MicOff, Radio, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,8 @@ export function SessionDialog() {
   const chat = useSession((s) => s.chat);
   const wire = useSession((s) => s.wire);
   const selfId = useSession((s) => s.selfId);
+  const micOn = useSession((s) => s.micOn);
+  const setMicOn = useSession((s) => s.setMicOn);
   const [joinCode, setJoinCode] = useState("");
   const [draft, setDraft] = useState("");
   const [guestName, setGuestName] = useState(() => ensureGuestName());
@@ -87,12 +89,28 @@ export function SessionDialog() {
   };
 
   const setRole = (peerId: string, next: SessionRole) => {
-    if (!isHost || !wire) return;
+    if ((!isHost && role !== "admin") || !wire) return;
+    if (next === "admin" && !isHost) return;
     wire.send({ t: "role", peerId, role: next });
     useSession.getState().setMeta({
       peers: useSession.getState().peers.map((p) => (p.id === peerId ? { ...p, role: next } : p)),
     });
   };
+
+  const kick = (peerId: string) => {
+    if (!isHost || !wire) return;
+    wire.send({ t: "kick", peerId });
+    useSession.getState().dropPeer(peerId);
+  };
+
+  const cycleRole = (current: SessionRole): SessionRole => {
+    if (current === "view") return "edit";
+    if (current === "edit") return isHost ? "admin" : "view";
+    return "view";
+  };
+
+  const roleLabel = (r: SessionRole) =>
+    r === "view" ? "view → edit" : r === "edit" ? (isHost ? "edit → admin" : "edit → view") : "admin → view";
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -168,6 +186,16 @@ export function SessionDialog() {
                   </div>
                   <div className="flex gap-1">
                     <Button
+                      variant={micOn ? "default" : "outline"}
+                      size="icon"
+                      aria-label={micOn ? "Mute microphone" : "Share microphone"}
+                      title={micOn ? "Mute" : "Voice"}
+                      data-testid="session-mic"
+                      onClick={() => setMicOn(!micOn)}
+                    >
+                      {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5" />}
+                    </Button>
+                    <Button
                       variant="outline"
                       size="icon"
                       aria-label="Copy code"
@@ -210,14 +238,25 @@ export function SessionDialog() {
                               : p.connectionState}
                         </div>
                       </div>
-                      {isHost && p.id !== selfId ? (
-                        <button
-                          type="button"
-                          className="shrink-0 text-2xs uppercase tracking-[0.12em] text-muted hover:text-fg"
-                          onClick={() => setRole(p.id, p.role === "view" ? "edit" : "view")}
-                        >
-                          {p.role === "view" ? "view → edit" : "edit → view"}
-                        </button>
+                      {(isHost || role === "admin") && p.id !== selfId ? (
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            className="text-2xs uppercase tracking-[0.12em] text-muted hover:text-fg"
+                            onClick={() => setRole(p.id, cycleRole(p.role))}
+                          >
+                            {roleLabel(p.role)}
+                          </button>
+                          {isHost ? (
+                            <button
+                              type="button"
+                              className="text-2xs uppercase tracking-[0.12em] text-muted hover:text-fg"
+                              onClick={() => kick(p.id)}
+                            >
+                              kick
+                            </button>
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-2xs uppercase tracking-[0.12em] text-faint">{p.role}</span>
                       )}

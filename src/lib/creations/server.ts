@@ -79,6 +79,14 @@ export async function setCreationPublic(
     where id = ${id} and user_id = ${userId}
     returning id
   `;
+  if (rows.length > 0 && isPublic) {
+    try {
+      const { fireWebhooks } = await import("@/lib/dev-api/tokens");
+      void fireWebhooks(userId, { event: "creation.published", id, public: true });
+    } catch {
+      /* webhooks are best-effort */
+    }
+  }
   return rows.length > 0;
 }
 

@@ -1,10 +1,14 @@
 import {
   Camera,
+  Check,
   CircleHelp,
   Code2,
+  FileCode,
   Gauge,
   Bookmark,
+  History,
   Image,
+  KeyRound,
   Library,
   Link2,
   ListChecks,
@@ -42,6 +46,10 @@ import {
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { embedSnippet, shareUrl } from "@/lib/share/codec";
+import { captureFilename } from "@/lib/capture/filename";
+import { sceneJson } from "@/lib/capture/scene-json";
+import { downloadBlobObject } from "@/lib/perf/export";
+import type { ExportSize, RecordFps } from "@/lib/capture/composite";
 import { Chip } from "./controls";
 import { SessionHudButton } from "./session-dialog";
 
@@ -88,8 +96,17 @@ export function Hud() {
   const setLibraryOpen = useLab((s) => s.setLibraryOpen);
   const setProfileOpen = useLab((s) => s.setProfileOpen);
   const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
+  const setHistoryOpen = useLab((s) => s.setHistoryOpen);
+  const setDeveloperOpen = useLab((s) => s.setDeveloperOpen);
   const setPerfHubOpen = useLab((s) => s.setPerfHubOpen);
   const entitled = useLab((s) => s.entitled);
+  const plan = useLab((s) => s.plan);
+  const exportSize = useLab((s) => s.exportSize);
+  const exportAlpha = useLab((s) => s.exportAlpha);
+  const recordFps = useLab((s) => s.recordFps);
+  const setExportSize = useLab((s) => s.setExportSize);
+  const setExportAlpha = useLab((s) => s.setExportAlpha);
+  const setRecordFps = useLab((s) => s.setRecordFps);
   const captureScreenshot = useLab((s) => s.captureScreenshot);
   const startRecording = useLab((s) => s.startRecording);
   const stopRecording = useLab((s) => s.stopRecording);
@@ -233,6 +250,28 @@ export function Hud() {
           >
             <Library className="size-3.5" />
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Version history"
+            title="History"
+            data-testid="open-history"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <History className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="hidden shrink-0 sm:inline-flex"
+            aria-label="Developer API"
+            title="Developer"
+            data-testid="open-developer"
+            onClick={() => setDeveloperOpen(true)}
+          >
+            <KeyRound className="size-3.5" />
+          </Button>
           <SessionHudButton />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -246,15 +285,68 @@ export function Hud() {
                 <Share2 className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="min-w-52">
               <DropdownMenuLabel>Still</DropdownMenuLabel>
               <DropdownMenuItem disabled={!captureScreenshot} onSelect={() => captureScreenshot?.("png")}>
                 <Camera className="size-3.5" />
                 PNG screenshot
               </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!captureScreenshot}
+                onSelect={() => {
+                  if (!exportAlpha) setExportAlpha(true);
+                  captureScreenshot?.("png");
+                }}
+              >
+                <Camera className="size-3.5" />
+                PNG with alpha
+              </DropdownMenuItem>
               <DropdownMenuItem disabled={!captureScreenshot} onSelect={() => captureScreenshot?.("jpg")}>
                 <Image className="size-3.5" />
                 JPG screenshot
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="export-json"
+                onSelect={() => {
+                  const json = sceneJson(currentCreationConfig(useLab.getState()));
+                  downloadBlobObject(
+                    captureFilename("json"),
+                    new Blob([json], { type: "application/json" }),
+                  );
+                }}
+              >
+                <FileCode className="size-3.5" />
+                Scene JSON
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Size</DropdownMenuLabel>
+              {(["1080", "4k", "8k"] as ExportSize[]).map((size) => {
+                const locked =
+                  (size === "4k" && !entitled) || (size === "8k" && plan !== "enterprise");
+                return (
+                  <DropdownMenuItem
+                    key={size}
+                    data-testid={`export-size-${size}`}
+                    onSelect={() => {
+                      if (locked) {
+                        setUpgradeOpen(true);
+                        return;
+                      }
+                      setExportSize(size);
+                    }}
+                  >
+                    {exportSize === size ? <Check className="size-3.5" /> : <span className="size-3.5" />}
+                    {size === "1080" ? "1080" : size === "4k" ? "4K" : "8K"}
+                    {locked ? <span className="ml-auto text-2xs text-faint">upgrade</span> : null}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuItem
+                data-testid="export-alpha"
+                onSelect={() => setExportAlpha(!exportAlpha)}
+              >
+                {exportAlpha ? <Check className="size-3.5" /> : <span className="size-3.5" />}
+                Knock out void (PNG)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Motion</DropdownMenuLabel>
@@ -265,6 +357,12 @@ export function Hud() {
                 <Image className="size-3.5" />
                 {gifRecording ? "Stop GIF" : "Record GIF"}
               </DropdownMenuItem>
+              {([24, 30, 60] as RecordFps[]).map((fps) => (
+                <DropdownMenuItem key={fps} onSelect={() => setRecordFps(fps)}>
+                  {recordFps === fps ? <Check className="size-3.5" /> : <span className="size-3.5" />}
+                  {fps} fps
+                </DropdownMenuItem>
+              ))}
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Share</DropdownMenuLabel>
               <DropdownMenuItem
@@ -398,7 +496,9 @@ export function Hud() {
             onClick={() => setUpgradeOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            <span className="hidden sm:inline">{entitled ? "Pro" : "Upgrade"}</span>
+            <span className="hidden sm:inline">
+              {plan === "enterprise" ? "Ent" : entitled ? "Pro" : "Upgrade"}
+            </span>
           </Button>
           <Button
             variant="outline"
@@ -445,6 +545,8 @@ export function Hud() {
             <li><kbd className="text-fg">Alt-drag</kbd> pan · <kbd className="text-fg">0</kbd> reset view</li>
             <li>View → Fill frame uses zoom-out as extra playground</li>
             <li><kbd className="text-fg">F</kbd> fullscreen · <kbd className="text-fg">[ ]</kbd> quality</li>
+            <li>History saves named checkpoints on this device</li>
+            <li>Export → size, fps, PNG alpha, scene JSON</li>
             <li>Use the chevrons to hide the menus and see the sim</li>
           </ul>
         </Dialog.Content>

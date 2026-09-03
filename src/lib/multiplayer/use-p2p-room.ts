@@ -22,6 +22,8 @@ export interface P2PRoomHandle {
   onMessage: (
     fn: (from: string, data: unknown, channel: "state" | "reliable") => void,
   ) => () => void;
+  setLocalAudio: (stream: MediaStream | null) => void;
+  onTrack: (fn: (from: string, stream: MediaStream) => void) => () => void;
 }
 
 function defaultRoom(): string {
@@ -39,6 +41,7 @@ export function useP2PRoom(options: UseP2PRoomOptions = {}): P2PRoomHandle {
   const listeners = useRef(
     new Set<(from: string, data: unknown, channel: "state" | "reliable") => void>(),
   );
+  const trackListeners = useRef(new Set<(from: string, stream: MediaStream) => void>());
 
   useEffect(() => {
     const p2p = new P2PRoom({
@@ -48,6 +51,9 @@ export function useP2PRoom(options: UseP2PRoomOptions = {}): P2PRoomHandle {
       onPeersChanged: setPeers,
       onMessage: (from, data, channel) => {
         for (const fn of listeners.current) fn(from, data, channel);
+      },
+      onTrack: (from, stream) => {
+        for (const fn of trackListeners.current) fn(from, stream);
       },
       onConnected: () => setJoined(true),
     });
@@ -73,6 +79,15 @@ export function useP2PRoom(options: UseP2PRoomOptions = {}): P2PRoomHandle {
     },
     [],
   );
+  const setLocalAudio = useCallback((stream: MediaStream | null) => {
+    void roomRef.current?.setLocalAudio(stream);
+  }, []);
+  const onTrack = useCallback((fn: (from: string, stream: MediaStream) => void) => {
+    trackListeners.current.add(fn);
+    return () => {
+      trackListeners.current.delete(fn);
+    };
+  }, []);
 
-  return { selfId, room, peers, joined, broadcast, send, onMessage };
+  return { selfId, room, peers, joined, broadcast, send, onMessage, setLocalAudio, onTrack };
 }

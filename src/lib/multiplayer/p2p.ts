@@ -52,6 +52,8 @@ export interface P2PRoomOptions {
   onMessage?: (from: string, data: unknown, channel: "state" | "reliable") => void;
   /** Fires once, on the first successful signaling poll (registration). */
   onConnected?: () => void;
+  /** Remote audio track from a peer (voice). */
+  onTrack?: (from: string, stream: MediaStream) => void;
 }
 
 interface PeerSlot {
@@ -106,6 +108,7 @@ export class P2PRoom {
   private closed = false;
   private everPolled = false;
   private lastPeersFingerprint = "";
+  private localStream: MediaStream | null = null;
 
   constructor(opts: P2PRoomOptions) {
     this.opts = opts;
@@ -136,6 +139,10 @@ export class P2PRoom {
     if (this.pingTimer) clearInterval(this.pingTimer);
     for (const slot of this.peers.values()) slot.pc.close();
     this.peers.clear();
+    if (this.localStream) {
+      for (const t of this.localStream.getTracks()) t.stop();
+      this.localStream = null;
+    }
     // Leaving the roster is the teardown broadcast: everyone's next poll
     // drops this peer and closes their side of the pair.
     void fetch("/api/rtc", {
@@ -165,6 +172,35 @@ export class P2PRoom {
 
   peerList(): PeerInfo[] {
     return [...this.peers.values()].map((s) => ({ ...s.info }));
+  }
+
+  /**
+   * Attach (or clear) a local microphone stream. Adding a track after the
+   * data-channel handshake retriggers perfect negotiation on each pair.
+   */
+  async setLocalAudio(stream: MediaStream | null): Promise<void> {
+    const prev = this.localStream;
+    this.localStream = stream;
+    if (prev && prev !== stream) {
+      for (const t of prev.getTracks()) t.stop();
+    }
+    const track = stream?.getAudioTracks()[0] ?? null;
+    for (const slot of this.peers.values()) {
+      const audioSender = slot.pc.getSenders().find((s) => s.track?.kind === "audio");
+      if (audioSender) {
+        try {
+          await audioSender.replaceTrack(track);
+        } catch {
+          /* ignore */
+        }
+      } else if (track && stream) {
+        try {
+          slot.pc.addTrack(track, stream);
+        } catch {
+          /* already added */
+        }
+      }
+    }
   }
 
   // ── signaling loop ─────────────────────────────────────────────────────────
@@ -300,6 +336,19 @@ export class P2PRoom {
       }
     };
     pc.ondatachannel = (e) => this.attachChannel(slot, e.channel);
+    pc.ontrack = (e) => {
+      const stream = e.streams[0] ?? new MediaStream(e.track ? [e.track] : []);
+      this.opts.onTrack?.(peerId, stream);
+    };
+    if (this.localStream) {
+      for (const t of this.localStream.getAudioTracks()) {
+        try {
+          pc.addTrack(t, this.localStream);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
 
     if (initiator) {
       // Creating the channels triggers negotiationneeded → the offer.
