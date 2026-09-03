@@ -3,13 +3,17 @@ import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
   DEFAULT_TELEMETRY,
+  QUALITY_CAPS,
+  isProGenerator,
   type GeneratorKind,
   type LabParams,
   type ParamTab,
   type PointerState,
+  type QualityMode,
   type Telemetry,
   type ToolKind,
 } from "@/engine/types";
+import { GENERATOR_PRESETS } from "@/engine/generator-presets";
 import { SCENES, type SceneId } from "@/engine/scenes";
 import type { CreationConfig } from "@/lib/creations/types";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
@@ -42,14 +46,29 @@ type LabState = {
   spawnCount: number;
   pouring: boolean;
   falling: boolean;
+  firing: boolean;
+  smoking: boolean;
   tab: ParamTab;
   uiTopOpen: boolean;
   uiBottomOpen: boolean;
   feedbackOpen: boolean;
   boardOpen: boolean;
   creationsOpen: boolean;
+  libraryOpen: boolean;
+  profileOpen: boolean;
+  upgradeOpen: boolean;
+  /** True when the signed-in plan or active trial unlocks Pro generators / 4K. */
+  entitled: boolean;
   perfHubOpen: boolean;
   perfCompact: boolean;
+  helpOpen: boolean;
+  viewZoom: number;
+  viewPanX: number;
+  viewPanY: number;
+  viewRotate: number;
+  /** Session-only object URL for an image/video backdrop. Not persisted. */
+  bgObjectUrl: string | null;
+  quality: QualityMode;
   /**
    * Lazily-populated reader for live engine system/GL info. Set by CanvasStage
    * once the engine is running; the perf hub calls it (only while open) to read
@@ -59,11 +78,11 @@ type LabState = {
   getEngineSystemInfo: null | (() => EngineSystemInfo);
   /**
    * Trigger a screenshot of the sim (engine canvas + walls overlay, composited
-   * and downloaded as a PNG). Set by CanvasStage once the engine is running and
-   * cleared on unmount; the HUD capture button calls it. Null until the engine
+   * and downloaded as PNG or JPG). Set by CanvasStage once the engine is running
+   * and cleared on unmount; the HUD export menu calls it. Null until the engine
    * mounts (button then no-ops). NEVER gated on auth — capture works for anyone.
    */
-  captureScreenshot: (() => void) | null;
+  captureScreenshot: ((kind?: "png" | "jpg") => void) | null;
   /**
    * Start recording the sim to a video. Set by CanvasStage once the engine is
    * running and cleared on unmount; the HUD record button calls it. Null until
@@ -76,6 +95,13 @@ type LabState = {
    * by CanvasStage alongside startRecording. Null until the engine mounts.
    */
   stopRecording: (() => void) | null;
+  /**
+   * Start/stop a short looping GIF capture of the sim. Independent of video
+   * recording so a phone without MediaRecorder can still export motion.
+   */
+  startGif: (() => void) | null;
+  stopGif: (() => void) | null;
+  gifRecording: boolean;
   /**
    * Whether a recording is currently active. Kept in sync by CanvasStage so the
    * HUD can toggle the record button label/icon (Record vs Stop) and show it as
@@ -115,30 +141,34 @@ type LabState = {
   setFeedbackOpen: (v: boolean) => void;
   setBoardOpen: (v: boolean) => void;
   setCreationsOpen: (v: boolean) => void;
+  setLibraryOpen: (v: boolean) => void;
+  setProfileOpen: (v: boolean) => void;
+  setUpgradeOpen: (v: boolean) => void;
+  setEntitled: (v: boolean) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
-  setCaptureScreenshot: (fn: (() => void) | null) => void;
+  setCaptureScreenshot: (fn: ((kind?: "png" | "jpg") => void) | null) => void;
   setStartRecording: (fn: (() => void) | null) => void;
   setStopRecording: (fn: (() => void) | null) => void;
   setRecording: (v: boolean) => void;
+  setStartGif: (fn: (() => void) | null) => void;
+  setStopGif: (fn: (() => void) | null) => void;
+  setGifRecording: (v: boolean) => void;
   setTilt: (x: number, y: number) => void;
+  setBgMedia: (url: string | null) => void;
   runGenerator: (kind: GeneratorKind) => void;
   applyScene: (id: SceneId) => void;
-  /**
-   * Load a saved creation's config into the sim using the same deterministic
-   * clean-apply as `applyScene` (clear first, reset params over DEFAULT_PARAMS,
-   * set spawn kind/count/speed, bump spawnId).
-   *
-   * SECURITY: `config` is assumed to already be a VALIDATED CreationConfig.
-   * Callers that load an untrusted payload (a DB jsonb value or a public
-   * share-link blob) MUST run it through `normalizeCreationConfig` (from
-   * @/lib/creations/types) FIRST — that whitelists known keys, coerces invalid
-   * values to defaults, and returns null on total garbage so the caller can
-   * fall back to the default sim. `applyCreationConfig` performs no validation.
-   */
   applyCreationConfig: (config: CreationConfig) => void;
   clearSim: () => void;
+  setHelpOpen: (v: boolean) => void;
+  setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number }>) => void;
+  resetView: () => void;
+  setQuality: (q: QualityMode) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 };
 
 /**
@@ -161,6 +191,65 @@ export function currentCreationConfig(
   };
 }
 
+const HISTORY_LIMIT = 24;
+
+type HistorySnap = CreationConfig & {
+  pouring: boolean;
+  falling: boolean;
+  firing: boolean;
+  smoking: boolean;
+};
+
+function takeSnap(s: LabState): HistorySnap {
+  return {
+    ...currentCreationConfig(s),
+    pouring: s.pouring,
+    falling: s.falling,
+    firing: s.firing,
+    smoking: s.smoking,
+  };
+}
+
+function applySnap(s: LabState, snap: HistorySnap) {
+  const nextParams: LabParams = { ...DEFAULT_PARAMS, ...snap.params };
+  const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(snap.spawnCount)));
+  return {
+    clearId: s.clearId + 1,
+    params: nextParams,
+    spawnCount: nextSpawnCount,
+    cap: Math.max(snap.cap, nextSpawnCount),
+    speed: snap.speed,
+    pouring: snap.pouring,
+    falling: snap.falling,
+    firing: snap.firing,
+    smoking: snap.smoking,
+    replaceMode: true,
+    spawnKind: snap.spawnKind as GeneratorKind,
+    spawnId: s.spawnId + 1,
+    activeSceneId: null,
+  };
+}
+
+function revokeBg(url: string | null) {
+  if (url && url.startsWith("blob:")) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+let past: HistorySnap[] = [];
+let future: HistorySnap[] = [];
+
+function pushHistory(s: LabState) {
+  past.push(takeSnap(s));
+  if (past.length > HISTORY_LIMIT) past.shift();
+  future = [];
+}
+
+
 export const useLab = create<LabState>((set, get) => ({
   params: { ...DEFAULT_PARAMS },
   telemetry: { ...DEFAULT_TELEMETRY, cap: DEFAULT_CAP },
@@ -175,21 +264,35 @@ export const useLab = create<LabState>((set, get) => ({
   spawnCount: 5000,
   pouring: false,
   falling: false,
+  firing: false,
+  smoking: false,
   tab: "physics",
   uiTopOpen: true,
   uiBottomOpen: true,
   feedbackOpen: false,
   boardOpen: false,
   creationsOpen: false,
+  libraryOpen: false,
+  profileOpen: false,
+  upgradeOpen: false,
+  entitled: false,
   perfHubOpen: false,
   perfCompact: false,
+  helpOpen: false,
+  viewZoom: 1,
+  viewPanX: 0,
+  viewPanY: 0,
+  viewRotate: 0,
+  bgObjectUrl: null,
+  quality: "high",
   getEngineSystemInfo: null,
   captureScreenshot: null,
   startRecording: null,
   stopRecording: null,
+  startGif: null,
+  stopGif: null,
+  gifRecording: false,
   recording: false,
-  // Computed once: capture works for anyone, but recording needs the browser
-  // APIs. Degrades cleanly to a disabled button where unsupported (iOS Safari).
   canRecord: canRecordCapability(),
   tiltX: 0,
   tiltY: 0,
@@ -197,143 +300,175 @@ export const useLab = create<LabState>((set, get) => ({
   spawnKind: "galaxy",
   clearId: 0,
   activeSceneId: null,
-  // Manual param edits mean the sim no longer matches any applied scene, so
-  // clear activeSceneId to keep the Scenes picker highlight honest.
-  setParam: (key, value) =>
-    set((s) => ({ params: { ...s.params, [key]: value }, activeSceneId: null })),
-  patchParams: (p) => set((s) => ({ params: { ...s.params, ...p }, activeSceneId: null })),
+  canUndo: false,
+  canRedo: false,
+  setParam: (key, value) => {
+    set((s) => ({ params: { ...s.params, [key]: value }, activeSceneId: null }));
+  },
+  patchParams: (p) => {
+    set((s) => ({ params: { ...s.params, ...p }, activeSceneId: null }));
+  },
   setTelemetry: (t) => set({ telemetry: t }),
-  setPaused: (v) => set({ paused: v }),
-  setSpeed: (v) => set({ speed: v }),
+  setPaused: (v) => {
+    set({ paused: v });
+  },
+  setSpeed: (v) => {
+    set({ speed: v });
+  },
   setCap: (v) => set({ cap: v }),
-  setTool: (t) => set({ tool: t }),
-  setBrush: (radius, strength) => set({ brushRadius: radius, brushStrength: strength }),
+  setTool: (t) => {
+    set({ tool: t });
+  },
+  setBrush: (radius, strength) => {
+    set({ brushRadius: radius, brushStrength: strength });
+  },
   setPointer: (p) => set((s) => ({ pointer: { ...s.pointer, ...p } })),
   setReplace: (v) => set({ replaceMode: v }),
   setSpawnCount: (n) => set({ spawnCount: Math.max(50, Math.min(200_000, Math.round(n))) }),
-  addParticles: () =>
+  addParticles: () => {
     set((s) => ({
       replaceMode: false,
       spawnId: s.spawnId + 1,
       spawnKind: s.spawnKind ?? "galaxy",
-    })),
+    }));
+  },
   setTab: (t) => set({ tab: t }),
-  toggleUiTop: () => set((s) => ({ uiTopOpen: !s.uiTopOpen })),
+  toggleUiTop: () =>
+    set((s) => ({ uiTopOpen: !s.uiTopOpen, helpOpen: s.uiTopOpen ? false : s.helpOpen })),
   toggleUiBottom: () => set((s) => ({ uiBottomOpen: !s.uiBottomOpen })),
   setFeedbackOpen: (v) => set({ feedbackOpen: v }),
   setBoardOpen: (v) => set({ boardOpen: v }),
   setCreationsOpen: (v) => set({ creationsOpen: v }),
+  setLibraryOpen: (v) => set({ libraryOpen: v }),
+  setProfileOpen: (v) => set({ profileOpen: v }),
+  setUpgradeOpen: (v) => set({ upgradeOpen: v }),
+  setEntitled: (v) => set({ entitled: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
+  setHelpOpen: (v) => set({ helpOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
   setStartRecording: (fn) => set({ startRecording: fn }),
   setStopRecording: (fn) => set({ stopRecording: fn }),
   setRecording: (v) => set({ recording: v }),
+  setStartGif: (fn) => set({ startGif: fn }),
+  setStopGif: (fn) => set({ stopGif: fn }),
+  setGifRecording: (v) => set({ gifRecording: v }),
   setTilt: (x, y) => set({ tiltX: x, tiltY: y }),
+  setBgMedia: (url) => {
+    const prev = get().bgObjectUrl;
+    if (prev && prev !== url) revokeBg(prev);
+    set({ bgObjectUrl: url });
+  },
+  setView: (v) =>
+    set((s) => ({
+      viewZoom: v.zoom !== undefined ? Math.min(8, Math.max(0.4, v.zoom)) : s.viewZoom,
+      viewPanX: v.panX !== undefined ? v.panX : s.viewPanX,
+      viewPanY: v.panY !== undefined ? v.panY : s.viewPanY,
+      viewRotate:
+        v.rotate !== undefined ? Math.min(180, Math.max(-180, v.rotate)) : s.viewRotate,
+    })),
+  resetView: () => set({ viewZoom: 1, viewPanX: 0, viewPanY: 0, viewRotate: 0 }),
+  setQuality: (q) =>
+    set(() => ({
+      quality: q,
+      cap: QUALITY_CAPS[q],
+    })),
   runGenerator: (kind) => {
-    const patch: Partial<LabParams> = {
-      flock: kind === "flock",
-      nbody: kind === "nbody",
-      sph: false,
-      settle: kind === "cloth",
-      gravityY: kind === "cloth" || kind === "pour" || kind === "fall" ? 0.85 : 0,
-      gravityX: 0,
-      centralMass: kind === "galaxy" || kind === "ring" ? 1.35 : 0,
-      collide: kind === "cloth" ? false : get().params.collide,
-      blend: kind === "cloth" || kind === "flock" || kind === "galaxy" || kind === "ring" ? "alpha" : get().params.blend,
-      colorMap: kind === "cloth" ? "mass" : kind === "nbody" || kind === "burst" ? "speed" : "palette",
-      palette:
-        kind === "galaxy" || kind === "ring" || kind === "pour" || kind === "fall"
-          ? "rainbow"
-          : kind === "flock"
-            ? "aurora"
-            : kind === "nbody"
-              ? "ice"
-              : kind === "cloth"
-                ? "mono"
-                : kind === "burst"
-                  ? "solar"
-                  : get().params.palette,
-      trails: kind === "cloth" ? false : kind === "burst" ? true : get().params.trails,
-      drag: kind === "galaxy" || kind === "ring" ? 0.03 : kind === "flock" ? 0.04 : kind === "cloth" ? 0.22 : 0.12,
-    };
+    if (isProGenerator(kind) && !get().entitled) {
+      set({ upgradeOpen: true });
+      return;
+    }
+    const patch = GENERATOR_PRESETS[kind] ?? {};
+    const stream = kind === "pour" || kind === "fall" || kind === "fire" || kind === "smoke";
+    const burst = kind !== "pour" && kind !== "fall";
+    pushHistory(get());
     set((s) => ({
       params: { ...s.params, ...patch },
       pouring: kind === "pour" ? !s.pouring : false,
       falling: kind === "fall" ? !s.falling : false,
+      firing: kind === "fire" ? !s.firing : false,
+      smoking: kind === "smoke" ? !s.smoking : false,
       replaceMode: true,
-      spawnId: kind === "pour" || kind === "fall" ? s.spawnId : s.spawnId + 1,
-      spawnKind: kind === "pour" || kind === "fall" ? s.spawnKind : kind,
-      // Switching generators diverges from any applied scene.
+      spawnId: burst || !stream ? s.spawnId + 1 : s.spawnId,
+      spawnKind: stream && kind !== "fire" && kind !== "smoke" ? s.spawnKind : kind,
       activeSceneId: null,
+      canUndo: past.length > 0,
+      canRedo: false,
     }));
   },
   applyScene: (id) => {
     const scene = SCENES.find((s) => s.id === id);
     if (!scene) return;
-    // Layer the scene patch over a fresh DEFAULT_PARAMS baseline so stale toggles
-    // from a previously applied scene are reset to defaults, not carried over.
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...scene.params };
-    // Same clamp as setSpawnCount.
     const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(scene.spawnCount)));
+    pushHistory(get());
     set((s) => ({
-      // Clear first so scenes never stack on top of the previous one.
       clearId: s.clearId + 1,
       params: nextParams,
       spawnCount: nextSpawnCount,
       speed: scene.speed ?? s.speed,
       cap: scene.cap ?? s.cap,
       pouring: false,
-      // Deterministic: falling is a definite boolean from the scene (default off),
-      // never a toggle. Only the waterfall scene opts into continuous emission.
       falling: scene.falling === true,
+      firing: false,
+      smoking: false,
       replaceMode: true,
       spawnKind: scene.kind,
       spawnId: s.spawnId + 1,
       activeSceneId: scene.id,
+      canUndo: past.length > 0,
+      canRedo: false,
     }));
   },
-  // Load a saved creation. Mirrors applyScene's deterministic clean-apply so a
-  // loaded creation reproduces the saved look regardless of prior sim state.
-  // `config` MUST already be a validated CreationConfig (see the type-level
-  // note above / normalizeCreationConfig for untrusted share-link payloads).
   applyCreationConfig: (config) => {
-    // Layer over a fresh DEFAULT_PARAMS baseline so stale toggles never leak.
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
-    // Same clamp as setSpawnCount/applyScene.
     const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
-    // Restore the saved cap (like applyScene sets `cap: scene.cap ?? s.cap`),
-    // but floor it at spawnCount so the emitter is never starved — the engine
-    // spawns min(capacity - count, count), so a cap below spawnCount would load
-    // the creation truncated. The engine re-clamps to its own 1024..SYSTEM_LIMIT
-    // bounds, so this only ever raises the cap to preserve fidelity.
     const nextCap = Math.max(config.cap, nextSpawnCount);
+    pushHistory(get());
     set((s) => ({
-      // Clear first so a loaded creation never stacks on the previous sim.
       clearId: s.clearId + 1,
       params: nextParams,
       spawnCount: nextSpawnCount,
       cap: nextCap,
       speed: config.speed,
       pouring: false,
-      // Deterministic boolean (default off); only 'fall' streams continuously.
       falling: config.spawnKind === "fall",
+      firing: config.spawnKind === "fire",
+      smoking: config.spawnKind === "smoke",
       replaceMode: true,
-      // creationConfigSchema only ever produces a valid GeneratorKind here; the
-      // zod .catch()/.default() on the enum widens the inferred type to string.
       spawnKind: config.spawnKind as GeneratorKind,
       spawnId: s.spawnId + 1,
-      // A loaded creation is not one of the curated scenes.
       activeSceneId: null,
+      canUndo: past.length > 0,
+      canRedo: false,
     }));
   },
-  clearSim: () =>
+  clearSim: () => {
+    pushHistory(get());
     set((s) => ({
       clearId: s.clearId + 1,
       pouring: false,
       falling: false,
-      // A manual clear leaves the sim no longer matching the applied scene.
+      firing: false,
+      smoking: false,
       activeSceneId: null,
-    })),
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  undo: () => {
+    const snap = past.pop();
+    if (!snap) return;
+    const s = get();
+    future.push(takeSnap(s));
+    set({ ...applySnap(s, snap), canUndo: past.length > 0, canRedo: true });
+  },
+  redo: () => {
+    const snap = future.pop();
+    if (!snap) return;
+    const s = get();
+    past.push(takeSnap(s));
+    set({ ...applySnap(s, snap), canUndo: true, canRedo: future.length > 0 });
+  },
 }));
