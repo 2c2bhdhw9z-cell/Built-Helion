@@ -1,28 +1,10 @@
-import { bakePalette } from "./palettes";
+import { bakePalette, bakeStops, usesCustomStops } from "./palettes";
 import { rasterizeGlyph, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { WGSL_FADE, WGSL_INTEGRATE, WGSL_POST, WGSL_RENDER_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
-import { HASH_MAX_PER_CELL, shapeId, type LabParams, type PointerState, type ToolKind } from "./types";
+import { HASH_MAX_PER_CELL, IDLE_EXTRA_BRUSH, brushMode, shapeId, type ExtraBrush, type LabParams, type PointerState, type ToolKind } from "./types";
 
 const UNIFORM_BYTES = 256;
-
-function toolMode(tool: ToolKind, down: boolean): number {
-  if (!down) return 0;
-  switch (tool) {
-    case "attract":
-      return 1;
-    case "repel":
-      return 2;
-    case "repulsor":
-      return 3;
-    case "vortex":
-      return 4;
-    case "freeze":
-      return 6;
-    default:
-      return 0;
-  }
-}
 
 export class WebGPUBackend {
   device: GPUDevice;
@@ -408,6 +390,7 @@ export class WebGPUBackend {
     tiltY: number,
     time: number,
     walls: Array<{x1:number, y1:number, x2:number, y2:number}> = [],
+    extraBrush: ExtraBrush = IDLE_EXTRA_BRUSH,
   ): void {
     const s = this.staging;
     const u = this.stagingU;
@@ -438,7 +421,7 @@ export class WebGPUBackend {
       : Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
     s[23] = params.pointSize * (params.shape === "emoji" ? 1.7 : 1);
     const mouseOn = pointer.down || (pointer.inside && tool === "attract" && !params.sph);
-    u[24] = toolMode(tool, mouseOn);
+    u[24] = brushMode(tool, mouseOn);
     u[25] = count;
     u[26] = params.boundary === "wrap" ? 1 : params.boundary === "destroy" ? 2 : 0;
     let flags = 0;
@@ -468,6 +451,11 @@ export class WebGPUBackend {
     s[37] = params.sphPressure;
     s[38] = params.sphViscosity;
     s[39] = params.sphSmoothing;
+    s[40] = extraBrush.x;
+    s[41] = extraBrush.y;
+    s[42] = extraBrush.force;
+    s[43] = extraBrush.radius;
+    u[44] = extraBrush.mode | 0;
     this.device.queue.writeBuffer(this.uniformBuf, 0, this.staging.buffer);
     
     // Write walls buffer
@@ -481,10 +469,12 @@ export class WebGPUBackend {
     }
     this.device.queue.writeBuffer(this.wallsBuf, 0, wBuf.buffer);
 
-    const palKey = `${params.palette}:${params.tint}`;
+    const palKey = `${params.palette}:${params.tint}:${params.colorA}:${params.colorB}`;
     if (this.lastPalette !== palKey) {
       this.lastPalette = palKey;
-      const pal = bakePalette(params.palette, params.tint);
+      const pal = usesCustomStops(params.colorA, params.colorB)
+        ? bakeStops(params.colorA, params.colorB, params.tint)
+        : bakePalette(params.palette, params.tint);
       this.device.queue.writeTexture(
         { texture: this.palTex },
         pal as unknown as GPUAllowSharedBufferSource,

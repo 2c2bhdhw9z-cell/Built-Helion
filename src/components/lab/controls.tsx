@@ -6,13 +6,14 @@ export function Chip({
   onClick,
   className,
   title,
+  ...rest
 }: {
   active?: boolean;
   children: React.ReactNode;
   onClick?: () => void;
   className?: string;
   title?: string;
-}) {
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
@@ -23,6 +24,7 @@ export function Chip({
         active ? "bg-fg text-accent-fg" : "bg-elevated text-muted hover:text-fg",
         className,
       )}
+      {...rest}
     >
       {children}
     </button>

@@ -7,7 +7,7 @@ import { userPreferencesSchema, type UserPreferences } from "./types.ts";
  *
  * Both use `authMiddleware`, so they run ONLY for a signed-in caller and scope
  * every query to the verified `context.userId`. Signed-out clients must NOT
- * call these — they persist preferences in localStorage instead (see
+ * call these — they persist preferences in platform KV instead (see
  * src/routes/settings.tsx). The non-blocking rule: nothing here forces login;
  * /settings degrades to local storage when logged out and never errors.
  *

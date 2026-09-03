@@ -5,10 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLab } from "@/store/lab-store";
 import { listPublicFeedbackFn, voteFeedbackFn } from "@/lib/feedback/functions";
-import {
-  type FeedbackStatus,
-  type PublicFeedbackItem,
-} from "@/lib/feedback/types";
+import { type FeedbackStatus, type PublicFeedbackItem } from "@/lib/feedback/types";
+import { kv } from "@/lib/platform/storage";
 
 /**
  * PUBLIC, votable feedback board rendered inside the sim (Radix Dialog mirroring
@@ -17,7 +15,7 @@ import {
  * voteFeedbackFn — no login required to view or vote.
  *
  * One-vote-per-item is BEST-EFFORT without login: voted ids are tracked in
- * localStorage ('helion.voted-feedback'); an already-voted item's control is
+ * platform KV ('helion.voted-feedback'); an already-voted item's control is
  * disabled and skips the server call. This is a nicety, not a hard guarantee —
  * the server-side per-IP throttle is the real flood guard.
  */
@@ -47,9 +45,8 @@ function formatCreatedAt(value: PublicFeedbackItem["created_at"]): string {
 }
 
 function readVotedIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(VOTED_STORAGE_KEY);
+    const raw = kv().get(VOTED_STORAGE_KEY);
     if (!raw) return new Set();
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -61,9 +58,8 @@ function readVotedIds(): Set<string> {
 }
 
 function persistVotedIds(ids: Set<string>): void {
-  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(VOTED_STORAGE_KEY, JSON.stringify([...ids]));
+    kv().set(VOTED_STORAGE_KEY, JSON.stringify([...ids]));
   } catch {
     // Storage unavailable — the in-memory set still guards this session.
   }

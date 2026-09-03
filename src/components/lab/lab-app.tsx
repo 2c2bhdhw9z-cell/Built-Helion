@@ -10,9 +10,18 @@ import { CreationsDialog } from "./creations-dialog";
 import { LibraryDialog } from "./library-dialog";
 import { ProfileDialog } from "./profile-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
+import { HistoryDialog } from "./history-dialog";
+import { DeveloperDialog } from "./developer-dialog";
+import { CreateDialog } from "./create-dialog";
+import { PlayDialog } from "./play-dialog";
 import { BillingSync } from "./theme-sync";
 import { PerfHub } from "./perf-hub/perf-hub";
+import { SessionDialog } from "./session-dialog";
+import { SessionRoom } from "./session-room";
 import { isEmbedSearch, readPresetFromSearch } from "@/lib/share/codec";
+import { readSessionFromSearch, writeSessionQuery } from "@/lib/multiplayer/protocol";
+import { useSession } from "@/lib/multiplayer/session-store";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export function LabApp() {
   const tiltEnabled = useLab((s) => s.params.tiltEnabled);
@@ -22,12 +31,87 @@ export function LabApp() {
   const toggleUiTop = useLab((s) => s.toggleUiTop);
   const toggleUiBottom = useLab((s) => s.toggleUiBottom);
   const [embed, setEmbed] = useState(false);
+  const sessionCode = useSession((s) => s.code);
+  const sessionIsHost = useSession((s) => s.isHost);
+  const listenToken = useLab((s) => s.listenToken);
+  const { user } = useCurrentUserState();
+
   useEffect(() => {
     const search = window.location.search;
     setEmbed(isEmbedSearch(search));
+    const session = readSessionFromSearch(search);
+    if (session) {
+      writeSessionQuery(session);
+      useSession.getState().enter(session, false);
+      return;
+    }
     const preset = readPresetFromSearch(search);
     if (preset) useLab.getState().applyCreationConfig(preset);
   }, []);
+
+  useEffect(() => {
+    if (!sessionCode) return;
+    void import("@/lib/play/progress").then(({ awardBadge, noteChallenge }) => {
+      awardBadge("session");
+      noteChallenge("session");
+    });
+  }, [sessionCode]);
+
+  useEffect(() => {
+    void import("@/lib/play/analytics").then(({ takeDelta }) => takeDelta());
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void import("@/lib/play/analytics").then(async ({ addSeconds, hasDelta, takeDelta }) => {
+        addSeconds(15);
+        if (!user) return;
+        const delta = takeDelta();
+        if (!hasDelta(delta)) return;
+        try {
+          const { flushUsageFn } = await import("@/lib/usage/functions");
+          await flushUsageFn({ data: delta });
+        } catch {
+          /* account flush is best-effort */
+        }
+      });
+    }, 15_000);
+    return () => window.clearInterval(id);
+  }, [user]);
+
+  useEffect(() => {
+    if (!listenToken) return;
+    let dead = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/v1/control", {
+          headers: { Authorization: `Bearer ${listenToken}` },
+        });
+        if (!res.ok || dead) return;
+        const body = (await res.json()) as { commands?: { payload?: Record<string, unknown> }[] };
+        for (const cmd of body.commands ?? []) {
+          const p = cmd.payload ?? {};
+          if (p.type === "spawn" && typeof p.generator === "string") {
+            useLab.getState().applyAiScene({
+              generator: p.generator as never,
+              spawnCount: Number(p.spawnCount) || useLab.getState().spawnCount,
+              params: (p.params as never) ?? {},
+            });
+          } else if (p.type === "params" && p.params && typeof p.params === "object") {
+            useLab.getState().patchParams(p.params as never);
+          }
+        }
+      } catch {
+        /* ignore poll errors */
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 2000);
+    return () => {
+      dead = true;
+      window.clearInterval(id);
+    };
+  }, [listenToken]);
 
   useEffect(() => {
     if (!tiltEnabled) {
@@ -91,7 +175,13 @@ export function LabApp() {
       <LibraryDialog />
       <ProfileDialog />
       <UpgradeDialog />
+      <HistoryDialog />
+      <DeveloperDialog />
+      <CreateDialog />
+      <PlayDialog />
       <PerfHub />
+      <SessionDialog />
+      {sessionCode ? <SessionRoom key={sessionCode} code={sessionCode} isHost={sessionIsHost} /> : null}
 
       {/*
         Chrome docks are ONLY as tall as the visible bars + peek chevron.

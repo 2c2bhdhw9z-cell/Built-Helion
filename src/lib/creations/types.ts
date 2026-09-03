@@ -33,7 +33,7 @@ export const speedMuls = [0.25, 0.5, 1, 2, 4] as const;
 
 /** Particle-count clamp, matching the store's setSpawnCount bounds. */
 export const SPAWN_COUNT_MIN = 50;
-export const SPAWN_COUNT_MAX = 200_000;
+export const SPAWN_COUNT_MAX = SYSTEM_LIMIT;
 
 /**
  * Particle-buffer cap clamp. Mirrors the engine's `setCap` floor (1024, i.e.
@@ -90,6 +90,7 @@ export const labParamsSchema: z.ZodType<LabParams> = z
         "heart",
         "spark",
         "emoji",
+        "sprite",
       ],
       DEFAULT_PARAMS.shape,
     ),
@@ -151,6 +152,23 @@ export const labParamsSchema: z.ZodType<LabParams> = z
       .catch(DEFAULT_PARAMS.tint)
       .default(DEFAULT_PARAMS.tint),
     emoji: z.string().min(1).max(8).catch(DEFAULT_PARAMS.emoji).default(DEFAULT_PARAMS.emoji),
+    forceKind: enumField(
+      ["off", "radial", "swirl", "sine", "expr"],
+      DEFAULT_PARAMS.forceKind,
+    ),
+    forceStrength: num(DEFAULT_PARAMS.forceStrength),
+    forceExprX: z.string().max(96).catch(DEFAULT_PARAMS.forceExprX).default(DEFAULT_PARAMS.forceExprX),
+    forceExprY: z.string().max(96).catch(DEFAULT_PARAMS.forceExprY).default(DEFAULT_PARAMS.forceExprY),
+    colorA: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .catch(DEFAULT_PARAMS.colorA)
+      .default(DEFAULT_PARAMS.colorA),
+    colorB: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .catch(DEFAULT_PARAMS.colorB)
+      .default(DEFAULT_PARAMS.colorB),
   })
   .catch({ ...DEFAULT_PARAMS }) as z.ZodType<LabParams>;
 
@@ -190,6 +208,7 @@ export const creationConfigSchema = z.object({
       "helix",
       "mandala",
       "confetti",
+      "molecule",
     ],
     "galaxy",
   ),
@@ -260,8 +279,9 @@ export interface CreationRow {
 }
 
 /**
- * Community library card. Author is a user-chosen display name (or "Helion"),
- * never an email or user id.
+ * Community library card. Author is a user-chosen display name, or "No name"
+ * when they haven't set one. Never an email. `ownerId` is only set on team
+ * shelves (signed-in members) so the owner can delete their scene.
  */
 export interface LibraryItem {
   id: string;
@@ -271,6 +291,7 @@ export interface LibraryItem {
   author: string;
   likeCount: number;
   liked: boolean;
+  ownerId?: string;
 }
 
 export const setPublicSchema = z.object({

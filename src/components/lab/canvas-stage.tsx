@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { ParticleEngine } from "@/engine/engine";
 import { useLab } from "@/store/lab-store";
 import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
@@ -7,10 +8,16 @@ import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
 import { downloadBlobObject } from "@/lib/perf/export";
 import { GifRecorder } from "@/lib/capture/gif";
+import { knockoutVoid } from "@/lib/capture/alpha";
 import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
 import { SCENES } from "@/engine/scenes";
+import { SessionCursors } from "./session-cursors";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale } from "@/engine/camera";
+import { IDLE_EXTRA_BRUSH } from "@/engine/types";
+import { pickLiveExtraBrush } from "@/lib/multiplayer/protocol";
+import { useSession } from "@/lib/multiplayer/session-store";
+import { awardBadge } from "@/lib/play/progress";
 
 
 function WallsOverlay({
@@ -145,10 +152,20 @@ export function CanvasStage() {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = useLab.getState();
+      if (s.viewOrbit) {
+        const next = s.viewRotate + dt * 18;
+        const wrapped = ((((next + 180) % 360) + 360) % 360) - 180;
+        useLab.setState({ viewRotate: wrapped });
+      }
       const worldScale = engine.worldScale || 1;
+      const session = useSession.getState();
+      const viewOnly = session.role === "view";
+      const extraBrush = session.code
+        ? pickLiveExtraBrush(Object.values(session.cursors), s.brushStrength, s.brushRadius * worldScale)
+        : IDLE_EXTRA_BRUSH;
       engine.sync({
         params: s.params,
-        pointer: s.pointer,
+        pointer: viewOnly ? { ...s.pointer, down: false } : s.pointer,
         tool: s.tool,
         brushRadius: s.brushRadius * worldScale,
         brushStrength: s.brushStrength,
@@ -162,6 +179,7 @@ export function CanvasStage() {
         firing: s.firing,
         smoking: s.smoking,
         quality: s.quality,
+        extraBrush,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
       // While recording, keep the live compositing canvas in sync with the
@@ -184,6 +202,12 @@ export function CanvasStage() {
       if (now - hudAt > 120) {
         hudAt = now;
         s.setTelemetry({ ...engine.telemetry });
+        if (engine.telemetry.live > 0) {
+          void import("@/lib/play/analytics").then(({ notePeak }) => notePeak(engine.telemetry.live));
+          if (engine.telemetry.live >= 100_000) {
+            void import("@/lib/play/progress").then(({ noteChallenge }) => noteChallenge("cap-100k"));
+          }
+        }
       }
     };
 
@@ -274,17 +298,23 @@ export function CanvasStage() {
     const engine = engineRef.current;
     if (!engine) return;
     await engine.requestScreenshot();
-    const entitled = useLab.getState().entitled;
+    const s = useLab.getState();
     const size = exportTargetSize(
       {
         width: engine.canvas.width,
         height: engine.canvas.height,
       },
-      entitled,
+      s.entitled,
+      s.exportSize,
+      s.plan,
     );
     const composite = compositeCanvases(engine.canvas, wallsCanvasRef.current, size);
-    if (!composite) return;
-    if (!entitled) {
+    if (!composite) {
+      toast.error("Could not build that still — try a smaller size");
+      return;
+    }
+    if (kind === "png" && s.exportAlpha) knockoutVoid(composite);
+    if (!s.entitled) {
       const ctx = composite.getContext("2d");
       if (ctx) drawWatermark(ctx, composite.width, composite.height);
     }
@@ -294,6 +324,7 @@ export function CanvasStage() {
     );
     if (!blob) return;
     downloadBlobObject(captureFilename(kind), blob);
+    void import("@/lib/play/analytics").then(({ noteExport }) => noteExport());
   };
 
   /**
@@ -310,15 +341,15 @@ export function CanvasStage() {
     const engine = engineRef.current;
     if (!engine || recordingRef.current) return;
     if (!CanvasRecorder.canRecord() || typeof document === "undefined") return;
-    // Build/refresh the offscreen compositing canvas at the engine's current
-    // backing resolution so the video matches on-screen pixels.
-    const entitled = useLab.getState().entitled;
+    // Build/refresh the offscreen compositing canvas at the chosen export cap
+    // (1080 / 4K / 8K) so recordings honor the HUD size + fps.
+    const s = useLab.getState();
     const size = compositeTargetSize(
       {
         width: engine.canvas.width,
         height: engine.canvas.height,
       },
-      exportMaxDim(entitled),
+      exportMaxDim(s.entitled, s.exportSize, s.plan),
     );
     let rc = recordCanvasRef.current;
     if (!rc) {
@@ -331,22 +362,31 @@ export function CanvasStage() {
     const rctx = rc.getContext("2d");
     if (rctx) {
       try {
-        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, entitled);
+        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, s.entitled);
       } catch {
         /* ignore priming errors */
       }
     }
-    const recorder = new CanvasRecorder(() => recordCanvasRef.current);
+    const recorder = new CanvasRecorder(() => recordCanvasRef.current, s.recordFps);
     try {
       recorder.start();
     } catch (err) {
       // Should be rare since canRecord() gated us; degrade cleanly.
       console.error("Failed to start recording:", err);
+      toast.error("Could not start that recording — try 1080 or 4K");
       return;
     }
     recorderRef.current = recorder;
     recordingRef.current = true;
     useLab.getState().setRecording(true);
+    if (s.recordFps === 120) {
+      toast.message("Asked the encoder for 120 fps — it may run lower");
+    }
+    void import("@/lib/play/progress").then(({ awardBadge, noteChallenge }) => {
+      awardBadge("recorder");
+      noteChallenge("record");
+    });
+    void import("@/lib/play/analytics").then(({ noteExport }) => noteExport());
   };
 
   /**
@@ -392,13 +432,13 @@ export function CanvasStage() {
   const ensureCompositeCanvas = () => {
     const engine = engineRef.current;
     if (!engine || typeof document === "undefined") return null;
-    const entitled = useLab.getState().entitled;
+    const s = useLab.getState();
     const size = compositeTargetSize(
       {
         width: engine.canvas.width,
         height: engine.canvas.height,
       },
-      exportMaxDim(entitled),
+      exportMaxDim(s.entitled, s.exportSize, s.plan),
     );
     let rc = recordCanvasRef.current;
     if (!rc) {
@@ -410,7 +450,7 @@ export function CanvasStage() {
     const rctx = rc.getContext("2d");
     if (rctx) {
       try {
-        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, entitled);
+        stampComposite(rctx, rc, engine.canvas, wallsCanvasRef.current, s.entitled);
       } catch {
         /* ignore priming errors */
       }
@@ -426,6 +466,10 @@ export function CanvasStage() {
     gifRecorderRef.current = recorder;
     gifRunningRef.current = true;
     useLab.getState().setGifRecording(true);
+    void import("@/lib/play/progress").then(({ awardBadge, noteChallenge }) => {
+      awardBadge("recorder");
+      noteChallenge("gif");
+    });
   };
 
   const stopGif = async () => {
@@ -443,6 +487,8 @@ export function CanvasStage() {
     }
     if (!blob) return;
     downloadBlobObject(captureFilename("gif"), blob);
+    void import("@/lib/play/analytics").then(({ noteExport }) => noteExport());
+    void import("@/lib/play/progress").then(({ noteChallenge }) => noteChallenge("gif"));
   };
 
   const spawnId = useLab((s) => s.spawnId);
@@ -454,7 +500,48 @@ export function CanvasStage() {
     if (!engine || !spawnKind || spawnId === 0) return;
     const s = useLab.getState();
     engine.spawn(spawnKind, s.replaceMode, undefined, s.spawnCount);
+    awardBadge("first-spark");
+    if (s.spawnCount >= 1_000_000) awardBadge("million");
   }, [spawnId, spawnKind]);
+
+  const imageSpawnId = useLab((s) => s.imageSpawnId);
+  const csvSpawnId = useLab((s) => s.csvSpawnId);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || imageSpawnId === 0) return;
+    const samples = useLab.getState().imageSamples;
+    if (!samples?.length) return;
+    engine.spawnSamples(samples, useLab.getState().replaceMode);
+  }, [imageSpawnId]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || csvSpawnId === 0) return;
+    const rows = useLab.getState().csvRows;
+    if (!rows?.length) return;
+    engine.spawnSamples(rows, useLab.getState().replaceMode);
+  }, [csvSpawnId]);
+
+  const spriteObjectUrl = useLab((s) => s.spriteObjectUrl);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (!spriteObjectUrl) {
+      engine.setSprite(null);
+      return;
+    }
+    let dead = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (!dead) engine.setSprite(img);
+    };
+    img.src = spriteObjectUrl;
+    return () => {
+      dead = true;
+    };
+  }, [spriteObjectUrl]);
 
   useEffect(() => {
     if (clearId === 0) return;
@@ -667,6 +754,7 @@ export function CanvasStage() {
         />
         <WallsOverlay engineRef={engineRef} canvasRef={wallsCanvasRef} />
         <Backdrop kind={params.background} mediaUrl={bgObjectUrl} />
+        <SessionCursors viewportH={viewportH} worldScale={worldScale} />
         {pointer.inside && (
           <div
             className="pointer-events-none absolute rounded-full border border-white/40 shadow-[0_0_8px_rgba(255,255,255,0.15)]"

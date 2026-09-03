@@ -1,4 +1,4 @@
-import { bakePalette } from "./palettes";
+import { bakePalette, bakeStops, usesCustomStops } from "./palettes";
 import { shapeId } from "./types";
 import { rasterizeGlyph, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { GL_FADE_FS, GL_FS, GL_POST_FS, GL_POST_VS, GL_QUAD_VS, GL_VS } from "./shaders";
@@ -57,6 +57,7 @@ export class WebGLRenderer {
   private packedCap = 0;
   private paletteId: PaletteId | null = null;
   private paletteTint = "";
+  private paletteStops = "";
   private firstFrame = true;
   private maxPoint = 64;
   /** Draw calls issued during the last render() (fade + particle + post). */
@@ -206,13 +207,16 @@ export class WebGLRenderer {
     this.firstFrame = true;
   }
 
-  private setPalette(id: PaletteId, tint: string): void {
-    if (this.paletteId === id && this.paletteTint === tint) return;
+  private setPalette(id: PaletteId, tint: string, colorA: string, colorB: string): void {
+    const stops = `${colorA}:${colorB}`;
+    if (this.paletteId === id && this.paletteTint === tint && this.paletteStops === stops) return;
     this.paletteId = id;
     this.paletteTint = tint;
+    this.paletteStops = stops;
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.palTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, bakePalette(id, tint));
+    const data = usesCustomStops(colorA, colorB) ? bakeStops(colorA, colorB, tint) : bakePalette(id, tint);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
   }
 
   private setGlyph(ch: string): void {
@@ -297,7 +301,7 @@ export class WebGLRenderer {
     if (!this.accumFbo || !this.accumTex) return;
 
     const n = this.pack(soa, params.colorMap, 2.4, worldW, worldH);
-    this.setPalette(params.palette, params.tint);
+    this.setPalette(params.palette, params.tint, params.colorA, params.colorB);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     if (n > 0) gl.bufferData(gl.ARRAY_BUFFER, this.packed.subarray(0, n * 4), gl.DYNAMIC_DRAW);
 

@@ -9,6 +9,8 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getProfileFn, updateProfileFn } from "@/lib/profiles/functions";
 import { DEFAULT_PROFILE, type Profile } from "@/lib/profiles/types";
 import { SliderRow } from "./controls";
+import { readBrand, writeBrand } from "@/lib/branding";
+import { formatDuration, readUsage } from "@/lib/play/analytics";
 
 const fieldClass =
   "w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm text-fg placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -23,6 +25,7 @@ export function ProfileDialog() {
   const [profile, setProfile] = useState<Profile>({ ...DEFAULT_PROFILE });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [studio, setStudio] = useState(() => readBrand().label);
 
   useEffect(() => {
     if (!open || !signedIn || isPending) return;
@@ -98,7 +101,7 @@ export function ProfileDialog() {
                 </Link>
               </div>
             ) : loading ? (
-              <p className="py-8 text-center text-2xs text-faint">Loading\u2026</p>
+              <p className="py-8 text-center text-2xs text-faint">Loading…</p>
             ) : (
               <>
                 <div className="flex items-center gap-3">
@@ -111,7 +114,7 @@ export function ProfileDialog() {
                   </div>
                   <div className="min-w-0 text-2xs text-faint">
                     <p>
-                      {profile.saves} save{profile.saves === 1 ? "" : "s"} \u00b7 {profile.likes} like
+                      {profile.saves} save{profile.saves === 1 ? "" : "s"} · {profile.likes} like
                       {profile.likes === 1 ? "" : "s"}
                     </p>
                   </div>
@@ -144,7 +147,7 @@ export function ProfileDialog() {
                   min={0}
                   max={360}
                   step={1}
-                  format={(n) => `${n}\u00b0`}
+                  format={(n) => `${n}°`}
                   onChange={(n) => setProfile((p) => ({ ...p, hue: Math.round(n) }))}
                 />
                 <Button
@@ -154,10 +157,25 @@ export function ProfileDialog() {
                   disabled={saving}
                   onClick={() => void onSave()}
                 >
-                  {saving ? "Saving\u2026" : "Save profile"}
+                  {saving ? "Saving…" : "Save profile"}
                 </Button>
               </>
             )}
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>Studio mark</span>
+              <input
+                className={fieldClass}
+                value={studio}
+                maxLength={24}
+                placeholder="HELION"
+                onChange={(e) => setStudio(e.target.value.slice(0, 24))}
+                onBlur={() => writeBrand(studio)}
+              />
+              <span className="text-2xs text-faint">Replaces HELION on free stills and recordings. Stays on this browser.</span>
+            </label>
+            <p className="text-2xs text-faint">
+              This device: {formatDuration(readUsage().seconds)} · peak {readUsage().peak.toLocaleString()} particles
+            </p>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

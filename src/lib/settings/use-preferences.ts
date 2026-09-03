@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getPreferencesFn, updatePreferencesFn } from "./functions";
+import { kv } from "@/lib/platform/storage";
 import {
   DEFAULT_PREFERENCES,
   PREFERENCES_STORAGE_KEY,
@@ -11,12 +12,12 @@ import {
 
 /**
  * Client-safe preference persistence, split by auth state:
- *   - LOGGED OUT  -> localStorage (key PREFERENCES_STORAGE_KEY). Never calls the
+ *   - LOGGED OUT  -> platform KV (key PREFERENCES_STORAGE_KEY). Never calls the
  *                    server, so the page never errors and never forces login.
  *   - LOGGED IN   -> server-side (getPreferencesFn/updatePreferencesFn behind
  *                    authMiddleware) so the value survives across sessions.
  *
- * This module is client-only (uses window/localStorage + React hooks) but
+ * This module is client-only (uses platform KV + React hooks) but
  * imports NO server-only code — the server functions dynamically import their
  * server layer inside their own handlers.
  */
@@ -38,7 +39,7 @@ export function applyTheme(theme: ThemeId) {
  * so the "the write persists the value the user just chose" contract is unit
  * testable WITHOUT React. `setPreference` must compute this SYNCHRONOUSLY from
  * the latest known preferences (not inside an async `setPreferences` updater),
- * or the value captured for the network/localStorage write is the stale default
+ * or the value captured for the network/KV write is the stale default
  * — the regression where the toggle turned ON then immediately snapped OFF.
  */
 export function nextPreferences<K extends keyof UserPreferences>(
@@ -49,11 +50,10 @@ export function nextPreferences<K extends keyof UserPreferences>(
   return { ...current, [key]: value };
 }
 
-/** Read the logged-out preference store from localStorage (safe on SSR). */
+/** Read the logged-out preference store from platform KV (safe on SSR). */
 export function readLocalPreferences(): UserPreferences {
-  if (typeof window === "undefined") return { ...DEFAULT_PREFERENCES };
   try {
-    const raw = window.localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    const raw = kv().get(PREFERENCES_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_PREFERENCES };
     return normalizePreferences(JSON.parse(raw));
   } catch {
@@ -61,11 +61,10 @@ export function readLocalPreferences(): UserPreferences {
   }
 }
 
-/** Persist the logged-out preference store to localStorage. */
+/** Persist the logged-out preference store through platform KV. */
 export function writeLocalPreferences(prefs: UserPreferences): void {
-  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
+    kv().set(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
   } catch {
     // Storage may be unavailable (private mode / quota) — degrade silently; the
     // in-memory state still reflects the choice for this session.
@@ -87,7 +86,7 @@ export type PreferencesController = {
 };
 
 /**
- * Load + persist the current user's preferences, routing to localStorage
+ * Load + persist the current user's preferences, routing to platform KV
  * (logged out) or the server (logged in). Defaults to OFF until resolved, and
  * NEVER forces login — a server failure degrades to the local/default value.
  */
@@ -109,7 +108,7 @@ export function usePreferences(): PreferencesController {
   // current value SYNCHRONOUSLY when it builds the value to persist. A
   // functional `setPreferences` updater cannot be used for that: React does not
   // run the updater synchronously during the event handler, so the value the
-  // network/localStorage write captured would be the stale initial default
+  // network/KV write captured would be the stale initial default
   // (the "toggle turns on then snaps back OFF" bug — the write persisted the
   // default `false` regardless of the click, and the reload read it back).
   const preferencesRef = useRef(preferences);
@@ -122,7 +121,7 @@ export function usePreferences(): PreferencesController {
       return;
     }
     if (!userId) {
-      // Logged out: localStorage only.
+      // Logged out: platform KV only.
       const local = readLocalPreferences();
       setPreferences(local);
       applyTheme(local.theme);

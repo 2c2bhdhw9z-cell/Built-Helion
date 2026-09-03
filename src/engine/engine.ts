@@ -1,4 +1,5 @@
 import { audioManager } from "./audio";
+import { forceRuntime } from "./force-expr";
 import { emitAlongStroke, emitContinuous, spawnGenerator } from "./emitters";
 import { SpatialHash } from "./hash";
 import { stepPhysics } from "./physics";
@@ -7,12 +8,14 @@ import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
   FIXED_DT,
+  IDLE_EXTRA_BRUSH,
   MAX_SUBSTEPS,
   QUALITY_DPR,
   SYSTEM_LIMIT,
   type BackendKind,
   type ComputeKind,
   type ContinuousEmitter,
+  type ExtraBrush,
   type GeneratorKind,
   type LabParams,
   type PointerState,
@@ -42,6 +45,7 @@ export type EngineSync = {
   firing: boolean;
   smoking: boolean;
   quality: QualityMode;
+  extraBrush?: ExtraBrush;
 };
 
 function pickDefaultCap(): number {
@@ -61,6 +65,7 @@ export class ParticleEngine {
   tool: ToolKind = "attract";
   brushRadius = 0.12;
   brushStrength = 0.85;
+  extraBrush: ExtraBrush = { ...IDLE_EXTRA_BRUSH };
   springs: Spring[] = [];
   emitters: ContinuousEmitter[] = [];
   worldW = 1.6;
@@ -361,6 +366,7 @@ export class ParticleEngine {
     this.tool = s.tool;
     this.brushRadius = s.brushRadius;
     this.brushStrength = s.brushStrength;
+    this.extraBrush = s.extraBrush ?? IDLE_EXTRA_BRUSH;
     if (s.cap !== this.soa.capacity) this.setCap(s.cap);
     if (s.quality !== this.quality) {
       this.quality = s.quality;
@@ -456,18 +462,63 @@ export class ParticleEngine {
     return result.spawned;
   }
 
+  spawnSamples(
+    samples: { x: number; y: number; vx?: number; vy?: number; mass?: number; life?: number; phase?: number }[],
+    replace: boolean,
+  ): number {
+    if (replace) {
+      this.soa.clear();
+      this.springs = [];
+    }
+    if (!samples.length) return 0;
+    let maxX = 0;
+    let maxY = 0;
+    for (const p of samples) {
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const unit = maxX <= 1.5 && maxY <= 1.5;
+    let spawned = 0;
+    const remaining = this.soa.capacity - this.soa.count;
+    const n = Math.min(samples.length, remaining);
+    for (let i = 0; i < n; i++) {
+      const p = samples[i]!;
+      const x = unit ? p.x * this.worldW : p.x;
+      const y = unit ? p.y * this.worldH : p.y;
+      const slot = this.soa.spawnSlot();
+      if (slot < 0) break;
+      this.soa.writeParticle(
+        slot,
+        x,
+        y,
+        p.vx ?? 0,
+        p.vy ?? 0,
+        p.life ?? -1,
+        p.mass ?? this.params.mass,
+        0,
+        p.phase,
+      );
+      spawned++;
+    }
+    if (this.gpu && this.compute === "webgpu") this.gpu.uploadSoA(this.soa);
+    return spawned;
+  }
+
+  setSprite(bitmap: ImageBitmap | HTMLImageElement | null): void {
+    if (this.canvas2d) this.canvas2d.sprite = bitmap;
+  }
+
   stepFrame(dt: number, paused: boolean, speed: number, tiltX: number, tiltY: number): void {
-    if (this.params.audioReactive && !audioManager.active) {
-      audioManager.start();
-    } else if (!this.params.audioReactive && audioManager.active) {
+    if (this.params.audioReactive) {
+      if (!audioManager.active && audioManager.mode !== "file") {
+        void audioManager.startMic();
+      }
+      audioManager.update();
+    } else if (audioManager.mode === "mic") {
       audioManager.stop();
     }
-    if (this.params.audioReactive) {
-      audioManager.update();
-      // Apply bass as a pulse to central mass or general turbulence
-      // We can directly mutate a temporary copy of params for the simulation step!
-      // Wait, we can just pass audioManager.bass to the params we send to writeParams!
-    }
+    forceRuntime.t = this.totalTime;
+    forceRuntime.bass = audioManager.active ? audioManager.bass : 0;
 
     const t0 = performance.now();
     this.cpuPhysicsMs = 0;
@@ -663,6 +714,7 @@ export class ParticleEngine {
     if (this.params.audioReactive && audioManager.active) {
       effectiveParams = { ...this.params };
       const pulse = audioManager.bass * (this.params.audioSensitivity ?? 1.0);
+      const mid = audioManager.mid * (this.params.audioSensitivity ?? 1.0);
       if (effectiveParams.centralMass > 0) {
          effectiveParams.centralMass += pulse * 2.0;
       } else if (effectiveParams.flow) {
@@ -672,6 +724,7 @@ export class ParticleEngine {
          effectiveParams.centralX = 0.5;
          effectiveParams.centralY = 0.5;
       }
+      effectiveParams.pointSize = Math.min(24, this.params.pointSize * (1 + mid * 0.8));
     }
     
     if (this.compute === "cpu") {
@@ -692,6 +745,7 @@ export class ParticleEngine {
         tiltY,
         this.totalTime,
         this.walls,
+        this.extraBrush,
       );
       this.cpuPhysicsMs += performance.now() - pt0;
       this.telemetry.nanCount += st.nan;
@@ -716,6 +770,7 @@ export class ParticleEngine {
         tiltY,
         this.totalTime,
         this.walls,
+        this.extraBrush,
       );
       this.gpu.dispatch(this.soa.count);
       this.gpu.readStats().then(() => {

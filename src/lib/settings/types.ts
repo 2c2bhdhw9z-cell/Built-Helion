@@ -29,11 +29,11 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "dark",
 };
 
-/** localStorage key for the LOGGED-OUT preference store (client-only). */
+/** Platform KV key for the LOGGED-OUT preference store (client-only). Same key as the theme FOUC snippet. */
 export const PREFERENCES_STORAGE_KEY = "helion.preferences";
 
 /**
- * Validates/normalizes a preferences object from any source (localStorage,
+ * Validates/normalizes a preferences object from any source (platform KV,
  * server row, or a client update). Unknown/missing fields fall back to the
  * default, so a partially-populated or legacy value is always coerced to a
  * complete, valid shape.

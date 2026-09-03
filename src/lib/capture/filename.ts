@@ -1,5 +1,5 @@
 /** File extension per capture kind. */
-export type CaptureKind = "png" | "jpg" | "gif" | "webm";
+export type CaptureKind = "png" | "jpg" | "gif" | "webm" | "json";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");

@@ -1,10 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  clampExportSize,
   compositeTargetSize,
+  ENTERPRISE_EXPORT_MAX,
   exportMaxDim,
   exportTargetSize,
   FREE_EXPORT_MAX,
+  HD_EXPORT_MAX,
   PRO_EXPORT_MAX,
 } from "./composite.ts";
 
@@ -67,5 +70,19 @@ describe("exportTargetSize", () => {
     const result = exportTargetSize({ width: 7680, height: 4320 }, true);
     assert.equal(result.width, 3840);
     assert.equal(result.height, 2160);
+  });
+
+  it("upscales Enterprise 8K stills on the long side", () => {
+    assert.equal(exportMaxDim(true, "8k", "enterprise"), ENTERPRISE_EXPORT_MAX);
+    const result = exportTargetSize({ width: 1920, height: 1080 }, true, "8k", "enterprise");
+    assert.equal(result.width, 7680);
+    assert.equal(result.height, 4320);
+  });
+
+  it("clamps 8K to 4K on Pro and to 1080 when free", () => {
+    assert.equal(clampExportSize("8k", true, "pro"), "4k");
+    assert.equal(clampExportSize("8k", false, "free"), "1080");
+    assert.equal(clampExportSize("8k", true, "enterprise"), "8k");
+    assert.equal(exportMaxDim(true, "1080", "pro"), HD_EXPORT_MAX);
   });
 });

@@ -1,3 +1,5 @@
+import type { ForceKind } from "./force-expr";
+
 export const SYSTEM_LIMIT = 1_000_000;
 export const DEFAULT_CAP = 65_536;
 export const HASH_MAX_PER_CELL = 24;
@@ -5,6 +7,8 @@ export const FIXED_DT = 1 / 60;
 export const MAX_SUBSTEPS = 5;
 export const MAX_ACCEL = 80;
 export const MAX_SPEED = 12;
+
+export type { ForceKind } from "./force-expr";
 
 export type BackendKind = "webgpu" | "webgl" | "canvas";
 export type ComputeKind = "webgpu" | "cpu";
@@ -34,7 +38,8 @@ export type GeneratorKind =
   | "aurora"
   | "helix"
   | "mandala"
-  | "confetti";
+  | "confetti"
+  | "molecule";
 
 export const GENERATOR_KINDS: readonly GeneratorKind[] = [
   "galaxy",
@@ -62,6 +67,7 @@ export const GENERATOR_KINDS: readonly GeneratorKind[] = [
   "helix",
   "mandala",
   "confetti",
+  "molecule",
 ];
 
 /** Pro-tier generators. Free/unsigned visitors see them locked. */
@@ -99,7 +105,8 @@ export type ParticleShape =
   | "plus"
   | "heart"
   | "spark"
-  | "emoji";
+  | "emoji"
+  | "sprite";
 export type BoundaryMode = "bounce" | "wrap" | "destroy";
 export type ColorMap = "life" | "speed" | "density" | "mass" | "palette" | "position";
 export type PaletteId = "rainbow" | "ember" | "ice" | "aurora" | "solar" | "mono" | "plasma";
@@ -141,6 +148,8 @@ export function shapeId(shape: ParticleShape): number {
       return 9;
     case "emoji":
       return 10;
+    case "sprite":
+      return 11;
     default:
       return 0;
   }
@@ -219,6 +228,12 @@ export type LabParams = {
   background: BackgroundKind;
   tint: string;
   emoji: string;
+  forceKind: ForceKind;
+  forceStrength: number;
+  forceExprX: string;
+  forceExprY: string;
+  colorA: string;
+  colorB: string;
 };
 
 export type PointerState = {
@@ -227,6 +242,43 @@ export type PointerState = {
   down: boolean;
   inside: boolean;
 };
+
+/** Second pointer used for a remote session brush. mode 0 = idle. */
+export type ExtraBrush = {
+  x: number;
+  y: number;
+  force: number;
+  radius: number;
+  mode: number;
+};
+
+export const IDLE_EXTRA_BRUSH: ExtraBrush = {
+  x: 0,
+  y: 0,
+  force: 0,
+  radius: 0,
+  mode: 0,
+};
+
+/** Numeric brush id shared by CPU physics and the GPU uniform. */
+export function brushMode(tool: ToolKind, down = true): number {
+  if (!down) return 0;
+  switch (tool) {
+    case "attract":
+      return 1;
+    case "repel":
+      return 2;
+    case "repulsor":
+      return 3;
+    case "vortex":
+      return 4;
+    case "freeze":
+      return 6;
+    default:
+      return 0;
+  }
+};
+
 
 export type SubsystemCost = {
   /** Human-readable subsystem/mode label (e.g. "nbody", "flock", "physics"). */
@@ -328,6 +380,12 @@ export const DEFAULT_PARAMS: LabParams = {
   background: "void",
   tint: "#ffffff",
   emoji: "✨",
+  forceKind: "off",
+  forceStrength: 1,
+  forceExprX: "sin(t + y * 6) * 0.4",
+  forceExprY: "cos(t + x * 6) * 0.4",
+  colorA: "#ffffff",
+  colorB: "#ffffff",
 };
 
 export const DEFAULT_TELEMETRY: Telemetry = {
@@ -357,6 +415,11 @@ export const QUALITY_CAPS: Record<QualityMode, number> = {
   high: 65_536,
 };
 
+/** Suggested buffer for a quality preset. Same for every plan — cap is not a paywall. */
+export function qualityCap(quality: QualityMode): number {
+  return QUALITY_CAPS[quality];
+}
+
 /** Max device-pixel-ratio the backing canvas is allowed to use. */
 export const QUALITY_DPR: Record<QualityMode, number> = {
   low: 0.7,
@@ -365,7 +428,8 @@ export const QUALITY_DPR: Record<QualityMode, number> = {
 };
 
 export const QUALITY_BLURB: Record<QualityMode, string> = {
-  low: "Softer pixels \u2014 cooler on a phone",
+  low: "Softer pixels — cooler on a phone",
   medium: "Balanced sharpness",
-  high: "Full retina \u2014 crisp edges",
+  high: "Full retina — crisp edges",
 };
+

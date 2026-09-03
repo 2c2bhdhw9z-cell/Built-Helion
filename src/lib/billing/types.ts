@@ -75,20 +75,20 @@ export const PLANS: {
     label: "Free",
     price: "$0",
     blurb: "The full lab, with a small mark on exports.",
-    perks: ["All core generators", "PNG / JPG / GIF / video", "Save & share", "Watermarked stills"],
+    perks: ["All core generators", "Particle cap up to 1M", "PNG / JPG / GIF / video", "Save & share", "Watermarked stills"],
   },
   {
     id: "pro",
     label: "Pro",
     price: "$5/mo",
     blurb: "The looks that sell a clip.",
-    perks: ["6 Pro generators", "No watermark", "4K stills", "Community publishing"],
+    perks: ["6 Pro generators", "No watermark", "4K stills", "Live sessions, voice, roles", "Named version history", "Community publishing"],
   },
   {
     id: "enterprise",
     label: "Enterprise",
     price: "$20/mo",
     blurb: "Headroom for studios.",
-    perks: ["Everything in Pro", "4K stills, no watermark", "Team & SSO later"],
+    perks: ["Everything in Pro", "8K stills", "Team workspaces", "REST API, tokens, webhooks", "Admin kick in sessions"],
   },
 ];

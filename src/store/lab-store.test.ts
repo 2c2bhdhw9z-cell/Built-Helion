@@ -43,8 +43,8 @@ test("lab-store caps spawn count constraints", () => {
   useLab.getState().setSpawnCount(10); // below min
   expect(useLab.getState().spawnCount).toBe(50);
   
-  useLab.getState().setSpawnCount(500000); // above max
-  expect(useLab.getState().spawnCount).toBe(200000);
+  useLab.getState().setSpawnCount(5_000_000); // above max
+  expect(useLab.getState().spawnCount).toBe(1_000_000);
 });
 
 test("lab-store clears simulation", () => {
@@ -106,4 +106,38 @@ test("lab-store triggers generator", () => {
   const state = useLab.getState();
   expect(state.spawnKind).toBe("ring");
   expect(state.spawnId).toBe(initialId + 1);
+});
+
+test("view-only session rejects sim edits", async () => {
+  const { useSession } = await import("@/lib/multiplayer/session-store.ts");
+  useSession.setState({ role: "view" });
+  const spawnId = useLab.getState().spawnId;
+  const paused = useLab.getState().paused;
+  useLab.getState().runGenerator("galaxy");
+  useLab.getState().setPaused(!paused);
+  useLab.getState().setTool("repel");
+  expect(useLab.getState().spawnId).toBe(spawnId);
+  expect(useLab.getState().paused).toBe(paused);
+  expect(useLab.getState().tool).toBe("attract");
+  useSession.setState({ role: null });
+});
+
+test("particle cap is not a paywall", () => {
+  const prev = {
+    entitled: useLab.getState().entitled,
+    plan: useLab.getState().plan,
+    quality: useLab.getState().quality,
+    cap: useLab.getState().cap,
+  };
+  useLab.setState({ entitled: false, plan: "free", quality: "medium" });
+  useLab.getState().setQuality("high");
+  expect(useLab.getState().cap).toBe(65_536);
+  useLab.getState().setCap(1_000_000);
+  expect(useLab.getState().cap).toBe(1_000_000);
+  useLab.getState().setPlan("enterprise");
+  useLab.getState().setEntitled(true);
+  expect(useLab.getState().cap).toBe(1_000_000);
+  useLab.getState().setSpawnCount(500_000);
+  expect(useLab.getState().spawnCount).toBe(500_000);
+  useLab.setState(prev);
 });

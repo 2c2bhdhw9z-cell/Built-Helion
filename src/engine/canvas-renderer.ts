@@ -1,4 +1,4 @@
-import { parseTint, samplePalette } from "./palettes";
+import { parseTint, samplePalette, sampleStops, usesCustomStops } from "./palettes";
 import type { ParticleSoA } from "./soa";
 import type { LabParams } from "./types";
 
@@ -6,7 +6,9 @@ export class Canvas2DRenderer {
   /** fillRect ops issued during the last render() (background clear + each drawn particle). */
   lastDrawCalls = 0;
   /** Particles actually drawn during the last render() (honoring `step` decimation). */
+  /** Particles actually drawn during the last render() (honoring `step` decimation). */
   lastDrawnPoints = 0;
+  sprite: ImageBitmap | HTMLImageElement | null = null;
 
   constructor(private ctx: CanvasRenderingContext2D) {}
 
@@ -62,7 +64,9 @@ export class Canvas2DRenderer {
         const cy = worldH * 0.5;
         metric = Math.min(1, Math.hypot(soa.posX[i]! - cx, soa.posY[i]! - cy) / Math.max(0.5 * Math.min(worldW, worldH), 1e-4));
       }
-      const [pr, pg, pb] = samplePalette(params.palette, metric);
+      const [pr, pg, pb] = usesCustomStops(params.colorA, params.colorB)
+        ? sampleStops(params.colorA, params.colorB, metric)
+        : samplePalette(params.palette, metric);
       const [tr, tg, tb] = parseTint(params.tint);
       const r = pr * tr;
       const g = pg * tg;
@@ -71,7 +75,14 @@ export class Canvas2DRenderer {
       ctx.fillStyle = `rgba(${(r * 255) | 0},${(g * 255) | 0},${(b * 255) | 0},${a})`;
       const px = soa.posX[i]! * sx;
       const py = soa.posY[i]! * sy;
-      drawDot(ctx, params.shape, params.emoji, px, py, size);
+      if (params.shape === "sprite" && this.sprite) {
+        const s = Math.max(2, size * 2);
+        ctx.globalAlpha = a;
+        ctx.drawImage(this.sprite, px - s / 2, py - s / 2, s, s);
+        ctx.globalAlpha = 1;
+      } else {
+        drawDot(ctx, params.shape, params.emoji, px, py, size);
+      }
       drawn++;
     }
     this.lastDrawnPoints = drawn;
@@ -154,3 +165,4 @@ function drawDot(
   }
   ctx.fill();
 }
+

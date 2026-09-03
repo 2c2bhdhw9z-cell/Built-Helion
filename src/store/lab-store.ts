@@ -1,9 +1,11 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
   DEFAULT_TELEMETRY,
   QUALITY_CAPS,
+  SYSTEM_LIMIT,
   isProGenerator,
   type GeneratorKind,
   type LabParams,
@@ -18,6 +20,12 @@ import { SCENES, type SceneId } from "@/engine/scenes";
 import { clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
+import { useSession } from "@/lib/multiplayer/session-store";
+import type { PlanId } from "@/lib/billing/types";
+import type { ExportSize, RecordFps } from "@/lib/capture/composite";
+import type { ImageSample } from "@/lib/import/image-particles";
+import type { CsvParticle } from "@/lib/import/csv";
+import { kv } from "@/lib/platform/storage";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -60,6 +68,21 @@ type LabState = {
   upgradeOpen: boolean;
   /** True when the signed-in plan or active trial unlocks Pro generators / 4K. */
   entitled: boolean;
+  plan: PlanId;
+  historyOpen: boolean;
+  developerOpen: boolean;
+  createOpen: boolean;
+  playOpen: boolean;
+  viewOrbit: boolean;
+  imageSpawnId: number;
+  imageSamples: ImageSample[] | null;
+  csvSpawnId: number;
+  csvRows: CsvParticle[] | null;
+  listenToken: string | null;
+  spriteObjectUrl: string | null;
+  exportSize: ExportSize;
+  exportAlpha: boolean;
+  recordFps: RecordFps;
   perfHubOpen: boolean;
   perfCompact: boolean;
   helpOpen: boolean;
@@ -151,6 +174,20 @@ type LabState = {
   setProfileOpen: (v: boolean) => void;
   setUpgradeOpen: (v: boolean) => void;
   setEntitled: (v: boolean) => void;
+  setPlan: (p: PlanId) => void;
+  setHistoryOpen: (v: boolean) => void;
+  setDeveloperOpen: (v: boolean) => void;
+  setCreateOpen: (v: boolean) => void;
+  setPlayOpen: (v: boolean) => void;
+  setViewOrbit: (v: boolean) => void;
+  applyAiScene: (scene: { generator: GeneratorKind; spawnCount: number; params: Partial<LabParams> }) => void;
+  spawnImageSamples: (samples: ImageSample[]) => void;
+  spawnCsvRows: (rows: CsvParticle[]) => void;
+  setListenToken: (v: string | null) => void;
+  setSpriteMedia: (url: string | null) => void;
+  setExportSize: (v: ExportSize) => void;
+  setExportAlpha: (v: boolean) => void;
+  setRecordFps: (v: RecordFps) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
@@ -219,7 +256,7 @@ function takeSnap(s: LabState): HistorySnap {
 
 function applySnap(s: LabState, snap: HistorySnap) {
   const nextParams: LabParams = { ...DEFAULT_PARAMS, ...snap.params };
-  const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(snap.spawnCount)));
+  const nextSpawnCount = Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(snap.spawnCount)));
   return {
     clearId: s.clearId + 1,
     params: nextParams,
@@ -238,9 +275,8 @@ function applySnap(s: LabState, snap: HistorySnap) {
 }
 
 function readFillFrame(): boolean {
-  if (typeof localStorage === "undefined") return true;
   try {
-    return localStorage.getItem("helion.fillFrame") !== "0";
+    return kv().get("helion.fillFrame") !== "0";
   } catch {
     return true;
   }
@@ -248,7 +284,7 @@ function readFillFrame(): boolean {
 
 function writeFillFrame(v: boolean) {
   try {
-    localStorage.setItem("helion.fillFrame", v ? "1" : "0");
+    kv().set("helion.fillFrame", v ? "1" : "0");
   } catch {
     /* ignore */
   }
@@ -273,6 +309,28 @@ function pushHistory(s: LabState) {
   future = [];
 }
 
+let lastViewToast = 0;
+let remoteApply = 0;
+
+/** SessionRoom wraps inbound mesh events so view-only peers still receive them. */
+export function withRemoteApply(fn: () => void): void {
+  remoteApply += 1;
+  try {
+    fn();
+  } finally {
+    remoteApply -= 1;
+  }
+}
+
+function rejectIfView(): boolean {
+  if (remoteApply > 0) return false;
+  if (useSession.getState().role !== "view") return false;
+  if (Date.now() - lastViewToast > 2500) {
+    lastViewToast = Date.now();
+    toast.error("You're view-only in this session");
+  }
+  return true;
+}
 
 export const useLab = create<LabState>((set, get) => ({
   params: { ...DEFAULT_PARAMS },
@@ -300,6 +358,21 @@ export const useLab = create<LabState>((set, get) => ({
   profileOpen: false,
   upgradeOpen: false,
   entitled: false,
+  plan: "free",
+  historyOpen: false,
+  developerOpen: false,
+  createOpen: false,
+  playOpen: false,
+  viewOrbit: false,
+  imageSpawnId: 0,
+  imageSamples: null,
+  csvSpawnId: 0,
+  csvRows: null,
+  listenToken: null,
+  spriteObjectUrl: null,
+  exportSize: "4k",
+  exportAlpha: false,
+  recordFps: 60,
   perfHubOpen: false,
   perfCompact: false,
   helpOpen: false,
@@ -328,29 +401,36 @@ export const useLab = create<LabState>((set, get) => ({
   canUndo: false,
   canRedo: false,
   setParam: (key, value) => {
+    if (rejectIfView()) return;
     set((s) => ({ params: { ...s.params, [key]: value }, activeSceneId: null }));
   },
   patchParams: (p) => {
+    if (rejectIfView()) return;
     set((s) => ({ params: { ...s.params, ...p }, activeSceneId: null }));
   },
   setTelemetry: (t) => set({ telemetry: t }),
   setPaused: (v) => {
+    if (rejectIfView()) return;
     set({ paused: v });
   },
   setSpeed: (v) => {
+    if (rejectIfView()) return;
     set({ speed: v });
   },
-  setCap: (v) => set({ cap: v }),
+  setCap: (v) => set({ cap: Math.max(1024, Math.min(SYSTEM_LIMIT, v | 0)) }),
   setTool: (t) => {
+    if (rejectIfView()) return;
     set({ tool: t });
   },
   setBrush: (radius, strength) => {
+    if (rejectIfView()) return;
     set({ brushRadius: radius, brushStrength: strength });
   },
   setPointer: (p) => set((s) => ({ pointer: { ...s.pointer, ...p } })),
   setReplace: (v) => set({ replaceMode: v }),
-  setSpawnCount: (n) => set({ spawnCount: Math.max(50, Math.min(200_000, Math.round(n))) }),
+  setSpawnCount: (n) => set({ spawnCount: Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(n))) }),
   addParticles: () => {
+    if (rejectIfView()) return;
     set((s) => ({
       replaceMode: false,
       spawnId: s.spawnId + 1,
@@ -368,6 +448,60 @@ export const useLab = create<LabState>((set, get) => ({
   setProfileOpen: (v) => set({ profileOpen: v }),
   setUpgradeOpen: (v) => set({ upgradeOpen: v }),
   setEntitled: (v) => set({ entitled: v }),
+  setPlan: (p) => set({ plan: p }),
+  setHistoryOpen: (v) => set({ historyOpen: v }),
+  setDeveloperOpen: (v) => set({ developerOpen: v }),
+  setCreateOpen: (v) => set({ createOpen: v }),
+  setPlayOpen: (v) => set({ playOpen: v }),
+  setViewOrbit: (v) => set({ viewOrbit: v }),
+  applyAiScene: (scene) => {
+    if (rejectIfView()) return;
+    pushHistory(get());
+    set((s) => ({
+      params: { ...s.params, ...scene.params },
+      spawnKind: scene.generator,
+      spawnCount: Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(scene.spawnCount))),
+      spawnId: s.spawnId + 1,
+      replaceMode: true,
+      activeSceneId: null,
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  spawnImageSamples: (samples) => {
+    if (rejectIfView()) return;
+    pushHistory(get());
+    set((s) => ({
+      imageSamples: samples,
+      imageSpawnId: s.imageSpawnId + 1,
+      replaceMode: true,
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  spawnCsvRows: (rows) => {
+    if (rejectIfView()) return;
+    pushHistory(get());
+    set((s) => ({
+      csvRows: rows,
+      csvSpawnId: s.csvSpawnId + 1,
+      replaceMode: true,
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  setListenToken: (v) => set({ listenToken: v }),
+  setSpriteMedia: (url) => {
+    const prev = get().spriteObjectUrl;
+    if (prev && prev !== url) revokeBg(prev);
+    set({ spriteObjectUrl: url });
+    if (url) {
+      set((s) => ({ params: { ...s.params, shape: "sprite", pointSize: Math.max(s.params.pointSize, 8) } }));
+    }
+  },
+  setExportSize: (v) => set({ exportSize: v }),
+  setExportAlpha: (v) => set({ exportAlpha: v }),
+  setRecordFps: (v) => set({ recordFps: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
@@ -399,11 +533,12 @@ export const useLab = create<LabState>((set, get) => ({
     set({ fillFrame: v });
   },
   setQuality: (q) =>
-    set(() => ({
+    set((s) => ({
       quality: q,
       cap: QUALITY_CAPS[q],
     })),
   runGenerator: (kind) => {
+    if (rejectIfView()) return;
     if (isProGenerator(kind) && !get().entitled) {
       set({ upgradeOpen: true });
       return;
@@ -412,6 +547,12 @@ export const useLab = create<LabState>((set, get) => ({
     const stream = kind === "pour" || kind === "fall" || kind === "fire" || kind === "smoke";
     const burst = kind !== "pour" && kind !== "fall";
     pushHistory(get());
+    void import("@/lib/play/analytics").then(({ noteSpawn }) => noteSpawn(kind));
+    void import("@/lib/play/progress").then(({ noteChallenge, awardBadge }) => {
+      noteChallenge(kind);
+      awardBadge("first-spark");
+      if (get().params.shape === "emoji") noteChallenge("emoji");
+    });
     set((s) => ({
       params: { ...s.params, ...patch },
       pouring: kind === "pour" ? !s.pouring : false,
@@ -427,10 +568,11 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   applyScene: (id) => {
+    if (rejectIfView()) return;
     const scene = SCENES.find((s) => s.id === id);
     if (!scene) return;
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...scene.params };
-    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(scene.spawnCount)));
+    const nextSpawnCount = Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(scene.spawnCount)));
     pushHistory(get());
     set((s) => ({
       clearId: s.clearId + 1,
@@ -451,8 +593,9 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   applyCreationConfig: (config) => {
+    if (rejectIfView()) return;
     const nextParams: LabParams = { ...DEFAULT_PARAMS, ...config.params };
-    const nextSpawnCount = Math.max(50, Math.min(200_000, Math.round(config.spawnCount)));
+    const nextSpawnCount = Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(config.spawnCount)));
     const nextCap = Math.max(config.cap, nextSpawnCount);
     pushHistory(get());
     set((s) => ({
@@ -474,6 +617,7 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   clearSim: () => {
+    if (rejectIfView()) return;
     pushHistory(get());
     set((s) => ({
       clearId: s.clearId + 1,
@@ -487,6 +631,7 @@ export const useLab = create<LabState>((set, get) => ({
     }));
   },
   undo: () => {
+    if (rejectIfView()) return;
     const snap = past.pop();
     if (!snap) return;
     const s = get();
@@ -494,6 +639,7 @@ export const useLab = create<LabState>((set, get) => ({
     set({ ...applySnap(s, snap), canUndo: past.length > 0, canRedo: true });
   },
   redo: () => {
+    if (rejectIfView()) return;
     const snap = future.pop();
     if (!snap) return;
     const s = get();

@@ -3,13 +3,17 @@ import type { ParticleSoA } from "./soa";
 import {
   FLAG_PINNED,
   FLAG_SLEEP,
+  IDLE_EXTRA_BRUSH,
   MAX_ACCEL,
   MAX_SPEED,
+  brushMode,
+  type ExtraBrush,
   type LabParams,
   type PointerState,
   type Spring,
   type ToolKind,
 } from "./types";
+import { applyCustomForce } from "./force-expr";
 
 export type PhysicsStats = {
   nan: number;
@@ -19,25 +23,87 @@ export type PhysicsStats = {
 
 const stats: PhysicsStats = { nan: 0, oob: 0, sleeping: 0 };
 
+const brushAcc = {
+  ax: 0,
+  ay: 0,
+  kickX: 0,
+  kickY: 0,
+  vxi: 0,
+  vyi: 0,
+  flags: 0,
+  sleep: 0,
+  inBrush: false,
+};
+
 function clamp(n: number, lo: number, hi: number): number {
   return n < lo ? lo : n > hi ? hi : n;
 }
 
-function toolMode(tool: ToolKind, down: boolean): number {
-  if (!down) return 0;
-  switch (tool) {
-    case "attract":
-      return 1;
-    case "repel":
-      return 2;
-    case "repulsor":
-      return 3;
-    case "vortex":
-      return 4;
-    case "freeze":
-      return 6;
-    default:
-      return 0;
+function applyOneBrush(
+  acc: typeof brushAcc,
+  mode: number,
+  mx: number,
+  my: number,
+  radius: number,
+  strength: number,
+  x: number,
+  y: number,
+  fluid: boolean,
+): void {
+  if (mode <= 0 || radius <= 0) return;
+  const dx = mx - x;
+  const dy = my - y;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= radius * radius) return;
+  acc.inBrush = true;
+  const d = Math.sqrt(d2) + 1e-6;
+  const fall = 1 - d / radius;
+  const s = strength * fall;
+  const nx = dx / d;
+  const ny = dy / d;
+  if (mode === 6) {
+    acc.vxi = 0;
+    acc.vyi = 0;
+    acc.flags |= FLAG_SLEEP;
+    acc.sleep = 40;
+    return;
+  }
+  acc.flags &= ~FLAG_SLEEP;
+  if (mode === 1) {
+    acc.sleep = 0;
+    if (fluid) {
+      acc.kickX += nx * s * 2.2;
+      acc.kickY += ny * s * 2.2;
+    } else {
+      acc.ax += nx * s * 24;
+      acc.ay += ny * s * 24;
+    }
+  } else if (mode === 2) {
+    if (fluid) {
+      acc.kickX -= nx * s * 2.6;
+      acc.kickY -= ny * s * 2.6;
+    } else {
+      acc.ax -= nx * s * 26;
+      acc.ay -= ny * s * 26;
+    }
+  } else if (mode === 3) {
+    if (fluid) {
+      const k = (s * 0.9) / (d2 + 0.0004);
+      acc.kickX -= dx * k;
+      acc.kickY -= dy * k;
+    } else {
+      const k = (s * 32) / (d2 + 0.0004);
+      acc.ax -= dx * k;
+      acc.ay -= dy * k;
+    }
+  } else if (mode === 4) {
+    if (fluid) {
+      acc.kickX += -ny * s * 2.4;
+      acc.kickY += nx * s * 2.4;
+    } else {
+      acc.ax += -ny * s * 28;
+      acc.ay += nx * s * 28;
+    }
   }
 }
 
@@ -56,8 +122,10 @@ export function stepPhysics(
   tiltX: number,
   tiltY: number,
   totalTime: number,
-  walls: Array<{x1:number, y1:number, x2:number, y2:number}> = []
+  walls: Array<{x1:number, y1:number, x2:number, y2:number}> = [],
+  extraBrush: ExtraBrush = IDLE_EXTRA_BRUSH,
 ): PhysicsStats {
+
   stats.nan = 0;
   stats.oob = 0;
   stats.sleeping = 0;
@@ -97,11 +165,9 @@ export function stepPhysics(
     ayA.fill(0, 0, n);
   }
 
-  const mouseOn = pointer.down || (pointer.inside && tool === "attract");
-  const mode = toolMode(tool, pointer.down || (pointer.inside && false));
-  const mMode = pointer.down ? toolMode(tool, true) : 0;
-  void mouseOn;
-  void mode;
+  const mMode = pointer.down ? brushMode(tool, true) : 0;
+  const extra = extraBrush ?? IDLE_EXTRA_BRUSH;
+  const eMode = extra.mode | 0;
 
   const rest = params.restitution;
   const pr = params.particleRadius;
@@ -140,70 +206,60 @@ export function stepPhysics(
       ay += (cy - y) * cMass;
     }
 
+    if (params.forceKind !== "off") {
+      const nx = x / Math.max(worldW, 1e-6);
+      const ny = y / Math.max(worldH, 1e-6);
+      const extra = applyCustomForce(
+        params.forceKind,
+        params.forceStrength,
+        params.forceExprX,
+        params.forceExprY,
+        nx,
+        ny,
+        vxi,
+        vyi,
+      );
+      ax += extra.ax;
+      ay += extra.ay;
+    }
+
     let kickX = 0;
     let kickY = 0;
     let inBrush = false;
 
-    if (mMode > 0) {
-      const dx = pointer.x - x;
-      const dy = pointer.y - y;
-      const d2 = dx * dx + dy * dy;
-      const R = brushRadius;
-      const R2 = R * R;
-      if (d2 < R2) {
-        inBrush = true;
-        const d = Math.sqrt(d2) + 1e-6;
-        const fall = 1 - d / R;
-        const fluid = params.sph;
-        const s = brushStrength * fall;
-        const nx = dx / d;
-        const ny = dy / d;
-        if (mMode === 6) {
-          vxi = 0;
-          vyi = 0;
-          flags[i] = f | FLAG_SLEEP;
-          sleep[i] = 40;
-        } else if (mMode === 1) {
-          if (fluid) {
-            kickX += nx * s * 2.2;
-            kickY += ny * s * 2.2;
-          } else {
-            ax += nx * s * 24;
-            ay += ny * s * 24;
-          }
-          flags[i] = f & ~FLAG_SLEEP;
-          sleep[i] = 0;
-        } else if (mMode === 2) {
-          if (fluid) {
-            kickX -= nx * s * 2.6;
-            kickY -= ny * s * 2.6;
-          } else {
-            ax -= nx * s * 26;
-            ay -= ny * s * 26;
-          }
-          flags[i] = f & ~FLAG_SLEEP;
-        } else if (mMode === 3) {
-          if (fluid) {
-            const k = (s * 0.9) / (d2 + 0.0004);
-            kickX -= dx * k;
-            kickY -= dy * k;
-          } else {
-            const k = (s * 32) / (d2 + 0.0004);
-            ax -= dx * k;
-            ay -= dy * k;
-          }
-          flags[i] = f & ~FLAG_SLEEP;
-        } else if (mMode === 4) {
-          if (fluid) {
-            kickX += -ny * s * 2.4;
-            kickY += nx * s * 2.4;
-          } else {
-            ax += -ny * s * 28;
-            ay += nx * s * 28;
-          }
-          flags[i] = f & ~FLAG_SLEEP;
-        }
-      }
+    if (mMode > 0 || eMode > 0) {
+      const acc = brushAcc;
+      acc.ax = 0;
+      acc.ay = 0;
+      acc.kickX = 0;
+      acc.kickY = 0;
+      acc.vxi = vxi;
+      acc.vyi = vyi;
+      acc.flags = f;
+      acc.sleep = sleep[i]!;
+      acc.inBrush = false;
+      const fluid = params.sph;
+      applyOneBrush(acc, mMode, pointer.x, pointer.y, brushRadius, brushStrength, x, y, fluid);
+      applyOneBrush(
+        acc,
+        eMode,
+        extra.x,
+        extra.y,
+        extra.radius,
+        extra.force,
+        x,
+        y,
+        fluid,
+      );
+      ax += acc.ax;
+      ay += acc.ay;
+      kickX = acc.kickX;
+      kickY = acc.kickY;
+      vxi = acc.vxi;
+      vyi = acc.vyi;
+      flags[i] = acc.flags;
+      sleep[i] = acc.sleep;
+      inBrush = acc.inBrush;
     }
 
     if (params.flock) {
@@ -243,7 +299,8 @@ export function stepPhysics(
 
     // SPH pressure/viscosity otherwise clamp the brush away. Weaken them in the
     // stroke so attract/repel/vortex can actually carve a fluid.
-    if (inBrush && params.sph && mMode !== 6) {
+    const forceBrush = (mMode > 0 && mMode !== 6) || (eMode > 0 && eMode !== 6);
+    if (inBrush && params.sph && forceBrush) {
       ax *= 0.08;
       ay *= 0.08;
     }
@@ -254,7 +311,7 @@ export function stepPhysics(
     vxi = (vxi + ax * dt) * damp + kickX;
     vyi = (vyi + ay * dt) * damp + kickY;
 
-    const speedCap = inBrush && params.sph && mMode !== 6 ? maxS * 1.85 : maxS;
+    const speedCap = inBrush && params.sph && forceBrush ? maxS * 1.85 : maxS;
     const speedCap2 = speedCap * speedCap;
     const sp2 = vxi * vxi + vyi * vyi;
     if (sp2 > speedCap2) {
@@ -263,13 +320,13 @@ export function stepPhysics(
       vyi *= invs;
     }
 
-    if (inBrush && params.sph && mMode !== 6) {
+    if (inBrush && params.sph && forceBrush) {
       x += kickX * 0.022;
       y += kickY * 0.022;
     }
 
     if (params.settle) {
-      if (vxi * vxi + vyi * vyi < settleTh2 && mMode === 0) {
+      if (vxi * vxi + vyi * vyi < settleTh2 && mMode === 0 && eMode === 0) {
         const t = sleep[i]! + 1;
         sleep[i] = t;
         if (t > 18) {

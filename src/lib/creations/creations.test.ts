@@ -133,7 +133,7 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
     assert.equal(parsed.spawnKind, "galaxy");
   });
 
-  it("clamps spawnCount into 50..200000", () => {
+  it("clamps spawnCount into 50..1M", () => {
     const tooLow = creationConfigSchema.parse({
       params: { ...DEFAULT_PARAMS },
       spawnKind: "galaxy",
@@ -149,6 +149,16 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
       speed: 1,
     });
     assert.equal(tooHigh.spawnCount, SPAWN_COUNT_MAX);
+  });
+
+  it("accepts a 1M spawnCount", () => {
+    const parsed = creationConfigSchema.parse({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 1_000_000,
+      speed: 1,
+    });
+    assert.equal(parsed.spawnCount, 1_000_000);
   });
 
   it("defaults an invalid speed to 1", () => {
@@ -356,7 +366,7 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
     assert.ok(recent.some((row) => row.id === a.id), "published row appears in library");
     assert.ok(!recent.some((row) => row.id === b.id), "unlisted row stays out of library");
     const published = recent.find((row) => row.id === a.id)!;
-    assert.equal(published.author, "Helion");
+    assert.equal(published.author, "No name");
     assert.equal(published.liked, false);
     assert.equal(published.likeCount, 0);
   });

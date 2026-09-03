@@ -14,9 +14,9 @@ describe("captureFilename", () => {
     assert.equal(captureFilename("jpg", now), "helion-20260830-162429.jpg");
   });
 
-  it("formats a gif filename from an injected Date", () => {
+  it("formats a json filename from an injected Date", () => {
     const now = new Date(2026, 7, 30, 16, 24, 29);
-    assert.equal(captureFilename("gif", now), "helion-20260830-162429.gif");
+    assert.equal(captureFilename("json", now), "helion-20260830-162429.json");
   });
 
   it("zero-pads single-digit month, day, hour, minute, second", () => {

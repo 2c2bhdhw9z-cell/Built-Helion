@@ -28,8 +28,10 @@ export function ThemeToaster() {
 export function BillingSync() {
   const { billing } = useBilling();
   const setEntitled = useLab((s) => s.setEntitled);
+  const setPlan = useLab((s) => s.setPlan);
   useEffect(() => {
     setEntitled(billing.entitled);
-  }, [billing.entitled, setEntitled]);
+    setPlan(billing.plan);
+  }, [billing.entitled, billing.plan, setEntitled, setPlan]);
   return null;
 }
