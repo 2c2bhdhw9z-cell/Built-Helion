@@ -1,8 +1,13 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { defaultProgress, levelFor } from "./progress.ts";
+import { defaultProgress, levelFor, noteChallenge, readProgress } from "./progress.ts";
+import { newMemoryKv, setKvStore } from "../platform/storage.ts";
 
 describe("play progress", () => {
+  beforeEach(() => {
+    setKvStore(newMemoryKv());
+  });
+
   it("starts at level 1 with a daily challenge", () => {
     const p = defaultProgress();
     assert.equal(levelFor(p.xp), 1);
@@ -15,5 +20,12 @@ describe("play progress", () => {
     assert.equal(levelFor(99), 1);
     assert.equal(levelFor(100), 2);
     assert.equal(levelFor(250), 3);
+  });
+
+  it("does not complete the daily unless the matching action happens", () => {
+    const p = readProgress();
+    const next = noteChallenge("unrelated");
+    assert.equal(next.challengeDone, false);
+    assert.equal(next.xp, p.xp);
   });
 });

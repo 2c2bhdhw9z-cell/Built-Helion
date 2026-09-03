@@ -77,7 +77,7 @@ export async function throttleSubmit(): Promise<void> {
 /**
  * Throttle the PUBLIC upvote path. Voting is unauthenticated (no login), so
  * this per-IP window is the server-side guard against a scripted vote flood;
- * the client also tracks voted ids in localStorage as a best-effort
+ * the client also tracks voted ids in platform KV as a best-effort
  * one-vote-per-item nicety. Neither is a hard guarantee (documented).
  */
 export async function throttleVote(): Promise<void> {

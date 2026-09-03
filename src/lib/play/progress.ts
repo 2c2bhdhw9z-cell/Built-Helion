@@ -1,4 +1,6 @@
-/** Local XP, badges, daily challenge. Not a server leaderboard. */
+/** Local XP, badges, daily challenge. Not a server leaderboard. Empty until the user actually does the thing. */
+
+import { kv } from "../platform/storage.ts";
 
 export type BadgeId =
   | "first-spark"
@@ -57,8 +59,7 @@ export function defaultProgress(): PlayProgress {
 
 export function readProgress(): PlayProgress {
   try {
-    if (typeof localStorage === "undefined") return defaultProgress();
-    const raw = localStorage.getItem(KEY);
+    const raw = kv().get(KEY);
     if (!raw) return defaultProgress();
     const parsed = JSON.parse(raw) as Partial<PlayProgress>;
     const day = today();
@@ -79,7 +80,7 @@ export function readProgress(): PlayProgress {
 
 function writeProgress(p: PlayProgress): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
+    kv().set(KEY, JSON.stringify(p));
   } catch {
     /* quota */
   }
@@ -97,16 +98,14 @@ export function awardBadge(id: BadgeId): PlayProgress {
   return next;
 }
 
-export function completeDaily(): PlayProgress {
+function completeDaily(): PlayProgress {
   const p = readProgress();
   if (p.challengeDone) return p;
-  let next = { ...p, challengeDone: true };
-  writeProgress(next);
-  next = awardBadge("daily");
-  return next;
+  writeProgress({ ...p, challengeDone: true });
+  return awardBadge("daily");
 }
 
-/** Auto-complete today's challenge when the matching action happens. */
+/** Auto-complete today's challenge when the matching action happens. No "mark done" cheat. */
 export function noteChallenge(event: string): PlayProgress {
   const p = readProgress();
   if (p.challengeDone) return p;

@@ -1,5 +1,6 @@
 import type { CreationConfig } from "@/lib/creations/types";
 import { normalizeCreationConfig } from "@/lib/creations/types";
+import { kv } from "../platform/storage.ts";
 
 export type VersionEntry = {
   id: string;
@@ -13,8 +14,7 @@ const LIMIT = 40;
 
 function readAll(): VersionEntry[] {
   try {
-    if (typeof localStorage === "undefined") return [];
-    const raw = localStorage.getItem(KEY);
+    const raw = kv().get(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -35,7 +35,7 @@ function readAll(): VersionEntry[] {
 
 function writeAll(rows: VersionEntry[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(rows.slice(0, LIMIT)));
+    kv().set(KEY, JSON.stringify(rows.slice(0, LIMIT)));
   } catch {
     /* quota / private mode */
   }

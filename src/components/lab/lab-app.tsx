@@ -21,6 +21,7 @@ import { SessionRoom } from "./session-room";
 import { isEmbedSearch, readPresetFromSearch } from "@/lib/share/codec";
 import { readSessionFromSearch, writeSessionQuery } from "@/lib/multiplayer/protocol";
 import { useSession } from "@/lib/multiplayer/session-store";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export function LabApp() {
   const tiltEnabled = useLab((s) => s.params.tiltEnabled);
@@ -33,6 +34,7 @@ export function LabApp() {
   const sessionCode = useSession((s) => s.code);
   const sessionIsHost = useSession((s) => s.isHost);
   const listenToken = useLab((s) => s.listenToken);
+  const { user } = useCurrentUserState();
 
   useEffect(() => {
     const search = window.location.search;
@@ -56,11 +58,26 @@ export function LabApp() {
   }, [sessionCode]);
 
   useEffect(() => {
+    void import("@/lib/play/analytics").then(({ takeDelta }) => takeDelta());
+  }, []);
+
+  useEffect(() => {
     const id = window.setInterval(() => {
-      void import("@/lib/play/analytics").then(({ addSeconds }) => addSeconds(15));
+      void import("@/lib/play/analytics").then(async ({ addSeconds, hasDelta, takeDelta }) => {
+        addSeconds(15);
+        if (!user) return;
+        const delta = takeDelta();
+        if (!hasDelta(delta)) return;
+        try {
+          const { flushUsageFn } = await import("@/lib/usage/functions");
+          await flushUsageFn({ data: delta });
+        } catch {
+          /* account flush is best-effort */
+        }
+      });
     }, 15_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!listenToken) return;

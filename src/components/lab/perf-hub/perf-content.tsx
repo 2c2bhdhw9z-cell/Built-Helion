@@ -29,6 +29,7 @@ import {
   type PerfSystemInfo,
 } from "@/lib/perf/export";
 import type { PerfSnapshot } from "./use-perf-samples";
+import { copyText } from "@/lib/platform/clipboard";
 import {
   FpsChart,
   FrameBreakdownChart,
@@ -157,16 +158,9 @@ export function PerfContent({
 
   const onCopySummary = async () => {
     const text = summaryText(summary, telemetry, system, throughput);
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        toast.success("Summary copied to clipboard");
-      } else {
-        toast.error("Clipboard unavailable");
-      }
-    } catch {
-      toast.error("Could not copy summary");
-    }
+    const ok = await copyText(text);
+    if (ok) toast.success("Summary copied to clipboard");
+    else toast.error("Clipboard unavailable");
   };
 
   const dpr = system.devicePixelRatio;

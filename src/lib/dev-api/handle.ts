@@ -7,7 +7,7 @@ import { getSql } from "@/lib/db";
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, content-type",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
 };
 
 function json(status: number, body: unknown): Response {
@@ -32,7 +32,7 @@ async function requireToken(request: Request) {
 
 /**
  * REST surface at /api/v1/*. Token auth (Bearer hl_…). Cookie sessions are
- * not accepted — this is for scripts and the JS/Python snippets.
+ * not accepted — this is for scripts and the JS/Python helpers.
  */
 export async function handleV1(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") {
@@ -49,16 +49,22 @@ export async function handleV1(request: Request): Promise<Response> {
       name: "Helion API",
       version: 1,
       endpoints: {
-        "GET /api/v1/library": "Public community library",
-        "GET /api/v1/creations": "Your saved creations (Bearer token)",
+        "GET /api/v1/library": "Public community library (empty until someone publishes)",
+        "GET /api/v1/creations": "Your saved creations (Bearer)",
         "POST /api/v1/creations": "Save a scene { name, config }",
-        "GET /api/v1/creations/:id": "Load a creation by id",
+        "GET /api/v1/creations/:id": "Load a creation you own (Bearer) or a public one",
+        "DELETE /api/v1/creations/:id": "Delete a creation you own (Bearer)",
+        "GET /api/v1/history": "Your named checkpoints (Bearer)",
+        "GET /api/v1/teams": "Teams you belong to (Bearer)",
+        "GET /api/v1/usage": "Account usage totals (Bearer)",
+        "GET /api/v1/webhooks/deliveries": "Last webhook deliveries (Bearer)",
         "POST /api/v1/control": "Queue a command { type: spawn|params, ... } for a listening lab",
         "GET /api/v1/control": "Pop pending commands (Bearer)",
         "GET /sdk/helion.js": "JS helper",
         "GET /sdk/helion.py": "Python helper",
       },
-      notes: "No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Control is a command queue.",
+      notes:
+        "No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Live control is a command queue. Empty lists are empty — nothing is seeded.",
     });
   }
 
@@ -94,6 +100,53 @@ export async function handleV1(request: Request): Promise<Response> {
     void fireWebhooks(auth.userId, { event: "creation.saved", id: row.id, name: row.name });
     void writeAudit(auth.userId, "creation.save", row.name);
     return json(201, { id: row.id, name: row.name });
+  }
+
+  if (path === "history" && request.method === "GET") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    const sql = await getSql();
+    const rows = await sql<{ id: string; name: string; created_at: string | Date }>`
+      select id, name, created_at from version_history
+      where user_id = ${auth.userId} and team_id is null
+      order by created_at desc
+      limit 40
+    `;
+    return json(200, {
+      items: rows.map((r) => ({ id: r.id, name: r.name, at: r.created_at })),
+    });
+  }
+
+  if (path === "teams" && request.method === "GET") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    const { listMyTeams } = await import("@/lib/teams/server");
+    const items = await listMyTeams(auth.userId);
+    return json(200, { items });
+  }
+
+  if (path === "usage" && request.method === "GET") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    try {
+      const { readAccountUsage } = await import("@/lib/usage/server");
+      const usage = await readAccountUsage(auth.userId);
+      return json(200, usage);
+    } catch {
+      return json(200, { seconds: 0, spawns: 0, exports: 0, peak: 0, generators: {} });
+    }
+  }
+
+  if (path === "webhooks/deliveries" && request.method === "GET") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    try {
+      const { listDeliveries } = await import("./tokens");
+      const items = await listDeliveries(auth.userId);
+      return json(200, { items });
+    } catch {
+      return json(200, { items: [] });
+    }
   }
 
   if (path === "control" && request.method === "POST") {
@@ -134,10 +187,25 @@ export async function handleV1(request: Request): Promise<Response> {
 
   const creationMatch = /^creations\/([a-zA-Z0-9_-]+)$/.exec(path);
   if (creationMatch && request.method === "GET") {
+    const id = creationMatch[1]!;
+    const auth = await requireToken(request);
+    if (auth) {
+      const { getOwnedCreation } = await import("@/lib/creations/server");
+      const owned = await getOwnedCreation(auth.userId, id);
+      if (owned) return json(200, owned);
+    }
     const { getPublicCreation } = await import("@/lib/creations/server");
-    const row = await getPublicCreation(creationMatch[1]!);
+    const row = await getPublicCreation(id);
     if (!row) return json(404, { error: "Not found" });
     return json(200, row);
+  }
+
+  if (creationMatch && request.method === "DELETE") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    const { deleteCreation } = await import("@/lib/creations/server");
+    const deleted = await deleteCreation(auth.userId, creationMatch[1]!);
+    return json(deleted ? 200 : 404, { deleted });
   }
 
   return json(404, { error: "Unknown endpoint" });

@@ -366,7 +366,7 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
     assert.ok(recent.some((row) => row.id === a.id), "published row appears in library");
     assert.ok(!recent.some((row) => row.id === b.id), "unlisted row stays out of library");
     const published = recent.find((row) => row.id === a.id)!;
-    assert.equal(published.author, "Helion");
+    assert.equal(published.author, "No name");
     assert.equal(published.liked, false);
     assert.equal(published.likeCount, 0);
   });

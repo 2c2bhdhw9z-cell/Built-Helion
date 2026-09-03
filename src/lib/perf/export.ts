@@ -1,6 +1,7 @@
 import type { PerfSample } from "./ring-buffer.ts";
 import type { PerfSummary } from "./stats.ts";
 import type { DeviceInfo, GpuInfo, PerformanceMemoryInfo } from "./env-info.ts";
+import { saveBlob } from "../platform/files.ts";
 
 /**
  * System snapshot bundled with an export. All fields are honest readings or
@@ -81,16 +82,8 @@ export function downloadBlob(
   mime: string,
   text: string,
 ): void {
-  if (typeof document === "undefined" || typeof URL === "undefined") return;
   const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  void saveBlob(filename, blob);
 }
 
 /**
@@ -101,13 +94,5 @@ export function downloadBlob(
  * Not unit tested (DOM side-effect only).
  */
 export function downloadBlobObject(filename: string, blob: Blob): void {
-  if (typeof document === "undefined" || typeof URL === "undefined") return;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  void saveBlob(filename, blob);
 }

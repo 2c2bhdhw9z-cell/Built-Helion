@@ -20,12 +20,19 @@ function asBool(v: unknown): boolean {
   return v === true || v === "t" || v === "true" || v === 1 || v === "1";
 }
 
-function toCreationRow(row: RawCreationRow): CreationRow {
+function authorLabel(name: string | null | undefined): string {
+  const t = (name ?? "").trim();
+  return t || "No name";
+}
+
+function toCreationRow(row: RawCreationRow): CreationRow | null {
+  const config = normalizeCreationConfig(row.config);
+  if (!config) return null;
   return {
     id: row.id,
     user_id: row.user_id,
     name: row.name,
-    config: normalizeCreationConfig(row.config) ?? normalizeCreationConfig({})!,
+    config,
     created_at: row.created_at,
     is_public: asBool(row.is_public),
   };
@@ -49,7 +56,9 @@ export async function insertCreation(
   } catch {
     /* audit is best-effort */
   }
-  return toCreationRow(rows[0]);
+  const saved = toCreationRow(rows[0]);
+  if (!saved) throw new Error("Could not save");
+  return saved;
 }
 
 export async function listCreations(userId: string): Promise<CreationRow[]> {
@@ -60,7 +69,7 @@ export async function listCreations(userId: string): Promise<CreationRow[]> {
     where user_id = ${userId}
     order by created_at desc
   `;
-  return rows.map(toCreationRow);
+  return rows.map(toCreationRow).filter((row): row is CreationRow => row !== null);
 }
 
 export async function deleteCreation(userId: string, id: string): Promise<boolean> {
@@ -107,11 +116,25 @@ export async function getPublicCreation(id: string): Promise<PublicCreation | nu
   `;
   const row = rows[0];
   if (!row) return null;
+  const config = normalizeCreationConfig(row.config);
+  if (!config) return null;
   return {
     id: row.id,
     name: row.name,
-    config: normalizeCreationConfig(row.config) ?? normalizeCreationConfig({})!,
+    config,
   };
+}
+
+export async function getOwnedCreation(userId: string, id: string): Promise<PublicCreation | null> {
+  const sql = await getSql();
+  const rows = await sql<{ id: string; name: string; config: unknown }>`
+    select id, name, config from creations where id = ${id} and user_id = ${userId}
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  const config = normalizeCreationConfig(row.config);
+  if (!config) return null;
+  return { id: row.id, name: row.name, config };
 }
 
 type LibraryRow = {
@@ -124,14 +147,16 @@ type LibraryRow = {
   liked: boolean | number | string | null;
 };
 
-function toLibraryItem(row: LibraryRow, likedIds: Set<string>): LibraryItem {
+function toLibraryItem(row: LibraryRow, likedIds: Set<string>): LibraryItem | null {
   const likeCount = typeof row.like_count === "number" ? row.like_count : Number(row.like_count) || 0;
+  const config = normalizeCreationConfig(row.config);
+  if (!config) return null;
   return {
     id: row.id,
     name: row.name,
-    config: normalizeCreationConfig(row.config) ?? normalizeCreationConfig({})!,
+    config,
     created_at: row.created_at,
-    author: (row.author && row.author.trim()) || "Helion",
+    author: authorLabel(row.author),
     likeCount,
     liked: likedIds.has(row.id) || asBool(row.liked),
   };
@@ -150,7 +175,7 @@ export async function listLibrary(
     sort === "featured"
       ? await sql<LibraryRow>`
           select c.id, c.name, c.config, c.created_at,
-            coalesce(nullif(p.display_name, ''), 'Helion') as author,
+            coalesce(nullif(p.display_name, ''), '') as author,
             (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
           from creations c
           left join profiles p on p.user_id = c.user_id
@@ -160,7 +185,7 @@ export async function listLibrary(
         `
       : await sql<LibraryRow>`
           select c.id, c.name, c.config, c.created_at,
-            coalesce(nullif(p.display_name, ''), 'Helion') as author,
+            coalesce(nullif(p.display_name, ''), '') as author,
             (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
           from creations c
           left join profiles p on p.user_id = c.user_id
@@ -175,7 +200,9 @@ export async function listLibrary(
     `;
     likedIds = new Set(liked.map((r) => r.creation_id));
   }
-  return rows.map((row) => toLibraryItem(row, likedIds));
+  return rows
+    .map((row) => toLibraryItem(row, likedIds))
+    .filter((row): row is LibraryItem => row !== null);
 }
 
 export async function toggleLike(

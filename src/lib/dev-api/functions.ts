@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
-import type { TokenRow } from "./tokens";
+import type { DeliveryRow, TokenRow } from "./tokens";
 
-export type { TokenRow };
+export type { DeliveryRow, TokenRow };
 
 export const createTokenFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -55,4 +55,15 @@ export const deleteWebhookFn = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
     const { deleteWebhook } = await import("./tokens.ts");
     return { ok: await deleteWebhook(context.userId, data.id) };
+  });
+
+export const listDeliveriesFn = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<DeliveryRow[]> => {
+    const { listDeliveries } = await import("./tokens.ts");
+    try {
+      return await listDeliveries(context.userId);
+    } catch {
+      return [];
+    }
   });

@@ -110,12 +110,78 @@ export async function deleteWebhook(userId: string, id: string): Promise<boolean
   return rows.length > 0;
 }
 
+export type DeliveryRow = {
+  id: string;
+  webhookId: string;
+  event: string;
+  ok: boolean;
+  status: number | null;
+  attempts: number;
+  at: string | Date;
+};
+
+export async function listDeliveries(userId: string): Promise<DeliveryRow[]> {
+  const sql = await getSql();
+  const rows = await sql<{
+    id: string;
+    webhook_id: string;
+    event: string;
+    ok: boolean | number | string;
+    status: number | null;
+    attempts: number;
+    created_at: string | Date;
+  }>`
+    select id, webhook_id, event, ok, status, attempts, created_at
+    from webhook_deliveries
+    where user_id = ${userId}
+    order by created_at desc
+    limit 20
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    webhookId: r.webhook_id,
+    event: r.event,
+    ok: r.ok === true || r.ok === "t" || r.ok === "true" || r.ok === 1,
+    status: r.status == null ? null : Number(r.status),
+    attempts: Number(r.attempts) || 1,
+    at: r.created_at,
+  }));
+}
+
+async function recordDelivery(
+  userId: string,
+  webhookId: string,
+  event: string,
+  ok: boolean,
+  status: number | null,
+  attempts: number,
+): Promise<void> {
+  try {
+    const sql = await getSql();
+    await sql`
+      insert into webhook_deliveries (id, webhook_id, user_id, event, ok, status, attempts)
+      values (
+        ${crypto.randomUUID()},
+        ${webhookId},
+        ${userId},
+        ${event.slice(0, 80)},
+        ${ok},
+        ${status},
+        ${attempts}
+      )
+    `;
+  } catch {
+    /* table may not exist yet */
+  }
+}
+
 export async function fireWebhooks(
   userId: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
   const hooks = await listWebhookUrls(userId);
   if (hooks.length === 0) return;
+  const event = typeof payload.event === "string" ? payload.event : "event";
   const body = JSON.stringify(payload);
   await Promise.all(
     hooks.map(async (hook) => {
@@ -126,15 +192,27 @@ export async function fireWebhooks(
           body,
           signal: AbortSignal.timeout(3000),
         });
+      let attempts = 1;
+      let ok = false;
+      let status: number | null = null;
       try {
-        await send();
+        const res = await send();
+        status = res.status;
+        ok = res.ok;
       } catch {
+        ok = false;
+      }
+      if (!ok) {
+        attempts = 2;
         try {
-          await send();
+          const res = await send();
+          status = res.status;
+          ok = res.ok;
         } catch {
-          /* best-effort, one retry */
+          ok = false;
         }
       }
+      await recordDelivery(userId, hook.id, event, ok, status, attempts);
     }),
   );
 }

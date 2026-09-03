@@ -25,6 +25,7 @@ import type { PlanId } from "@/lib/billing/types";
 import type { ExportSize, RecordFps } from "@/lib/capture/composite";
 import type { ImageSample } from "@/lib/import/image-particles";
 import type { CsvParticle } from "@/lib/import/csv";
+import { kv } from "@/lib/platform/storage";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -274,9 +275,8 @@ function applySnap(s: LabState, snap: HistorySnap) {
 }
 
 function readFillFrame(): boolean {
-  if (typeof localStorage === "undefined") return true;
   try {
-    return localStorage.getItem("helion.fillFrame") !== "0";
+    return kv().get("helion.fillFrame") !== "0";
   } catch {
     return true;
   }
@@ -284,7 +284,7 @@ function readFillFrame(): boolean {
 
 function writeFillFrame(v: boolean) {
   try {
-    localStorage.setItem("helion.fillFrame", v ? "1" : "0");
+    kv().set("helion.fillFrame", v ? "1" : "0");
   } catch {
     /* ignore */
   }

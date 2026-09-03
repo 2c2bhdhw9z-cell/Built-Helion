@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
+import { kv } from "../platform/storage";
 import {
   ensureGuestName,
   isSessionMsg,
@@ -29,7 +30,7 @@ test("readSessionFromSearch pulls a valid code", () => {
 });
 
 test("guest names persist and stay short", () => {
-  localStorage.removeItem("helion.guestName");
+  kv().remove("helion.guestName");
   const first = ensureGuestName();
   expect(first.startsWith("Guest ")).toBe(true);
   expect(readGuestName()).toBe(first);

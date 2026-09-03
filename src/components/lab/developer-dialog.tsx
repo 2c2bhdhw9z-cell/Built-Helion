@@ -10,17 +10,20 @@ import {
   addWebhookFn,
   createTokenFn,
   deleteWebhookFn,
+  listDeliveriesFn,
   listTokensFn,
   listWebhooksFn,
   revokeTokenFn,
+  type DeliveryRow,
   type TokenRow,
 } from "@/lib/dev-api/functions";
+import { copyText } from "@/lib/platform/clipboard";
 
-function copyText(text: string, ok: string) {
-  void navigator.clipboard.writeText(text).then(
-    () => toast.success(ok),
-    () => toast.error("Could not copy"),
-  );
+function copyOut(text: string, ok: string) {
+  void copyText(text).then((copied) => {
+    if (copied) toast.success(ok);
+    else toast.error("Could not copy");
+  });
 }
 
 export function DeveloperDialog() {
@@ -33,6 +36,7 @@ export function DeveloperDialog() {
   const [tokens, setTokens] = useState<TokenRow[]>([]);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [hooks, setHooks] = useState<{ id: string; url: string }[]>([]);
+  const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   const [hookUrl, setHookUrl] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -42,16 +46,18 @@ export function DeveloperDialog() {
     if (!open || !signedIn || isPending) return;
     let cancelled = false;
     setLoading(true);
-    void Promise.all([listTokensFn(), listWebhooksFn()])
-      .then(([t, w]) => {
+    void Promise.all([listTokensFn(), listWebhooksFn(), listDeliveriesFn()])
+      .then(([t, w, d]) => {
         if (cancelled) return;
         setTokens(t);
         setHooks(w);
+        setDeliveries(d);
       })
       .catch(() => {
         if (!cancelled) {
           setTokens([]);
           setHooks([]);
+          setDeliveries([]);
         }
       })
       .finally(() => {
@@ -180,7 +186,7 @@ req = urllib.request.Request(
                         size="icon"
                         className="size-8 shrink-0"
                         aria-label="Copy token"
-                        onClick={() => copyText(revealed, "Token copied")}
+                        onClick={() => copyOut(revealed, "Token copied")}
                       >
                         <Copy className="size-3.5" />
                       </Button>
@@ -219,7 +225,7 @@ req = urllib.request.Request(
                 <section className="flex flex-col gap-2">
                   <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Webhooks</h3>
                   <p className="text-2xs leading-relaxed text-faint">
-                    POST JSON to your URL when a creation is saved or published. Best-effort, 3s timeout, one retry.
+                    POST JSON to your URL when a creation is saved or published. 3s timeout, one retry. Last deliveries below — empty until one actually fires.
                   </p>
                   <div className="flex gap-2">
                     <input
@@ -253,6 +259,21 @@ req = urllib.request.Request(
                       </li>
                     ))}
                   </ul>
+                  {deliveries.length === 0 ? (
+                    <p className="text-2xs text-faint">No deliveries yet.</p>
+                  ) : (
+                    <ul className="flex flex-col gap-1.5">
+                      {deliveries.map((d) => (
+                        <li key={d.id} className="flex justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-2xs">
+                          <span className="truncate text-fg">
+                            {d.event} · {d.ok ? "ok" : "failed"}
+                            {d.status != null ? ` ${d.status}` : ""}
+                          </span>
+                          <span className="font-mono text-faint">{d.attempts}×</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
               </>
             )}
@@ -260,7 +281,7 @@ req = urllib.request.Request(
             <section className="flex flex-col gap-2">
               <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">REST</h3>
               <p className="text-2xs leading-relaxed text-faint">
-                GET /api/v1/meta · GET /api/v1/library · GET/POST /api/v1/creations · POST/GET /api/v1/control (Bearer hl_…). Helpers at /sdk/helion.js and /sdk/helion.py.
+                GET /api/v1/meta · library · creations · history · teams · usage · webhooks/deliveries · control. Helpers at /sdk/helion.js and /sdk/helion.py.
               </p>
               <p className="text-2xs leading-relaxed text-faint">
                 No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Live control is a command queue: POST /api/v1/control, then Listen here.
@@ -290,7 +311,7 @@ req = urllib.request.Request(
                 variant="outline"
                 size="sm"
                 className="h-8 self-start"
-                onClick={() => copyText(jsSnippet, "JS snippet copied")}
+                onClick={() => copyOut(jsSnippet, "JS snippet copied")}
               >
                 <Copy className="size-3.5" />
                 Copy JS
@@ -302,7 +323,7 @@ req = urllib.request.Request(
                 variant="outline"
                 size="sm"
                 className="h-8 self-start"
-                onClick={() => copyText(pySnippet, "Python snippet copied")}
+                onClick={() => copyOut(pySnippet, "Python snippet copied")}
               >
                 <Copy className="size-3.5" />
                 Copy Python

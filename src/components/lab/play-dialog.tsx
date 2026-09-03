@@ -1,25 +1,27 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLab } from "@/store/lab-store";
 import {
   BADGE_COPY,
-  completeDaily,
   levelFor,
   readProgress,
   type BadgeId,
   type PlayProgress,
 } from "@/lib/play/progress";
-import { formatDuration, readUsage, type UsageStats } from "@/lib/play/analytics";
+import { emptyUsage, formatDuration, readUsage, type UsageStats } from "@/lib/play/analytics";
 import { listLibraryFn } from "@/lib/creations/functions";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { getUsageFn } from "@/lib/usage/functions";
 
 export function PlayDialog() {
   const open = useLab((s) => s.playOpen);
   const setOpen = useLab((s) => s.setPlayOpen);
+  const { user } = useCurrentUserState();
   const [progress, setProgress] = useState<PlayProgress>(() => readProgress());
   const [usage, setUsage] = useState<UsageStats>(() => readUsage());
+  const [account, setAccount] = useState<UsageStats | null>(null);
   const [board, setBoard] = useState<{ name: string; likes: number }[]>([]);
 
   useEffect(() => {
@@ -36,13 +38,14 @@ export function PlayDialog() {
         ),
       )
       .catch(() => setBoard([]));
-  }, [open]);
-
-  const finishDaily = () => {
-    const next = completeDaily();
-    setProgress(next);
-    toast.success("Daily logged");
-  };
+    if (user) {
+      void getUsageFn()
+        .then(setAccount)
+        .catch(() => setAccount(emptyUsage()));
+    } else {
+      setAccount(null);
+    }
+  }, [open, user]);
 
   const badges = Object.keys(BADGE_COPY) as BadgeId[];
 
@@ -68,9 +71,11 @@ export function PlayDialog() {
             <section className="flex flex-col gap-2">
               <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Today</h3>
               <p className="text-sm text-fg">{progress.challenge}</p>
-              <Button variant={progress.challengeDone ? "outline" : "default"} disabled={progress.challengeDone} onClick={finishDaily}>
-                {progress.challengeDone ? "Done for today" : "Mark done"}
-              </Button>
+              <p className="text-2xs text-faint">
+                {progress.challengeDone
+                  ? "Done — you actually did it in the lab."
+                  : "Does itself when you do the thing. No checkbox."}
+              </p>
             </section>
             <section className="flex flex-col gap-2">
               <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Badges</h3>
@@ -98,8 +103,19 @@ export function PlayDialog() {
               <p className="text-xs text-fg">
                 {formatDuration(usage.seconds)} in the lab · {usage.spawns} spawns · {usage.exports} exports
               </p>
-              <p className="text-2xs text-faint">Peak {usage.peak.toLocaleString()} live particles. Stays on this browser.</p>
+              <p className="text-2xs text-faint">Peak {usage.peak.toLocaleString()} live particles.</p>
             </section>
+            {account ? (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Account</h3>
+                <p className="text-xs text-fg">
+                  {formatDuration(account.seconds)} · {account.spawns} spawns · {account.exports} exports
+                </p>
+                <p className="text-2xs text-faint">
+                  Peak {account.peak.toLocaleString()} live particles. Zero until this signed-in lab has run.
+                </p>
+              </section>
+            ) : null}
             <section className="flex flex-col gap-2">
               <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Most liked</h3>
               {board.length === 0 ? (

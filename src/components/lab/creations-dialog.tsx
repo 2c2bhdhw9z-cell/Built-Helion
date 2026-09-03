@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useLab } from "@/store/lab-store";
 import { useCreations } from "@/lib/creations/use-creations";
 import { normalizeCreationConfig, type CreationRow } from "@/lib/creations/types";
+import { copyText } from "@/lib/platform/clipboard";
 
 /**
  * Save / manage your creations. Radix Dialog + sonner toast + a store open flag,
@@ -167,12 +168,9 @@ export function CreationsDialog() {
 
   const onCopy = async (id: string) => {
     const url = `${window.location.origin}/s/${id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Link copied");
-    } catch {
-      toast.error("Could not copy link");
-    }
+    const ok = await copyText(url);
+    if (ok) toast.success("Link copied");
+    else toast.error("Could not copy link");
   };
 
   const onDelete = async (id: string) => {

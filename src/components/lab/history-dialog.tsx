@@ -10,8 +10,16 @@ import {
   removeVersion,
   type VersionEntry,
 } from "@/lib/history/versions";
-import { deleteCloudVersionFn, listCloudVersionsFn, pushCloudVersionFn } from "@/lib/history/cloud";
+import {
+  deleteCloudVersionFn,
+  listCloudVersionsFn,
+  listTeamHistoryFn,
+  pushCloudVersionFn,
+} from "@/lib/history/cloud";
+import { listMyTeamsFn } from "@/lib/teams/functions";
+import type { TeamRow } from "@/lib/teams/types";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { Chip } from "./controls";
 
 function formatWhen(at: number): string {
   try {
@@ -26,38 +34,112 @@ function formatWhen(at: number): string {
   }
 }
 
+function VersionList({
+  rows,
+  onRestore,
+  onDelete,
+}: {
+  rows: VersionEntry[];
+  onRestore: (row: VersionEntry) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border py-10 text-center">
+        <p className="text-sm text-fg">No checkpoints yet</p>
+        <p className="mt-1 text-2xs text-faint">Save the look you want to come back to.</p>
+      </div>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {rows.map((row) => (
+        <li
+          key={row.id}
+          className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-fg">{row.name}</p>
+            <p className="text-2xs text-faint">{formatWhen(row.at)}</p>
+          </div>
+          <Button variant="outline" size="sm" className="h-8 shrink-0 px-2" onClick={() => onRestore(row)}>
+            Restore
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            aria-label={`Delete ${row.name}`}
+            onClick={() => onDelete(row.id)}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function HistoryDialog() {
   const open = useLab((s) => s.historyOpen);
   const setOpen = useLab((s) => s.setHistoryOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
   const { user } = useCurrentUserState();
   const [name, setName] = useState("");
-  const [rows, setRows] = useState<VersionEntry[]>([]);
+  const [device, setDevice] = useState<VersionEntry[]>([]);
   const [cloud, setCloud] = useState<VersionEntry[]>([]);
+  const [teams, setTeams] = useState<TeamRow[]>([]);
+  const [teamId, setTeamId] = useState<string | null>(null);
+  const [teamRows, setTeamRows] = useState<VersionEntry[]>([]);
+  const [scope, setScope] = useState<"account" | "device" | "team">("device");
 
-  const refresh = () => setRows(listVersions());
+  const refreshDevice = () => setDevice(listVersions());
 
   useEffect(() => {
-    if (open) refresh();
+    if (!open) return;
+    refreshDevice();
+    if (user) setScope("account");
+    else setScope("device");
     if (open && user) {
       void listCloudVersionsFn()
         .then((list) =>
           setCloud(list.map((r) => ({ id: r.id, at: r.at, name: r.name, config: r.config }))),
         )
         .catch(() => setCloud([]));
+      void listMyTeamsFn()
+        .then((rows) => {
+          setTeams(rows);
+          setTeamId((cur) => cur ?? rows[0]?.id ?? null);
+        })
+        .catch(() => setTeams([]));
     }
   }, [open, user]);
+
+  useEffect(() => {
+    if (!open || !user || !teamId || scope !== "team") return;
+    void listTeamHistoryFn({ data: { teamId } })
+      .then((list) =>
+        setTeamRows(list.map((r) => ({ id: r.id, at: r.at, name: r.name, config: r.config }))),
+      )
+      .catch(() => setTeamRows([]));
+  }, [open, user, teamId, scope]);
 
   const save = () => {
     const config = currentCreationConfig(useLab.getState());
     const entry = pushVersion(name, config);
     setName("");
-    refresh();
+    refreshDevice();
     toast.success(`Saved “${entry.name}”`);
     void import("@/lib/play/progress").then(({ noteChallenge }) => noteChallenge("checkpoint"));
     if (user) {
-      void pushCloudVersionFn({ data: { name: entry.name, config } })
-        .then((row) => setCloud((prev) => [{ id: row.id, at: row.at, name: row.name, config: row.config }, ...prev]))
+      void pushCloudVersionFn({
+        data: { name: entry.name, config, ...(scope === "team" && teamId ? { teamId } : {}) },
+      })
+        .then((row) => {
+          const mapped = { id: row.id, at: row.at, name: row.name, config: row.config };
+          if (scope === "team") setTeamRows((prev) => [mapped, ...prev]);
+          else setCloud((prev) => [mapped, ...prev]);
+        })
         .catch(() => toast.error("Could not sync to the account"));
     }
   };
@@ -66,11 +148,6 @@ export function HistoryDialog() {
     applyCreationConfig(row.config);
     setOpen(false);
     toast.success(`Restored “${row.name}”`);
-  };
-
-  const drop = (id: string) => {
-    removeVersion(id);
-    refresh();
   };
 
   return (
@@ -84,8 +161,9 @@ export function HistoryDialog() {
                 History
               </Dialog.Title>
               <Dialog.Description className="text-2xs text-faint">
-                Named checkpoints on this device (last 40)
-                {user ? " plus a copy on your account." : ". Sign in to also keep them on the account."}
+                {user
+                  ? "Account checkpoints, this-device cache, team timeline if you have a team."
+                  : "Named checkpoints on this device (last 40). Sign in to keep them on the account."}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -95,6 +173,30 @@ export function HistoryDialog() {
             </Dialog.Close>
           </div>
           <div className="flex flex-col gap-3 px-4 py-3">
+            {user ? (
+              <div className="flex flex-wrap gap-1.5">
+                <Chip active={scope === "account"} onClick={() => setScope("account")}>
+                  Account
+                </Chip>
+                <Chip active={scope === "device"} onClick={() => setScope("device")}>
+                  This device
+                </Chip>
+                {teams.length > 0 ? (
+                  <Chip active={scope === "team"} onClick={() => setScope("team")}>
+                    Team
+                  </Chip>
+                ) : null}
+              </div>
+            ) : null}
+            {scope === "team" && teams.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {teams.map((t) => (
+                  <Chip key={t.id} active={t.id === teamId} onClick={() => setTeamId(t.id)}>
+                    {t.name}
+                  </Chip>
+                ))}
+              </div>
+            ) : null}
             <label className="flex flex-col gap-1.5">
               <span className="text-2xs uppercase tracking-[0.12em] text-faint">Name</span>
               <div className="flex gap-2">
@@ -117,77 +219,36 @@ export function HistoryDialog() {
             </label>
           </div>
           <div className="lab-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4">
-            {rows.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border py-10 text-center">
-                <p className="text-sm text-fg">No checkpoints yet</p>
-                <p className="mt-1 text-2xs text-faint">Save the look you want to come back to.</p>
-              </div>
+            {scope === "account" ? (
+              <VersionList
+                rows={cloud}
+                onRestore={restore}
+                onDelete={(id) => {
+                  void deleteCloudVersionFn({ data: { id } }).then(() =>
+                    setCloud((prev) => prev.filter((r) => r.id !== id)),
+                  );
+                }}
+              />
+            ) : scope === "team" ? (
+              <VersionList
+                rows={teamRows}
+                onRestore={restore}
+                onDelete={(id) => {
+                  void deleteCloudVersionFn({ data: { id } }).then(() =>
+                    setTeamRows((prev) => prev.filter((r) => r.id !== id)),
+                  );
+                }}
+              />
             ) : (
-              <ul className="flex flex-col gap-2">
-                {rows.map((row) => (
-                  <li
-                    key={row.id}
-                    className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-fg">{row.name}</p>
-                      <p className="text-2xs text-faint">{formatWhen(row.at)}</p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 shrink-0 px-2"
-                      onClick={() => restore(row)}
-                    >
-                      Restore
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      aria-label={`Delete ${row.name}`}
-                      onClick={() => drop(row.id)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+              <VersionList
+                rows={device}
+                onRestore={restore}
+                onDelete={(id) => {
+                  removeVersion(id);
+                  refreshDevice();
+                }}
+              />
             )}
-            {cloud.length > 0 ? (
-              <>
-                <p className="mt-3 text-2xs uppercase tracking-[0.12em] text-faint">On your account</p>
-                <ul className="flex flex-col gap-2">
-                  {cloud.map((row) => (
-                    <li
-                      key={`c-${row.id}`}
-                      className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-fg">{row.name}</p>
-                        <p className="text-2xs text-faint">{formatWhen(row.at)}</p>
-                      </div>
-                      <Button variant="outline" size="sm" className="h-8 shrink-0 px-2" onClick={() => restore(row)}>
-                        Restore
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 shrink-0"
-                        aria-label={`Delete ${row.name}`}
-                        onClick={() => {
-                          void deleteCloudVersionFn({ data: { id: row.id } }).then(() =>
-                            setCloud((prev) => prev.filter((r) => r.id !== row.id)),
-                          );
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

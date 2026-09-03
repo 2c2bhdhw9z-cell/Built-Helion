@@ -279,8 +279,9 @@ export interface CreationRow {
 }
 
 /**
- * Community library card. Author is a user-chosen display name (or "Helion"),
- * never an email or user id.
+ * Community library card. Author is a user-chosen display name, or "No name"
+ * when they haven't set one. Never an email. `ownerId` is only set on team
+ * shelves (signed-in members) so the owner can delete their scene.
  */
 export interface LibraryItem {
   id: string;
@@ -290,6 +291,7 @@ export interface LibraryItem {
   author: string;
   likeCount: number;
   liked: boolean;
+  ownerId?: string;
 }
 
 export const setPublicSchema = z.object({

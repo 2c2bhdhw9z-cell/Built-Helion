@@ -1,6 +1,6 @@
 import { getSql } from "@/lib/db";
 import { normalizeCreationConfig, type CreationConfig, type LibraryItem } from "@/lib/creations/types";
-import type { TeamRole, TeamRow } from "./types";
+import type { TeamMember, TeamRole, TeamRow } from "./types";
 
 const ALPH = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -12,6 +12,11 @@ function randomJoinCode(): string {
   return out;
 }
 
+function authorLabel(name: string | null | undefined): string {
+  const t = (name ?? "").trim();
+  return t || "No name";
+}
+
 type RawTeam = {
   id: string;
   name: string;
@@ -21,14 +26,18 @@ type RawTeam = {
   created_at: string | Date;
 };
 
+function toRole(role: string): TeamRole {
+  if (role === "owner" || role === "view") return role;
+  return "edit";
+}
+
 function toTeam(row: RawTeam): TeamRow {
-  const role: TeamRole = row.role === "owner" || row.role === "view" ? row.role : "edit";
   return {
     id: row.id,
     name: row.name,
     joinCode: row.join_code,
     ownerId: row.owner_id,
-    role,
+    role: toRole(row.role),
     createdAt: row.created_at,
   };
 }
@@ -98,20 +107,134 @@ export async function isTeamMember(userId: string, teamId: string): Promise<bool
   return rows.length > 0;
 }
 
+async function memberRole(userId: string, teamId: string): Promise<TeamRole | null> {
+  const sql = await getSql();
+  const rows = await sql<{ role: string }>`
+    select role from team_members where team_id = ${teamId} and user_id = ${userId}
+  `;
+  const role = rows[0]?.role;
+  return role ? toRole(role) : null;
+}
+
+export async function listMembers(userId: string, teamId: string): Promise<TeamMember[]> {
+  if (!(await isTeamMember(userId, teamId))) return [];
+  const sql = await getSql();
+  const rows = await sql<{ user_id: string; role: string; created_at: string | Date; name: string | null }>`
+    select m.user_id, m.role, m.created_at, coalesce(nullif(p.display_name, ''), '') as name
+    from team_members m
+    left join profiles p on p.user_id = m.user_id
+    where m.team_id = ${teamId}
+    order by m.created_at asc
+  `;
+  return rows.map((row) => ({
+    userId: row.user_id,
+    name: authorLabel(row.name),
+    role: toRole(row.role),
+    joinedAt: row.created_at,
+  }));
+}
+
+export async function setMemberRole(
+  actorId: string,
+  teamId: string,
+  userId: string,
+  role: "edit" | "view",
+): Promise<boolean> {
+  const sql = await getSql();
+  const teams = await sql<{ owner_id: string }>`select owner_id from teams where id = ${teamId}`;
+  if (teams[0]?.owner_id !== actorId) return false;
+  if (userId === actorId) return false;
+  const rows = await sql<{ user_id: string }>`
+    update team_members set role = ${role}
+    where team_id = ${teamId} and user_id = ${userId} and role <> 'owner'
+    returning user_id
+  `;
+  return rows.length > 0;
+}
+
+export async function kickMember(actorId: string, teamId: string, userId: string): Promise<boolean> {
+  const sql = await getSql();
+  const teams = await sql<{ owner_id: string }>`select owner_id from teams where id = ${teamId}`;
+  if (teams[0]?.owner_id !== actorId) return false;
+  if (userId === actorId) return false;
+  const rows = await sql<{ user_id: string }>`
+    delete from team_members
+    where team_id = ${teamId} and user_id = ${userId} and role <> 'owner'
+    returning user_id
+  `;
+  return rows.length > 0;
+}
+
+export async function leaveTeam(userId: string, teamId: string): Promise<boolean> {
+  const role = await memberRole(userId, teamId);
+  if (!role) return false;
+  if (role === "owner") return false;
+  const sql = await getSql();
+  const rows = await sql<{ user_id: string }>`
+    delete from team_members where team_id = ${teamId} and user_id = ${userId} returning user_id
+  `;
+  return rows.length > 0;
+}
+
+export async function dissolveTeam(userId: string, teamId: string): Promise<boolean> {
+  const sql = await getSql();
+  const teams = await sql<{ id: string }>`
+    select id from teams where id = ${teamId} and owner_id = ${userId}
+  `;
+  if (!teams[0]) return false;
+  await sql`update creations set team_id = null where team_id = ${teamId}`;
+  await sql`update version_history set team_id = null where team_id = ${teamId}`;
+  await sql`delete from team_members where team_id = ${teamId}`;
+  await sql`delete from teams where id = ${teamId}`;
+  return true;
+}
+
+export async function renameTeam(userId: string, teamId: string, name: string): Promise<boolean> {
+  const sql = await getSql();
+  const rows = await sql<{ id: string }>`
+    update teams set name = ${name} where id = ${teamId} and owner_id = ${userId} returning id
+  `;
+  return rows.length > 0;
+}
+
 export async function shareToTeam(
   userId: string,
   teamId: string,
   name: string,
   config: CreationConfig,
 ): Promise<boolean> {
-  if (!(await isTeamMember(userId, teamId))) return false;
+  const role = await memberRole(userId, teamId);
+  if (!role || role === "view") return false;
   const sql = await getSql();
   const id = crypto.randomUUID();
   await sql`
     insert into creations (id, user_id, name, config, team_id)
     values (${id}, ${userId}, ${name}, ${JSON.stringify(config)}, ${teamId})
   `;
+  try {
+    await sql`
+      insert into version_history (id, user_id, name, config, team_id)
+      values (${crypto.randomUUID()}, ${userId}, ${name}, ${JSON.stringify(config)}, ${teamId})
+    `;
+  } catch {
+    /* version_history.team_id may not exist on a stale process */
+  }
   return true;
+}
+
+export async function deleteTeamScene(userId: string, teamId: string, id: string): Promise<boolean> {
+  const role = await memberRole(userId, teamId);
+  if (!role || role === "view") return false;
+  const sql = await getSql();
+  const rows =
+    role === "owner"
+      ? await sql<{ id: string }>`
+          delete from creations where id = ${id} and team_id = ${teamId} returning id
+        `
+      : await sql<{ id: string }>`
+          delete from creations where id = ${id} and team_id = ${teamId} and user_id = ${userId} returning id
+        `;
+  return rows.length > 0;
 }
 
 export async function listTeamLibrary(userId: string, teamId: string): Promise<LibraryItem[]> {
@@ -123,22 +246,30 @@ export async function listTeamLibrary(userId: string, teamId: string): Promise<L
     config: unknown;
     created_at: string | Date;
     author: string | null;
+    user_id: string;
   }>`
-    select c.id, c.name, c.config, c.created_at,
-      coalesce(nullif(p.display_name, ''), 'Helion') as author
+    select c.id, c.name, c.config, c.created_at, c.user_id,
+      coalesce(nullif(p.display_name, ''), '') as author
     from creations c
     left join profiles p on p.user_id = c.user_id
     where c.team_id = ${teamId}
     order by c.created_at desc
     limit 48
   `;
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    config: normalizeCreationConfig(row.config) ?? normalizeCreationConfig({})!,
-    created_at: row.created_at,
-    author: (row.author && row.author.trim()) || "Helion",
-    likeCount: 0,
-    liked: false,
-  }));
+  const out: LibraryItem[] = [];
+  for (const row of rows) {
+    const config = normalizeCreationConfig(row.config);
+    if (!config) continue;
+    out.push({
+      id: row.id,
+      name: row.name,
+      config,
+      created_at: row.created_at,
+      author: authorLabel(row.author),
+      likeCount: 0,
+      liked: false,
+      ownerId: row.user_id,
+    });
+  }
+  return out;
 }

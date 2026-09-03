@@ -2,6 +2,7 @@ import type { CreationConfig } from "@/lib/creations/types";
 import { brushMode, IDLE_EXTRA_BRUSH, type ExtraBrush, type GeneratorKind, type LabParams, type ToolKind } from "@/engine/types";
 import type { SpeedMul } from "@/store/lab-store";
 import type { SessionRole } from "./session-store";
+import { kv } from "../platform/storage.ts";
 
 export const MAX_SESSION_PEERS = 8;
 
@@ -62,8 +63,7 @@ const GUEST_KEY = "helion.guestName";
 
 function storageGet(key: string): string | null {
   try {
-    if (typeof localStorage === "undefined") return null;
-    return localStorage.getItem(key);
+    return kv().get(key);
   } catch {
     return null;
   }
@@ -71,8 +71,7 @@ function storageGet(key: string): string | null {
 
 function storageSet(key: string, value: string): void {
   try {
-    if (typeof localStorage === "undefined") return;
-    localStorage.setItem(key, value);
+    kv().set(key, value);
   } catch {
     /* ignore */
   }

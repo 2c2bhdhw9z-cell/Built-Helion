@@ -71,13 +71,13 @@ Status: built in preview (PR #24) except the SKIPPED rows.
 - Real-time multiplayer (shared canvas, live cursors) — DONE (peer-to-peer; each browser runs its own physics, can drift)
 - Permission system (View/Edit/Admin) — DONE (host can kick)
 - Session chat (voice + text) — DONE (needs a mic and a clean peer link; NAT can fail)
-- Version history (time-travel through edits) — PARTIAL (named checkpoints on this device + signed-in cloud copies; not a shared org timeline)
-- Team workspaces (shared preset libraries) — PARTIAL (create/join/share current scene; not a full org shelf)
+- Version history (time-travel through edits) — DONE (this-device cache + signed-in account timeline + team timeline; empty until you save)
+- Team workspaces (shared preset libraries) — DONE (create/join, members, roles, leave/kick/dissolve, share/load/delete; empty until you put something on the shelf)
 
 7. Advanced Export
 - 4K/8K export — DONE (8K can run out of memory)
 - Alpha transparency — DONE (void knocked to alpha on PNG)
-- Custom FPS 24/30/60/120 — PARTIAL (requested; browser encoder may not honor 120)
+- Custom FPS 24/30/60/120 — DONE (requested; the encoder may run lower, especially at 120)
 - FFmpeg integration (server-side video) — SKIPPED (no render farm)
 - Lottie/JSON export — PARTIAL (scene JSON is the recipe, not Lottie, not live particles)
 
@@ -85,18 +85,18 @@ Status: built in preview (PR #24) except the SKIPPED rows.
 - 1M+ particle support — DONE (free; not an Enterprise lock)
 - Multi-GPU — SKIPPED
 - Headless mode (server-side rendering) — SKIPPED
-- Batch processing (queue multiple exports) — PARTIAL (batch PNG+JPG in Export)
+- Batch processing (queue multiple exports) — DONE (batch PNG+JPG in Export)
 - Render farm (distributed rendering) — SKIPPED
 
 9. Developer API
-- REST API — PARTIAL (GET /meta, GET /library, Bearer hl_… for your creations, POST /api/v1/control)
-- WebSocket API — PARTIAL (command queue the lab polls; not a socket)
-- JavaScript SDK — PARTIAL (public/sdk/helion.js helper, not a published npm package)
-- Python SDK — PARTIAL (public/sdk/helion.py helper, not a published pypi package)
-- Webhook support — PARTIAL (save/publish, one retry, 3s, no farm)
+- REST API — DONE (meta, library, creations CRUD, history, teams, usage, webhook deliveries, control queue)
+- WebSocket API — PARTIAL (command queue the lab polls; this host has no socket)
+- JavaScript SDK — DONE (public/sdk/helion.js talks to the real REST)
+- Python SDK — DONE (public/sdk/helion.py talks to the real REST)
+- Webhook support — DONE (save/publish, one retry, last deliveries stored)
 
 10. Analytics & Insights
-- Usage analytics — PARTIAL (this-device counters in Play; not anonymous cloud stats)
+- Usage analytics — DONE (this-device always; account totals when signed in; never seeded)
 - Performance telemetry — PARTIAL (in-app Performance hub; not anonymous cloud stats)
 - Crash reporting (Sentry) — SKIPPED
 - A/B testing — SKIPPED
@@ -158,7 +158,8 @@ Goal: Sell to studios, agencies, and researchers for $100–500/month.
 ════════════════════════════════
 WHERE WE ARE
 - Phase 1: shipped. Fill frame still in PR until you merge.
-- Phase 2: playable in preview.
+- Phase 2: playable in preview. No seeded library, teams, history, usage, or authors.
+- Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: in this preview / PR #24.
 
 Still will not fake

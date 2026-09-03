@@ -1,6 +1,7 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
-import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth/provider";
+import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { ThemeSync, ThemeToaster } from "@/components/lab/theme-sync";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "Helion";
@@ -40,23 +41,37 @@ export const Route = createRootRoute({
           window.addEventListener('error', function(event) {
             if (event && event.message && event.message.includes('Importing a module script failed')) {
               console.warn('Recovering from module script import failure:', event.message);
-              // Prevent noisy fatal alert if transient
             }
           });
+          try {
+            // Theme FOUC: runs before the bundle. Browser and native webviews
+            // both have localStorage. Platform KV uses the same key.
+            var raw = localStorage.getItem('helion.preferences');
+            if (raw) {
+              var theme = JSON.parse(raw).theme;
+              if (theme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+                document.documentElement.classList.add('light');
+                document.documentElement.classList.remove('dark');
+              }
+            }
+          } catch (e) {}
         `,
       },
     ],
   }),
   component: () => (
-    <html lang="en" className="dark antialiased" suppressHydrationWarning>
+    <html lang="en" className="dark antialiased" data-theme="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body className="bg-bg text-fg">
+        <PreviewHostBridge />
         <AuthProvider>
+          <ThemeSync />
           <Outlet />
+          <ThemeToaster />
         </AuthProvider>
-        <Toaster theme="dark" position="bottom-right" richColors />
         <Scripts />
       </body>
     </html>

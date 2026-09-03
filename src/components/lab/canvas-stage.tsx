@@ -379,6 +379,9 @@ export function CanvasStage() {
     recorderRef.current = recorder;
     recordingRef.current = true;
     useLab.getState().setRecording(true);
+    if (s.recordFps === 120) {
+      toast.message("Asked the encoder for 120 fps — it may run lower");
+    }
     void import("@/lib/play/progress").then(({ awardBadge, noteChallenge }) => {
       awardBadge("recorder");
       noteChallenge("record");

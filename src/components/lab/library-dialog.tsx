@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Heart, Play, X } from "lucide-react";
+import { Heart, Play, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { currentCreationConfig, useLab } from "@/store/lab-store";
@@ -16,12 +16,18 @@ import {
 } from "@/lib/creations/types";
 import {
   createTeamFn,
+  deleteTeamSceneFn,
+  dissolveTeamFn,
   joinTeamFn,
+  kickMemberFn,
+  leaveTeamFn,
   listMyTeamsFn,
   listTeamLibraryFn,
+  listTeamMembersFn,
+  setMemberRoleFn,
   shareToTeamFn,
 } from "@/lib/teams/functions";
-import type { TeamRow } from "@/lib/teams/types";
+import type { TeamMember, TeamRow } from "@/lib/teams/types";
 import { Chip } from "./controls";
 
 type Sort = "recent" | "featured";
@@ -33,6 +39,7 @@ export function LibraryDialog() {
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
   const { user, isPending } = useCurrentUserState();
   const signedIn = Boolean(user);
+  const selfId = user?.id ?? "";
 
   const [tab, setTab] = useState<Tab>("community");
   const [sort, setSort] = useState<Sort>("recent");
@@ -41,6 +48,7 @@ export function LibraryDialog() {
   const [teams, setTeams] = useState<TeamRow[]>([]);
   const [teamId, setTeamId] = useState<string | null>(null);
   const [teamItems, setTeamItems] = useState<LibraryItem[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [teamName, setTeamName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [shareName, setShareName] = useState("Team scene");
@@ -87,17 +95,35 @@ export function LibraryDialog() {
   useEffect(() => {
     if (!open || !signedIn || !teamId || tab !== "team") return;
     let cancelled = false;
-    void listTeamLibraryFn({ data: { teamId } })
-      .then((rows) => {
-        if (!cancelled) setTeamItems(rows);
+    void Promise.all([
+      listTeamLibraryFn({ data: { teamId } }),
+      listTeamMembersFn({ data: { teamId } }),
+    ])
+      .then(([rows, people]) => {
+        if (cancelled) return;
+        setTeamItems(rows);
+        setMembers(people);
       })
       .catch(() => {
-        if (!cancelled) setTeamItems([]);
+        if (cancelled) return;
+        setTeamItems([]);
+        setMembers([]);
       });
     return () => {
       cancelled = true;
     };
   }, [open, signedIn, teamId, tab]);
+
+  const refreshTeam = async (id: string) => {
+    const [rows, people, mine] = await Promise.all([
+      listTeamLibraryFn({ data: { teamId: id } }),
+      listTeamMembersFn({ data: { teamId: id } }),
+      listMyTeamsFn(),
+    ]);
+    setTeamItems(rows);
+    setMembers(people);
+    setTeams(mine);
+  };
 
   const onLoad = (item: LibraryItem) => {
     const config = normalizeCreationConfig(item.config);
@@ -133,6 +159,8 @@ export function LibraryDialog() {
       setTeams((prev) => [row, ...prev]);
       setTeamId(row.id);
       setTeamName("");
+      setMembers([{ userId: selfId, name: user?.displayName?.trim() || "No name", role: "owner", joinedAt: row.createdAt }]);
+      setTeamItems([]);
       toast.success(`Team “${row.name}” · join ${row.joinCode}`);
     } catch {
       toast.error("Could not create team");
@@ -150,6 +178,7 @@ export function LibraryDialog() {
       setTeamId(row.id);
       setJoinCode("");
       toast.success(`Joined “${row.name}”`);
+      await refreshTeam(row.id);
     } catch {
       toast.error("Could not join");
     }
@@ -172,8 +201,7 @@ export function LibraryDialog() {
         toast.error("Could not share to this team");
         return;
       }
-      const rows = await listTeamLibraryFn({ data: { teamId } });
-      setTeamItems(rows);
+      await refreshTeam(teamId);
       toast.success("Shared to team");
     } catch {
       toast.error("Could not share to this team");
@@ -181,6 +209,8 @@ export function LibraryDialog() {
   };
 
   const activeTeam = teams.find((t) => t.id === teamId) ?? null;
+  const isOwner = activeTeam?.role === "owner";
+  const canEdit = activeTeam?.role === "owner" || activeTeam?.role === "edit";
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -276,6 +306,110 @@ export function LibraryDialog() {
                     </p>
                   ) : null}
                   {activeTeam ? (
+                    <div className="flex flex-col gap-1.5">
+                      <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Members</h3>
+                      {members.length === 0 ? (
+                        <p className="text-2xs text-faint">No members returned.</p>
+                      ) : (
+                        <ul className="flex flex-col gap-1">
+                          {members.map((m) => (
+                            <li
+                              key={m.userId}
+                              className="flex items-center gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-xs"
+                            >
+                              <span className="min-w-0 flex-1 truncate text-fg">{m.name}</span>
+                              <span className="font-mono text-2xs text-faint">{m.role}</span>
+                              {isOwner && m.role !== "owner" ? (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-1.5 text-2xs"
+                                    onClick={() => {
+                                      const next = m.role === "edit" ? "view" : "edit";
+                                      void setMemberRoleFn({
+                                        data: { teamId: activeTeam.id, userId: m.userId, role: next },
+                                      }).then((r) => {
+                                        if (r.ok) {
+                                          setMembers((prev) =>
+                                            prev.map((row) =>
+                                              row.userId === m.userId ? { ...row, role: next } : row,
+                                            ),
+                                          );
+                                        }
+                                      });
+                                    }}
+                                  >
+                                    {m.role === "edit" ? "Make view" : "Make edit"}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-1.5 text-2xs"
+                                    onClick={() => {
+                                      void kickMemberFn({
+                                        data: { teamId: activeTeam.id, userId: m.userId },
+                                      }).then((r) => {
+                                        if (r.ok) setMembers((prev) => prev.filter((row) => row.userId !== m.userId));
+                                      });
+                                    }}
+                                  >
+                                    Kick
+                                  </Button>
+                                </>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="flex gap-2">
+                        {isOwner ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => {
+                              void dissolveTeamFn({ data: { teamId: activeTeam.id } }).then((r) => {
+                                if (!r.ok) {
+                                  toast.error("Could not dissolve");
+                                  return;
+                                }
+                                setTeams((prev) => prev.filter((t) => t.id !== activeTeam.id));
+                                setTeamId(null);
+                                setMembers([]);
+                                setTeamItems([]);
+                                toast.success("Team dissolved — scenes stay on their authors");
+                              });
+                            }}
+                          >
+                            Dissolve
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => {
+                              void leaveTeamFn({ data: { teamId: activeTeam.id } }).then((r) => {
+                                if (!r.ok) {
+                                  toast.error("Owner has to dissolve the team");
+                                  return;
+                                }
+                                setTeams((prev) => prev.filter((t) => t.id !== activeTeam.id));
+                                setTeamId(null);
+                                setMembers([]);
+                                setTeamItems([]);
+                                toast.success("Left team");
+                              });
+                            }}
+                          >
+                            Leave
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                  {activeTeam && canEdit ? (
                     <div className="flex gap-2">
                       <input
                         value={shareName}
@@ -319,6 +453,23 @@ export function LibraryDialog() {
                             <Play className="size-3.5" />
                             Load
                           </Button>
+                          {activeTeam && (isOwner || item.ownerId === selfId) ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 shrink-0"
+                              aria-label={`Remove ${item.name}`}
+                              onClick={() => {
+                                void deleteTeamSceneFn({
+                                  data: { teamId: activeTeam.id, id: item.id },
+                                }).then((r) => {
+                                  if (r.ok) setTeamItems((prev) => prev.filter((row) => row.id !== item.id));
+                                });
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

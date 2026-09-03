@@ -14,12 +14,13 @@ import {
   writeGuestName,
   writeSessionQuery,
 } from "@/lib/multiplayer/protocol";
+import { copyText } from "@/lib/platform/clipboard";
 
-function copyText(text: string, ok: string) {
-  void navigator.clipboard.writeText(text).then(
-    () => toast.success(ok),
-    () => toast.error("Could not copy"),
-  );
+function copyOut(text: string, ok: string) {
+  void copyText(text).then((copied) => {
+    if (copied) toast.success(ok);
+    else toast.error("Could not copy");
+  });
 }
 
 export function SessionDialog() {
@@ -54,7 +55,7 @@ export function SessionDialog() {
     const next = randomRoomCode();
     writeSessionQuery(next);
     useSession.getState().enter(next, true);
-    copyText(sessionUrl(next), "Session link copied");
+    copyOut(sessionUrl(next), "Session link copied");
   };
 
   const join = () => {
@@ -199,7 +200,7 @@ export function SessionDialog() {
                       variant="outline"
                       size="icon"
                       aria-label="Copy code"
-                      onClick={() => code && copyText(code, "Code copied")}
+                      onClick={() => code && copyOut(code, "Code copied")}
                     >
                       <Copy className="size-3.5" />
                     </Button>
@@ -207,7 +208,7 @@ export function SessionDialog() {
                       variant="outline"
                       size="icon"
                       aria-label="Copy link"
-                      onClick={() => code && copyText(sessionUrl(code), "Link copied")}
+                      onClick={() => code && copyOut(sessionUrl(code), "Link copied")}
                     >
                       <Link2 className="size-3.5" />
                     </Button>

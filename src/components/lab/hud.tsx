@@ -51,6 +51,8 @@ import { embedSnippet, shareUrl } from "@/lib/share/codec";
 import { captureFilename } from "@/lib/capture/filename";
 import { sceneJson } from "@/lib/capture/scene-json";
 import { downloadBlobObject } from "@/lib/perf/export";
+import { copyText } from "@/lib/platform/clipboard";
+import { shareOrCopy } from "@/lib/platform/share";
 import type { ExportSize, RecordFps } from "@/lib/capture/composite";
 import { Chip } from "./controls";
 import { SessionHudButton } from "./session-dialog";
@@ -404,22 +406,9 @@ export function Hud() {
               <DropdownMenuItem
                 onSelect={async () => {
                   const url = shareUrl(currentCreationConfig(useLab.getState()));
-                  try {
-                    if (typeof navigator.share === "function") {
-                      await navigator.share({ title: "Helion", url });
-                      return;
-                    }
-                    await navigator.clipboard.writeText(url);
-                    toast.success("Link copied");
-                  } catch (err) {
-                    if ((err as { name?: string }).name === "AbortError") return;
-                    try {
-                      await navigator.clipboard.writeText(url);
-                      toast.success("Link copied");
-                    } catch {
-                      toast.error("Could not copy link");
-                    }
-                  }
+                  const result = await shareOrCopy("Helion", url);
+                  if (result === "copied") toast.success("Link copied");
+                  else if (result === "failed") toast.error("Could not copy link");
                 }}
               >
                 <Link2 className="size-3.5" />
@@ -616,11 +605,11 @@ export function Hud() {
             size="sm"
             className="mt-3 h-9 w-full"
             onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(embedCode);
+              const ok = await copyText(embedCode);
+              if (ok) {
                 toast.success("Embed code copied");
                 setEmbedOpen(false);
-              } catch {
+              } else {
                 toast.error("Could not copy");
               }
             }}
