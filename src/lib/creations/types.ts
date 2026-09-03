@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
+  GENERATOR_KINDS,
   SYSTEM_LIMIT,
   type GeneratorKind,
   type LabParams,
@@ -24,18 +25,8 @@ import {
  * store.
  */
 
-/** The 9 generator kinds the sim can spawn (mirrors GeneratorKind). */
-export const generatorKinds: readonly GeneratorKind[] = [
-  "galaxy",
-  "ring",
-  "burst",
-  "pour",
-  "fall",
-  "flock",
-  "cloth",
-  "nbody",
-  "text",
-];
+/** The generator kinds the sim can spawn (mirrors GeneratorKind). */
+export const generatorKinds: readonly GeneratorKind[] = GENERATOR_KINDS;
 
 /** The allowed speed multipliers (mirrors SpeedMul in src/store/lab-store.ts). */
 export const speedMuls = [0.25, 0.5, 1, 2, 4] as const;
@@ -86,14 +77,29 @@ export const labParamsSchema: z.ZodType<LabParams> = z
     mass: num(DEFAULT_PARAMS.mass),
     lifespan: num(DEFAULT_PARAMS.lifespan),
     pointSize: num(DEFAULT_PARAMS.pointSize),
-    shape: enumField(["circle", "square", "ring", "diamond"], DEFAULT_PARAMS.shape),
+    shape: enumField(
+      [
+        "circle",
+        "square",
+        "ring",
+        "diamond",
+        "triangle",
+        "star",
+        "hex",
+        "plus",
+        "heart",
+        "spark",
+        "emoji",
+      ],
+      DEFAULT_PARAMS.shape,
+    ),
     blend: enumField(["additive", "alpha"], DEFAULT_PARAMS.blend),
     palette: enumField(
       ["rainbow", "ember", "ice", "aurora", "solar", "mono", "plasma"],
       DEFAULT_PARAMS.palette,
     ),
     colorMap: enumField(
-      ["life", "speed", "density", "mass", "palette"],
+      ["life", "speed", "density", "mass", "palette", "position"],
       DEFAULT_PARAMS.colorMap,
     ),
     lifeFadeIn: num(DEFAULT_PARAMS.lifeFadeIn),
@@ -135,6 +141,16 @@ export const labParamsSchema: z.ZodType<LabParams> = z
     bloomStrength: num(DEFAULT_PARAMS.bloomStrength),
     audioReactive: bool(DEFAULT_PARAMS.audioReactive),
     audioSensitivity: num(DEFAULT_PARAMS.audioSensitivity),
+    background: enumField(
+      ["void", "starfield", "gradient", "nebula", "image", "video"],
+      DEFAULT_PARAMS.background,
+    ),
+    tint: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .catch(DEFAULT_PARAMS.tint)
+      .default(DEFAULT_PARAMS.tint),
+    emoji: z.string().min(1).max(8).catch(DEFAULT_PARAMS.emoji).default(DEFAULT_PARAMS.emoji),
   })
   .catch({ ...DEFAULT_PARAMS }) as z.ZodType<LabParams>;
 
@@ -148,7 +164,33 @@ export const labParamsSchema: z.ZodType<LabParams> = z
 export const creationConfigSchema = z.object({
   params: labParamsSchema.default({ ...DEFAULT_PARAMS }),
   spawnKind: enumField(
-    ["galaxy", "ring", "burst", "pour", "fall", "flock", "cloth", "nbody", "text"],
+    [
+      "galaxy",
+      "ring",
+      "burst",
+      "pour",
+      "fall",
+      "flock",
+      "cloth",
+      "nbody",
+      "text",
+      "fire",
+      "smoke",
+      "fireworks",
+      "water",
+      "tornado",
+      "lightning",
+      "blackhole",
+      "supernova",
+      "fibonacci",
+      "sierpinski",
+      "crystal",
+      "magma",
+      "aurora",
+      "helix",
+      "mandala",
+      "confetti",
+    ],
     "galaxy",
   ),
   spawnCount: z
@@ -214,7 +256,35 @@ export interface CreationRow {
   name: string;
   config: CreationConfig;
   created_at: string | Date;
+  is_public: boolean;
 }
+
+/**
+ * Community library card. Author is a user-chosen display name (or "Helion"),
+ * never an email or user id.
+ */
+export interface LibraryItem {
+  id: string;
+  name: string;
+  config: CreationConfig;
+  created_at: string | Date;
+  author: string;
+  likeCount: number;
+  liked: boolean;
+}
+
+export const setPublicSchema = z.object({
+  id: z.string().min(1),
+  isPublic: z.boolean(),
+});
+
+export const toggleLikeSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const libraryQuerySchema = z.object({
+  sort: z.enum(["recent", "featured"]).default("recent"),
+});
 
 /**
  * The PUBLIC projection of a creation — everything the share link needs to load
