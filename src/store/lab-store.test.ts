@@ -53,6 +53,19 @@ test("lab-store clears simulation", () => {
   expect(useLab.getState().clearId).toBe(initialId + 1);
 });
 
+test("lab-store fill-frame toggle survives resetView", () => {
+  useLab.getState().setFillFrame(true);
+  expect(useLab.getState().fillFrame).toBe(true);
+  useLab.getState().setFillFrame(false);
+  expect(useLab.getState().fillFrame).toBe(false);
+  useLab.getState().setView({ zoom: 0.4 });
+  useLab.getState().resetView();
+  expect(useLab.getState().viewZoom).toBe(1);
+  expect(useLab.getState().fillFrame).toBe(false);
+  useLab.getState().setFillFrame(true);
+  expect(useLab.getState().fillFrame).toBe(true);
+});
+
 test("lab-store toggles perf hub open state", () => {
   expect(useLab.getState().perfHubOpen).toBe(false);
   useLab.getState().setPerfHubOpen(true);

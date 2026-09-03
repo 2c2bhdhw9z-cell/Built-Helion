@@ -10,6 +10,7 @@ import { GifRecorder } from "@/lib/capture/gif";
 import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
 import { SCENES } from "@/engine/scenes";
+import { fillWorldScale, viewCssPanEnabled, viewCssScale } from "@/engine/camera";
 
 
 function WallsOverlay({
@@ -28,14 +29,16 @@ function WallsOverlay({
       const h = canvasRef.current.height;
       ctx.clearRect(0, 0, canvasRef.current.width, h);
       const walls = engineRef.current?.walls;
+      const worldH = Math.max(engineRef.current?.worldH ?? 1, 1e-6);
       if (walls && walls.length > 0) {
         ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
         ctx.lineWidth = 4;
         ctx.lineCap = "round";
         ctx.beginPath();
+        const scale = h / worldH;
         for (const w of walls) {
-          ctx.moveTo(w.x1 * h, w.y1 * h);
-          ctx.lineTo(w.x2 * h, w.y2 * h);
+          ctx.moveTo(w.x1 * scale, w.y1 * scale);
+          ctx.lineTo(w.x2 * scale, w.y2 * scale);
         }
         ctx.stroke();
       }
@@ -105,6 +108,10 @@ export function CanvasStage() {
     if (!canvas) return;
     const engine = new ParticleEngine(canvas);
     engineRef.current = engine;
+    {
+      const st = useLab.getState();
+      engine.setWorldScale(fillWorldScale(st.fillFrame, st.viewZoom));
+    }
     // Expose live system/GL info to the perf hub WITHOUT any per-frame cost:
     // the hub calls this getter only while open, reading the engine's current
     // backend/compute/DPR/canvas resolution + raw gl context on demand.
@@ -138,11 +145,12 @@ export function CanvasStage() {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = useLab.getState();
+      const worldScale = engine.worldScale || 1;
       engine.sync({
         params: s.params,
         pointer: s.pointer,
         tool: s.tool,
-        brushRadius: s.brushRadius,
+        brushRadius: s.brushRadius * worldScale,
         brushStrength: s.brushStrength,
         paused: s.paused,
         speed: s.speed,
@@ -503,7 +511,15 @@ export function CanvasStage() {
   const viewPanX = useLab((s) => s.viewPanX);
   const viewPanY = useLab((s) => s.viewPanY);
   const viewRotate = useLab((s) => s.viewRotate);
+  const fillFrame = useLab((s) => s.fillFrame);
   const bgObjectUrl = useLab((s) => s.bgObjectUrl);
+  const worldScale = fillWorldScale(fillFrame, viewZoom);
+  const cssScale = viewCssScale(fillFrame, viewZoom);
+  const cssPan = viewCssPanEnabled(fillFrame, viewZoom);
+
+  useEffect(() => {
+    engineRef.current?.setWorldScale(fillWorldScale(fillFrame, viewZoom));
+  }, [fillFrame, viewZoom]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -523,20 +539,26 @@ export function CanvasStage() {
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const h = Math.max(rect.height, 1);
+    const scale = fillWorldScale(useLab.getState().fillFrame, useLab.getState().viewZoom);
     return {
-      x: (e.clientX - rect.left) / h,
-      y: (e.clientY - rect.top) / h,
+      x: ((e.clientX - rect.left) / h) * scale,
+      y: ((e.clientY - rect.top) / h) * scale,
     };
   };
 
   const isPanEvent = (e: React.PointerEvent) => e.button === 1 || e.button === 2 || e.altKey;
 
   return (
-    <div ref={wrapRef} className="absolute inset-0 overflow-hidden bg-bg">
+    <div
+      ref={wrapRef}
+      className="absolute inset-0 overflow-hidden bg-bg"
+      data-fill-frame={fillFrame ? "1" : "0"}
+      data-css-scale={cssScale}
+    >
       <div
         className="absolute inset-0 origin-center"
         style={{
-          transform: `translate(${viewPanX}px, ${viewPanY}px) rotate(${viewRotate}deg) scale(${viewZoom})`,
+          transform: `translate(${cssPan ? viewPanX : 0}px, ${cssPan ? viewPanY : 0}px) rotate(${viewRotate}deg) scale(${cssScale})`,
         }}
       >
         <canvas
@@ -566,6 +588,9 @@ export function CanvasStage() {
               return;
             }
             if (isPanEvent(e)) {
+              if (!viewCssPanEnabled(useLab.getState().fillFrame, useLab.getState().viewZoom)) {
+                return;
+              }
               panRef.current = {
                 x: e.clientX,
                 y: e.clientY,
@@ -648,8 +673,8 @@ export function CanvasStage() {
             style={{
               width: brush * 2 * viewportH,
               height: brush * 2 * viewportH,
-              left: pointer.x * viewportH,
-              top: pointer.y * viewportH,
+              left: (pointer.x / worldScale) * viewportH,
+              top: (pointer.y / worldScale) * viewportH,
               transform: "translate(-50%, -50%)",
             }}
           />

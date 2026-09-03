@@ -22,6 +22,7 @@ import {
   type ToolKind,
 } from "./types";
 import { Canvas2DRenderer } from "./canvas-renderer";
+import { MIN_VIEW_ZOOM } from "./camera";
 import { tryCreateWebGPU, type WebGPUBackend } from "./webgpu-backend";
 import { WebGLRenderer } from "./webgl-renderer";
 
@@ -64,6 +65,8 @@ export class ParticleEngine {
   emitters: ContinuousEmitter[] = [];
   worldW = 1.6;
   worldH = 1;
+  /** Fill-frame zoom-out multiplier. 1 at rest; 1/zoom when the world grows. */
+  worldScale = 1;
   cssW = 1;
   cssH = 1;
   dpr = 1;
@@ -298,15 +301,43 @@ export class ParticleEngine {
     }
     dpr = Math.max(0.5, dpr);
     const prevW = this.worldW;
+    const prevH = this.worldH;
     this.cssW = w;
     this.cssH = h;
     this.dpr = dpr;
-    this.worldH = 1;
-    this.worldW = w / Math.max(h, 1);
-    if (this.soa.count > 0 && prevW > 0.05 && this.worldW > 0.05) {
-      const sx = this.worldW / prevW;
-      if (Math.abs(sx - 1) > 0.02) this.soa.scaleX(sx);
+    const aspect = w / Math.max(h, 1);
+    const newW = aspect * this.worldScale;
+    const newH = this.worldScale;
+    if (this.soa.count > 0 && prevW > 0.05 && prevH > 0.05) {
+      const sy = newH / prevH;
+      if (Math.abs(sy - 1) > 0.001) {
+        const dx = (newW - prevW) / 2;
+        const dy = (newH - prevH) / 2;
+        this.soa.translate(dx, dy);
+        for (const wall of this.walls) {
+          wall.x1 += dx;
+          wall.y1 += dy;
+          wall.x2 += dx;
+          wall.y2 += dy;
+        }
+        for (const em of this.emitters) {
+          em.x += dx;
+          em.y += dy;
+        }
+        if (this.gpu && this.compute === "webgpu") this.gpu.uploadSoA(this.soa);
+      } else if (Math.abs(newW / prevW - 1) > 0.02) {
+        const sx = newW / prevW;
+        this.soa.scaleX(sx);
+        for (const wall of this.walls) {
+          wall.x1 *= sx;
+          wall.x2 *= sx;
+        }
+        for (const em of this.emitters) em.x *= sx;
+        if (this.gpu && this.compute === "webgpu") this.gpu.uploadSoA(this.soa);
+      }
     }
+    this.worldH = newH;
+    this.worldW = newW;
     const bw = Math.max(16, Math.floor(w * dpr));
     const bh = Math.max(16, Math.floor(h * dpr));
     if (this.canvas.width !== bw || this.canvas.height !== bh) {
@@ -315,6 +346,13 @@ export class ParticleEngine {
     }
     this.gl?.resize(bw, bh);
     this.gpu?.configureContext(this.canvas);
+  }
+
+  setWorldScale(scale: number): void {
+    const next = Math.max(1, Math.min(1 / MIN_VIEW_ZOOM, Number.isFinite(scale) ? scale : 1));
+    if (Math.abs(next - this.worldScale) < 0.0005) return;
+    this.worldScale = next;
+    if (this.cssW >= 16 && this.cssH >= 16) this.resize(this.cssW, this.cssH);
   }
 
   sync(s: EngineSync): void {

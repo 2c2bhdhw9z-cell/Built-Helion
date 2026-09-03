@@ -128,6 +128,18 @@ export class ParticleSoA {
     }
   }
 
+  /** Shift live particles (and their Verlet prev) by a world-space delta. */
+  translate(dx: number, dy: number): void {
+    if ((!dx && !dy) || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
+      this.posX[i] += dx;
+      this.posY[i] += dy;
+      this.prevX[i] += dx;
+      this.prevY[i] += dy;
+    }
+  }
+
   killSwap(i: number): void {
     const last = this.count - 1;
     if (i < 0 || i >= this.count) return;
