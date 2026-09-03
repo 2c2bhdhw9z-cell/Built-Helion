@@ -4,6 +4,7 @@ import {
   deleteCreationFn,
   listCreationsFn,
   saveCreationFn,
+  setCreationPublicFn,
 } from "./functions";
 import { currentCreationConfig, useLab } from "@/store/lab-store";
 import type { CreationRow } from "./types";
@@ -39,6 +40,8 @@ export type CreationsController = {
   save: (name: string) => Promise<boolean>;
   /** Delete one of the user's creations by id. Returns true on success. */
   remove: (id: string) => Promise<boolean>;
+  /** Publish or unpublish a creation into the community library. */
+  setPublic: (id: string, isPublic: boolean) => Promise<boolean>;
 };
 
 export function useCreations(): CreationsController {
@@ -124,5 +127,23 @@ export function useCreations(): CreationsController {
     [isSignedIn],
   );
 
-  return { creations, isLoading, isSignedIn, refresh, save, remove };
+  const setPublic = useCallback(
+    async (id: string, isPublic: boolean): Promise<boolean> => {
+      if (!isSignedIn) return false;
+      try {
+        const { ok } = await setCreationPublicFn({ data: { id, isPublic } });
+        if (ok) {
+          setCreations((prev) =>
+            prev.map((c) => (c.id === id ? { ...c, is_public: isPublic } : c)),
+          );
+        }
+        return ok;
+      } catch {
+        return false;
+      }
+    },
+    [isSignedIn],
+  );
+
+  return { creations, isLoading, isSignedIn, refresh, save, remove, setPublic };
 }

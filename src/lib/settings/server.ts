@@ -1,6 +1,7 @@
 import { getSql } from "@/lib/db";
 import {
   DEFAULT_PREFERENCES,
+  type ThemeId,
   type UserPreferences,
 } from "./types.ts";
 
@@ -17,7 +18,12 @@ import {
 
 type PreferencesRow = {
   autofill_feedback_email: boolean;
+  theme: string | null;
 };
+
+function asTheme(value: string | null | undefined): ThemeId {
+  return value === "light" ? "light" : "dark";
+}
 
 /**
  * The stored preferences for `userId`, or DEFAULT_PREFERENCES when the user has
@@ -26,13 +32,16 @@ type PreferencesRow = {
 export async function getPreferences(userId: string): Promise<UserPreferences> {
   const sql = await getSql();
   const rows = await sql<PreferencesRow>`
-    select autofill_feedback_email
+    select autofill_feedback_email, theme
     from user_preferences
     where user_id = ${userId}
   `;
   const row = rows[0];
   if (!row) return { ...DEFAULT_PREFERENCES };
-  return { autofillFeedbackEmail: Boolean(row.autofill_feedback_email) };
+  return {
+    autofillFeedbackEmail: Boolean(row.autofill_feedback_email),
+    theme: asTheme(row.theme),
+  };
 }
 
 /**
@@ -45,13 +54,17 @@ export async function upsertPreferences(
 ): Promise<UserPreferences> {
   const sql = await getSql();
   const rows = await sql<PreferencesRow>`
-    insert into user_preferences (user_id, autofill_feedback_email, updated_at)
-    values (${userId}, ${prefs.autofillFeedbackEmail}, now())
+    insert into user_preferences (user_id, autofill_feedback_email, theme, updated_at)
+    values (${userId}, ${prefs.autofillFeedbackEmail}, ${prefs.theme}, now())
     on conflict (user_id) do update set
       autofill_feedback_email = excluded.autofill_feedback_email,
+      theme = excluded.theme,
       updated_at = now()
-    returning autofill_feedback_email
+    returning autofill_feedback_email, theme
   `;
   const row = rows[0];
-  return { autofillFeedbackEmail: Boolean(row.autofill_feedback_email) };
+  return {
+    autofillFeedbackEmail: Boolean(row.autofill_feedback_email),
+    theme: asTheme(row?.theme),
+  };
 }

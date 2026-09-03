@@ -5,6 +5,7 @@ import {
   DEFAULT_PREFERENCES,
   PREFERENCES_STORAGE_KEY,
   normalizePreferences,
+  type ThemeId,
   type UserPreferences,
 } from "./types";
 
@@ -19,6 +20,17 @@ import {
  * imports NO server-only code — the server functions dynamically import their
  * server layer inside their own handlers.
  */
+
+export function applyTheme(theme: ThemeId) {
+  if (typeof document === "undefined") return;
+  const next = theme === "light" ? "light" : "dark";
+  const root = document.documentElement;
+  root.dataset.theme = next;
+  root.classList.toggle("dark", next === "dark");
+  root.classList.toggle("light", next === "light");
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", next === "light" ? "#f4f1ea" : "#08090c");
+}
 
 /**
  * Build the value to persist for a single-preference change: the current
@@ -111,7 +123,9 @@ export function usePreferences(): PreferencesController {
     }
     if (!userId) {
       // Logged out: localStorage only.
-      setPreferences(readLocalPreferences());
+      const local = readLocalPreferences();
+      setPreferences(local);
+      applyTheme(local.theme);
       setIsLoading(false);
       return;
     }
@@ -119,7 +133,10 @@ export function usePreferences(): PreferencesController {
     setIsLoading(true);
     void getPreferencesFn()
       .then((prefs) => {
-        if (!cancelled) setPreferences(normalizePreferences(prefs));
+        if (cancelled) return;
+        const next = normalizePreferences(prefs);
+        setPreferences(next);
+        applyTheme(next.theme);
       })
       .catch(() => {
         if (!cancelled) setPreferences({ ...DEFAULT_PREFERENCES });
@@ -145,10 +162,13 @@ export function usePreferences(): PreferencesController {
       const next = nextPreferences(preferencesRef.current, key, value);
       preferencesRef.current = next;
       setPreferences(next);
+      if (key === "theme") applyTheme(next.theme);
       if (isSignedIn) {
         try {
           const saved = await updatePreferencesFn({ data: next });
-          setPreferences(normalizePreferences(saved));
+          const normalized = normalizePreferences(saved);
+          setPreferences(normalized);
+          if (key === "theme") applyTheme(normalized.theme);
         } catch {
           // Keep the optimistic value locally; server persistence failed but the
           // page must not error out.

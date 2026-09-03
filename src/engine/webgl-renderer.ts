@@ -1,4 +1,6 @@
 import { bakePalette } from "./palettes";
+import { shapeId } from "./types";
+import { rasterizeGlyph, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { GL_FADE_FS, GL_FS, GL_POST_FS, GL_POST_VS, GL_QUAD_VS, GL_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
 import type { ColorMap, LabParams, PaletteId } from "./types";
@@ -44,6 +46,9 @@ export class WebGLRenderer {
   private buf: WebGLBuffer;
   private quad: WebGLBuffer;
   private palTex: WebGLTexture;
+  private glyphTex: WebGLTexture;
+  private lastGlyph = "";
+  private glyphMisses = 0;
   private accumTex: WebGLTexture | null = null;
   private accumFbo: WebGLFramebuffer | null = null;
   private accumW = 0;
@@ -51,6 +56,7 @@ export class WebGLRenderer {
   private packed: Float32Array;
   private packedCap = 0;
   private paletteId: PaletteId | null = null;
+  private paletteTint = "";
   private firstFrame = true;
   private maxPoint = 64;
   /** Draw calls issued during the last render() (fade + particle + post). */
@@ -63,6 +69,7 @@ export class WebGLRenderer {
   private uPalette: WebGLUniformLocation | null;
   private uEnergy: WebGLUniformLocation | null;
   uShape: WebGLUniformLocation | null;
+  private uGlyph: WebGLUniformLocation | null;
   private uFade: WebGLUniformLocation | null;
   private uPostScreen: WebGLUniformLocation | null;
   private uPostTexSize: WebGLUniformLocation | null;
@@ -89,6 +96,7 @@ export class WebGLRenderer {
     this.uPalette = gl.getUniformLocation(this.particleProg, "u_palette");
     this.uEnergy = gl.getUniformLocation(this.particleProg, "u_energy");
     this.uShape = gl.getUniformLocation(this.particleProg, "u_shape");
+    this.uGlyph = gl.getUniformLocation(this.particleProg, "u_glyph");
     this.uFade = gl.getUniformLocation(this.fadeProg, "u_color");
     this.uPostScreen = gl.getUniformLocation(this.postProg, "u_screenTex");
     this.uPostTexSize = gl.getUniformLocation(this.postProg, "u_texSize");
@@ -103,12 +111,14 @@ export class WebGLRenderer {
     const buf = gl.createBuffer();
     const quad = gl.createBuffer();
     const pal = gl.createTexture();
-    if (!vao || !quadVao || !buf || !quad || !pal) throw new Error("gl alloc");
+    const glyph = gl.createTexture();
+    if (!vao || !quadVao || !buf || !quad || !pal || !glyph) throw new Error("gl alloc");
     this.vao = vao;
     this.quadVao = quadVao;
     this.buf = buf;
     this.quad = quad;
     this.palTex = pal;
+    this.glyphTex = glyph;
     this.packed = new Float32Array(Math.max(1, cap) * 4);
     this.packedCap = Math.max(1, cap);
 
@@ -136,10 +146,29 @@ export class WebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, glyph);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      GLYPH_ATLAS_SIZE,
+      GLYPH_ATLAS_SIZE,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      null,
+    );
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.STENCIL_TEST);
+    onGlyphFontsReady(() => {
+      this.lastGlyph = "\0";
+    });
   }
 
   ensurePacked(cap: number): void {
@@ -177,15 +206,45 @@ export class WebGLRenderer {
     this.firstFrame = true;
   }
 
-  private setPalette(id: PaletteId): void {
-    if (this.paletteId === id) return;
+  private setPalette(id: PaletteId, tint: string): void {
+    if (this.paletteId === id && this.paletteTint === tint) return;
     this.paletteId = id;
+    this.paletteTint = tint;
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.palTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, bakePalette(id));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, bakePalette(id, tint));
   }
 
-  pack(soa: ParticleSoA, map: ColorMap, maxSpeed: number): number {
+  private setGlyph(ch: string): void {
+    const key = ch && ch.trim() ? ch.trim() : "✨";
+    if (this.lastGlyph === key) return;
+    const src = rasterizeGlyph(key);
+    if (!src) return;
+    if (!src.hasPixels) {
+      this.glyphMisses++;
+      if (this.glyphMisses < 12) return;
+    }
+    this.glyphMisses = 0;
+    this.lastGlyph = key;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      src.size,
+      src.size,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      src.data,
+    );
+  }
+
+  pack(soa: ParticleSoA, map: ColorMap, maxSpeed: number, worldW = 1, worldH = 1): number {
     this.ensurePacked(soa.count);
     const dst = this.packed;
     const n = soa.count;
@@ -209,6 +268,11 @@ export class WebGLRenderer {
       else if (map === "life") metric = life[i]! < 0 ? 1 : life[i]! / Math.max(maxL[i]!, 1e-4);
       else if (map === "density") metric = Math.min(1, dens[i]! / 40);
       else if (map === "mass") metric = Math.min(1, mass[i]! / 3);
+      else if (map === "position") {
+        const cx = worldW * 0.5;
+        const cy = worldH * 0.5;
+        metric = Math.min(1, Math.hypot(px[i]! - cx, py[i]! - cy) / Math.max(0.5 * Math.min(worldW, worldH), 1e-4));
+      }
       dst[o + 3] = metric;
     }
     return n;
@@ -232,8 +296,8 @@ export class WebGLRenderer {
     this.ensureAccum(dw, dh);
     if (!this.accumFbo || !this.accumTex) return;
 
-    const n = this.pack(soa, params.colorMap, 2.4);
-    this.setPalette(params.palette);
+    const n = this.pack(soa, params.colorMap, 2.4, worldW, worldH);
+    this.setPalette(params.palette, params.tint);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     if (n > 0) gl.bufferData(gl.ARRAY_BUFFER, this.packed.subarray(0, n * 4), gl.DYNAMIC_DRAW);
 
@@ -267,23 +331,26 @@ export class WebGLRenderer {
       gl.useProgram(this.particleProg);
       gl.bindVertexArray(this.vao);
       gl.uniform2f(this.uWorld, worldW, worldH);
-      const sizePx = Math.min(this.maxPoint, Math.max(1.0, params.pointSize * dpr));
+      const sizePx = Math.min(
+        this.maxPoint,
+        Math.max(1.0, params.pointSize * dpr * (params.shape === "emoji" ? 1.7 : 1)),
+      );
       gl.uniform1f(this.uSize, sizePx);
       gl.uniform2f(this.uLifeCurve, params.lifeFadeIn, params.lifeFadeOut);
       const energy = additive
         ? 0.55 / (1 + params.pointSize * params.pointSize * 0.02)
         : 1;
       gl.uniform1f(this.uEnergy, energy);
-      let shp = 0;
-      if (params.shape === "square") shp = 1;
-      else if (params.shape === "ring") shp = 2;
-      else if (params.shape === "diamond") shp = 3;
-      gl.uniform1f(this.uShape, shp);
+      gl.uniform1f(this.uShape, shapeId(params.shape));
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.palTex);
       gl.uniform1i(this.uPalette, 0);
+      this.setGlyph(params.emoji);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
+      gl.uniform1i(this.uGlyph, 1);
       gl.enable(gl.BLEND);
-      if (additive) gl.blendFunc(gl.ONE, gl.ONE);
+      if (additive && params.shape !== "emoji") gl.blendFunc(gl.ONE, gl.ONE);
       else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.drawArrays(gl.POINTS, 0, n);
       this.lastDrawCalls++;
@@ -321,6 +388,7 @@ export class WebGLRenderer {
     gl.deleteVertexArray(this.vao);
     gl.deleteVertexArray(this.quadVao);
     gl.deleteTexture(this.palTex);
+    gl.deleteTexture(this.glyphTex);
     if (this.accumTex) gl.deleteTexture(this.accumTex);
     if (this.accumFbo) gl.deleteFramebuffer(this.accumFbo);
   }

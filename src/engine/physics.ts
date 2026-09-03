@@ -109,7 +109,6 @@ export function stepPhysics(
   const twoR2 = twoR * twoR;
   const maxA = MAX_ACCEL;
   const maxS = MAX_SPEED;
-  const maxS2 = maxS * maxS;
   const damp = Math.exp(-drag * dt);
   const settleTh2 = params.settleThreshold * params.settleThreshold;
   const cx = params.centralX * worldW;
@@ -141,6 +140,10 @@ export function stepPhysics(
       ay += (cy - y) * cMass;
     }
 
+    let kickX = 0;
+    let kickY = 0;
+    let inBrush = false;
+
     if (mMode > 0) {
       const dx = pointer.x - x;
       const dy = pointer.y - y;
@@ -148,31 +151,56 @@ export function stepPhysics(
       const R = brushRadius;
       const R2 = R * R;
       if (d2 < R2) {
+        inBrush = true;
         const d = Math.sqrt(d2) + 1e-6;
         const fall = 1 - d / R;
+        const fluid = params.sph;
         const s = brushStrength * fall;
+        const nx = dx / d;
+        const ny = dy / d;
         if (mMode === 6) {
           vxi = 0;
           vyi = 0;
           flags[i] = f | FLAG_SLEEP;
           sleep[i] = 40;
         } else if (mMode === 1) {
-          ax += (dx / d) * s * 24;
-          ay += (dy / d) * s * 24;
+          if (fluid) {
+            kickX += nx * s * 2.2;
+            kickY += ny * s * 2.2;
+          } else {
+            ax += nx * s * 24;
+            ay += ny * s * 24;
+          }
           flags[i] = f & ~FLAG_SLEEP;
           sleep[i] = 0;
         } else if (mMode === 2) {
-          ax -= (dx / d) * s * 26;
-          ay -= (dy / d) * s * 26;
+          if (fluid) {
+            kickX -= nx * s * 2.6;
+            kickY -= ny * s * 2.6;
+          } else {
+            ax -= nx * s * 26;
+            ay -= ny * s * 26;
+          }
           flags[i] = f & ~FLAG_SLEEP;
         } else if (mMode === 3) {
-          const k = (s * 32) / (d2 + 0.0004);
-          ax -= dx * k;
-          ay -= dy * k;
+          if (fluid) {
+            const k = (s * 0.9) / (d2 + 0.0004);
+            kickX -= dx * k;
+            kickY -= dy * k;
+          } else {
+            const k = (s * 32) / (d2 + 0.0004);
+            ax -= dx * k;
+            ay -= dy * k;
+          }
           flags[i] = f & ~FLAG_SLEEP;
         } else if (mMode === 4) {
-          ax += (-dy / d) * s * 28;
-          ay += (dx / d) * s * 28;
+          if (fluid) {
+            kickX += -ny * s * 2.4;
+            kickY += nx * s * 2.4;
+          } else {
+            ax += -ny * s * 28;
+            ay += nx * s * 28;
+          }
           flags[i] = f & ~FLAG_SLEEP;
         }
       }
@@ -213,17 +241,31 @@ export function stepPhysics(
       }
     }
 
+    // SPH pressure/viscosity otherwise clamp the brush away. Weaken them in the
+    // stroke so attract/repel/vortex can actually carve a fluid.
+    if (inBrush && params.sph && mMode !== 6) {
+      ax *= 0.08;
+      ay *= 0.08;
+    }
+
     ax = clamp(ax, -maxA, maxA);
     ay = clamp(ay, -maxA, maxA);
 
-    vxi = (vxi + ax * dt) * damp;
-    vyi = (vyi + ay * dt) * damp;
+    vxi = (vxi + ax * dt) * damp + kickX;
+    vyi = (vyi + ay * dt) * damp + kickY;
 
+    const speedCap = inBrush && params.sph && mMode !== 6 ? maxS * 1.85 : maxS;
+    const speedCap2 = speedCap * speedCap;
     const sp2 = vxi * vxi + vyi * vyi;
-    if (sp2 > maxS2) {
-      const invs = maxS / Math.sqrt(sp2);
+    if (sp2 > speedCap2) {
+      const invs = speedCap / Math.sqrt(sp2);
       vxi *= invs;
       vyi *= invs;
+    }
+
+    if (inBrush && params.sph && mMode !== 6) {
+      x += kickX * 0.022;
+      y += kickY * 0.022;
     }
 
     if (params.settle) {

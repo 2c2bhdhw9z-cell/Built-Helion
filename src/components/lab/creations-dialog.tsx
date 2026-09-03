@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { Link } from "@tanstack/react-router";
-import { LogIn, Play, Share2, Trash2, X } from "lucide-react";
+import { Globe, GlobeLock, LogIn, Play, Share2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLab } from "@/store/lab-store";
@@ -30,17 +30,30 @@ function CreationRowItem({
   onLoad,
   onCopy,
   onDelete,
+  onPublish,
 }: {
   row: CreationRow;
   onLoad: (row: CreationRow) => void;
   onCopy: (id: string) => void;
   onDelete: (id: string) => void;
+  onPublish: (id: string, next: boolean) => void;
 }) {
   return (
     <li className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2">
       <span className="min-w-0 flex-1 truncate text-sm text-fg" title={row.name}>
         {row.name}
       </span>
+      <Button
+        variant={row.is_public ? "default" : "outline"}
+        size="sm"
+        className="h-8 shrink-0 px-2"
+        aria-label={row.is_public ? `Unpublish ${row.name}` : `Publish ${row.name}`}
+        title={row.is_public ? "Public in the library" : "Publish to the library"}
+        onClick={() => onPublish(row.id, !row.is_public)}
+      >
+        {row.is_public ? <Globe className="size-3.5" /> : <GlobeLock className="size-3.5" />}
+        <span className="hidden sm:inline">{row.is_public ? "Public" : "Publish"}</span>
+      </Button>
       <Button
         variant="outline"
         size="sm"
@@ -110,7 +123,7 @@ export function CreationsDialog() {
   const setOpen = useLab((s) => s.setCreationsOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
 
-  const { creations, isLoading, isSignedIn, save, remove } = useCreations();
+  const { creations, isLoading, isSignedIn, save, remove, setPublic } = useCreations();
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -166,6 +179,17 @@ export function CreationsDialog() {
     const ok = await remove(id);
     toast[ok ? "success" : "error"](
       ok ? "Creation deleted" : "Could not delete. Please try again.",
+    );
+  };
+
+  const onPublish = async (id: string, next: boolean) => {
+    const ok = await setPublic(id, next);
+    toast[ok ? "success" : "error"](
+      ok
+        ? next
+          ? "Published to the library"
+          : "Unlisted from the library"
+        : "Could not update visibility.",
     );
   };
 
@@ -258,6 +282,7 @@ export function CreationsDialog() {
                         onLoad={onLoad}
                         onCopy={(id) => void onCopy(id)}
                         onDelete={(id) => void onDelete(id)}
+                        onPublish={(id, next) => void onPublish(id, next)}
                       />
                     ))}
                   </ul>

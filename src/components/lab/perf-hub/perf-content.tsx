@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/lab/controls";
+import { QUALITY_BLURB, type QualityMode } from "@/engine/types";
 import { cn, clamp, formatBytes, formatInt, formatMs } from "@/lib/utils";
 import { useLab, type EngineSystemInfo } from "@/store/lab-store";
 import {
@@ -121,6 +123,8 @@ export function PerfContent({
   const compact = useLab((s) => s.perfCompact);
   const setCompact = useLab((s) => s.setPerfCompact);
   const spawnKind = useLab((s) => s.spawnKind);
+  const quality = useLab((s) => s.quality);
+  const setQuality = useLab((s) => s.setQuality);
 
   const { system } = useSystemInfo();
   const { samples, summary } = snapshot;
@@ -262,6 +266,21 @@ export function PerfContent({
       </div>
 
       <div className="lab-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        <Section title="Quality">
+          <Segmented
+            value={quality}
+            options={[
+              { id: "low", label: "Low" },
+              { id: "medium", label: "Medium" },
+              { id: "high", label: "High" },
+            ]}
+            onChange={(v) => setQuality(v as QualityMode)}
+          />
+          <p className="mt-2 text-2xs leading-relaxed text-faint">{QUALITY_BLURB[quality]}</p>
+          <p className="mt-1 text-2xs leading-relaxed text-faint">
+            How sharp the lab draws. Low is easier on a hot phone. High is crispest.
+          </p>
+        </Section>
         {/* FRAME */}
         <Section title="Frame timing" right={paused ? <span className="text-2xs text-warn">paused</span> : undefined}>
           <div className="grid grid-cols-4 gap-2">

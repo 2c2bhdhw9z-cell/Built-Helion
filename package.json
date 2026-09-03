@@ -16,7 +16,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/engine/scenes.test.ts src/lib/auth/auth-config.test.ts src/lib/auth/apple-secret.test.ts src/lib/feedback/feedback.test.ts src/lib/feedback/admin-auth.test.ts src/lib/settings/settings.test.ts src/lib/creations/creations.test.ts src/lib/capture/filename.test.ts src/lib/capture/mime.test.ts src/lib/capture/composite.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/engine/scenes.test.ts src/engine/emitters.test.ts src/lib/auth/auth-config.test.ts src/lib/auth/apple-secret.test.ts src/lib/feedback/feedback.test.ts src/lib/feedback/admin-auth.test.ts src/lib/settings/settings.test.ts src/lib/creations/creations.test.ts src/lib/billing/billing.test.ts src/lib/profiles/profiles.test.ts src/lib/capture/filename.test.ts src/lib/capture/mime.test.ts src/lib/capture/composite.test.ts src/lib/share/codec.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -55,6 +55,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.0.0",
+    "gifenc": "^1.0.3",
     "jose": "6.2.9",
     "kysely": "^0.28.5",
     "lucide-react": "^0.510.0",

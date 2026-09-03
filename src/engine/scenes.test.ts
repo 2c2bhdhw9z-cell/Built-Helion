@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SCENES, type Scene, type SceneId } from "./scenes.ts";
-import { DEFAULT_PARAMS, type GeneratorKind } from "./types.ts";
+import { DEFAULT_PARAMS, GENERATOR_KINDS, type GeneratorKind } from "./types.ts";
 
 const REQUIRED_IDS: SceneId[] = [
   "black-hole",
@@ -15,17 +15,7 @@ const REQUIRED_IDS: SceneId[] = [
   "nebula",
 ];
 
-const VALID_KINDS: GeneratorKind[] = [
-  "galaxy",
-  "ring",
-  "burst",
-  "pour",
-  "fall",
-  "flock",
-  "cloth",
-  "nbody",
-  "text",
-];
+const VALID_KINDS: GeneratorKind[] = [...GENERATOR_KINDS];
 
 // Mirrors the store's setSpawnCount / applyScene clamp bounds.
 const CLAMP_MIN = 50;
@@ -129,6 +119,22 @@ describe("scene spawnCount honors the base emitter's real cap", () => {
     flock: Infinity, // spawnFlock: no cap
     cloth: 936, // spawnCloth: 36 cols * 26 rows fixed grid
     text: Infinity, // spawnText: no cap
+    fire: Infinity,
+    smoke: Infinity,
+    fireworks: Infinity,
+    water: Infinity,
+    tornado: Infinity,
+    lightning: Infinity,
+    blackhole: 3200,
+    supernova: Infinity,
+    fibonacci: Infinity,
+    sierpinski: Infinity,
+    crystal: Infinity,
+    magma: Infinity,
+    aurora: Infinity,
+    helix: Infinity,
+    mandala: Infinity,
+    confetti: Infinity,
   };
 
   it("declares no spawnCount above what its emitter can actually spawn", () => {

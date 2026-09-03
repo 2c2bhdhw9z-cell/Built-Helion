@@ -18,7 +18,65 @@ export type GeneratorKind =
   | "flock"
   | "cloth"
   | "nbody"
-  | "text";
+  | "text"
+  | "fire"
+  | "smoke"
+  | "fireworks"
+  | "water"
+  | "tornado"
+  | "lightning"
+  | "blackhole"
+  | "supernova"
+  | "fibonacci"
+  | "sierpinski"
+  | "crystal"
+  | "magma"
+  | "aurora"
+  | "helix"
+  | "mandala"
+  | "confetti";
+
+export const GENERATOR_KINDS: readonly GeneratorKind[] = [
+  "galaxy",
+  "ring",
+  "burst",
+  "pour",
+  "fall",
+  "flock",
+  "cloth",
+  "nbody",
+  "text",
+  "fire",
+  "smoke",
+  "fireworks",
+  "water",
+  "tornado",
+  "lightning",
+  "blackhole",
+  "supernova",
+  "fibonacci",
+  "sierpinski",
+  "crystal",
+  "magma",
+  "aurora",
+  "helix",
+  "mandala",
+  "confetti",
+];
+
+/** Pro-tier generators. Free/unsigned visitors see them locked. */
+export const PRO_GENERATORS: readonly GeneratorKind[] = [
+  "crystal",
+  "magma",
+  "aurora",
+  "helix",
+  "mandala",
+  "confetti",
+];
+
+export function isProGenerator(kind: GeneratorKind): boolean {
+  return (PRO_GENERATORS as readonly string[]).includes(kind);
+}
 
 export type ToolKind =
   | "attract"
@@ -30,11 +88,63 @@ export type ToolKind =
   | "freeze";
 
 export type BlendMode = "additive" | "alpha";
-export type ParticleShape = "circle" | "square" | "ring" | "diamond";
+export type ParticleShape =
+  | "circle"
+  | "square"
+  | "ring"
+  | "diamond"
+  | "triangle"
+  | "star"
+  | "hex"
+  | "plus"
+  | "heart"
+  | "spark"
+  | "emoji";
 export type BoundaryMode = "bounce" | "wrap" | "destroy";
-export type ColorMap = "life" | "speed" | "density" | "mass" | "palette";
+export type ColorMap = "life" | "speed" | "density" | "mass" | "palette" | "position";
 export type PaletteId = "rainbow" | "ember" | "ice" | "aurora" | "solar" | "mono" | "plasma";
-export type ParamTab = "physics" | "visuals" | "trails" | "collide" | "tilt" | "fluid" | "settle" | "flow" | "bloom" | "audio" | "walls";
+export type BackgroundKind = "void" | "starfield" | "gradient" | "nebula" | "image" | "video";
+export type QualityMode = "low" | "medium" | "high";
+export type ParamTab =
+  | "physics"
+  | "visuals"
+  | "view"
+  | "trails"
+  | "collide"
+  | "tilt"
+  | "fluid"
+  | "settle"
+  | "flow"
+  | "bloom"
+  | "audio"
+  | "walls";
+
+export function shapeId(shape: ParticleShape): number {
+  switch (shape) {
+    case "square":
+      return 1;
+    case "ring":
+      return 2;
+    case "diamond":
+      return 3;
+    case "triangle":
+      return 4;
+    case "star":
+      return 5;
+    case "hex":
+      return 6;
+    case "plus":
+      return 7;
+    case "heart":
+      return 8;
+    case "spark":
+      return 9;
+    case "emoji":
+      return 10;
+    default:
+      return 0;
+  }
+}
 
 export const FLAG_PINNED = 1;
 export const FLAG_SLEEP = 2;
@@ -43,7 +153,7 @@ export const FLAG_CLOTH = 4;
 export type Spring = { a: number; b: number; rest: number; k: number };
 
 export type ContinuousEmitter = {
-  kind: "pour" | "fall";
+  kind: "pour" | "fall" | "fire" | "smoke";
   x: number;
   y: number;
   dirX: number;
@@ -106,6 +216,9 @@ export type LabParams = {
   bloomStrength: number;
   audioReactive: boolean;
   audioSensitivity: number;
+  background: BackgroundKind;
+  tint: string;
+  emoji: string;
 };
 
 export type PointerState = {
@@ -212,6 +325,9 @@ export const DEFAULT_PARAMS: LabParams = {
   bloomStrength: 1.5,
   audioReactive: false,
   audioSensitivity: 1.0,
+  background: "void",
+  tint: "#ffffff",
+  emoji: "✨",
 };
 
 export const DEFAULT_TELEMETRY: Telemetry = {
@@ -233,4 +349,23 @@ export const DEFAULT_TELEMETRY: Telemetry = {
   drawnPoints: 0,
   subsystems: [],
   activeGenerator: "",
+};
+
+export const QUALITY_CAPS: Record<QualityMode, number> = {
+  low: 12_288,
+  medium: 32_768,
+  high: 65_536,
+};
+
+/** Max device-pixel-ratio the backing canvas is allowed to use. */
+export const QUALITY_DPR: Record<QualityMode, number> = {
+  low: 0.7,
+  medium: 1.35,
+  high: 2.5,
+};
+
+export const QUALITY_BLURB: Record<QualityMode, string> = {
+  low: "Softer pixels \u2014 cooler on a phone",
+  medium: "Balanced sharpness",
+  high: "Full retina \u2014 crisp edges",
 };

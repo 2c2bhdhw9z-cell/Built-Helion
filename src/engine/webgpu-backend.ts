@@ -1,8 +1,8 @@
 import { bakePalette } from "./palettes";
-import { HASH_MAX_PER_CELL } from "./types";
+import { rasterizeGlyph, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { WGSL_FADE, WGSL_INTEGRATE, WGSL_POST, WGSL_RENDER_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
-import type { LabParams, PointerState, ToolKind } from "./types";
+import { HASH_MAX_PER_CELL, shapeId, type LabParams, type PointerState, type ToolKind } from "./types";
 
 const UNIFORM_BYTES = 256;
 
@@ -40,6 +40,10 @@ export class WebGPUBackend {
   palTex: GPUTexture;
   palView: GPUTextureView;
   palSamp: GPUSampler;
+  glyphTex: GPUTexture;
+  glyphView: GPUTextureView;
+  lastGlyph = "";
+  private glyphMisses = 0;
   computeLayout: GPUBindGroupLayout;
   renderLayout: GPUBindGroupLayout;
   sampleLayout: GPUBindGroupLayout;
@@ -121,6 +125,12 @@ export class WebGPUBackend {
     });
     this.palView = this.palTex.createView();
     this.palSamp = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+    this.glyphTex = device.createTexture({
+      size: [GLYPH_ATLAS_SIZE, GLYPH_ATLAS_SIZE],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    this.glyphView = this.glyphTex.createView();
 
     this.computeLayout = device.createBindGroupLayout({
       entries: [
@@ -148,6 +158,7 @@ export class WebGPUBackend {
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       ],
     });
 
@@ -269,7 +280,11 @@ export class WebGPUBackend {
       entries: [
         { binding: 0, resource: this.palView },
         { binding: 1, resource: this.palSamp },
+        { binding: 2, resource: this.glyphView },
       ],
+    });
+    onGlyphFontsReady(() => {
+      this.lastGlyph = "\0";
     });
   }
 
@@ -421,8 +436,8 @@ export class WebGPUBackend {
     s[22] = params.sph
       ? Math.max(params.sphSmoothing, params.particleRadius * 4, 0.02)
       : Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
-    s[23] = params.pointSize;
-    const mouseOn = pointer.down || (pointer.inside && tool === "attract");
+    s[23] = params.pointSize * (params.shape === "emoji" ? 1.7 : 1);
+    const mouseOn = pointer.down || (pointer.inside && tool === "attract" && !params.sph);
     u[24] = toolMode(tool, mouseOn);
     u[25] = count;
     u[26] = params.boundary === "wrap" ? 1 : params.boundary === "destroy" ? 2 : 0;
@@ -436,14 +451,11 @@ export class WebGPUBackend {
     else if (params.colorMap === "density") cm = 2;
     else if (params.colorMap === "mass") cm = 3;
     else if (params.colorMap === "palette") cm = 4;
+    else if (params.colorMap === "position") cm = 5;
     
     flags |= (cm << 8);
     
-    let shp = 0;
-    if (params.shape === "square") shp = 1;
-    else if (params.shape === "ring") shp = 2;
-    else if (params.shape === "diamond") shp = 3;
-    flags |= (shp << 11);
+    flags |= (shapeId(params.shape) << 11);
     u[27] = flags;
     u[28] = this.cols;
     u[29] = this.rows;
@@ -469,15 +481,37 @@ export class WebGPUBackend {
     }
     this.device.queue.writeBuffer(this.wallsBuf, 0, wBuf.buffer);
 
-    if (this.lastPalette !== params.palette) {
-      this.lastPalette = params.palette;
-      const pal = bakePalette(params.palette);
+    const palKey = `${params.palette}:${params.tint}`;
+    if (this.lastPalette !== palKey) {
+      this.lastPalette = palKey;
+      const pal = bakePalette(params.palette, params.tint);
       this.device.queue.writeTexture(
         { texture: this.palTex },
         pal as unknown as GPUAllowSharedBufferSource,
         { bytesPerRow: 256 * 4 },
         { width: 256, height: 1 },
       );
+    }
+    if (this.lastGlyph !== params.emoji) {
+      const key = params.emoji && params.emoji.trim() ? params.emoji.trim() : "✨";
+      const src = rasterizeGlyph(key);
+      if (src?.hasPixels) {
+        this.lastGlyph = key;
+        this.glyphMisses = 0;
+        try {
+          this.device.queue.writeTexture(
+            { texture: this.glyphTex },
+            src.data as unknown as GPUAllowSharedBufferSource,
+            { bytesPerRow: src.size * 4 },
+            { width: src.size, height: src.size },
+          );
+        } catch {
+          this.lastGlyph = "";
+        }
+      } else {
+        this.glyphMisses++;
+        if (this.glyphMisses >= 12) this.lastGlyph = key;
+      }
     }
   }
 
@@ -598,7 +632,7 @@ export class WebGPUBackend {
 
     // 2. Render particles into accumView
     if (count > 0) {
-      const additive = params.blend === "additive";
+      const additive = params.blend === "additive" && params.shape !== "emoji";
       const partPass = enc.beginRenderPass({
         colorAttachments: [
           {
@@ -657,6 +691,7 @@ export class WebGPUBackend {
     this.uniformBuf.destroy();
     this.wallsBuf.destroy();
     this.palTex.destroy();
+    this.glyphTex.destroy();
     this.fadeUniformBuf.destroy();
     this.postUniformBuf.destroy();
     if (this.accumTex) {

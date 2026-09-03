@@ -70,14 +70,22 @@ export function samplePalette(id: PaletteId, t: number): [number, number, number
   return [lerp(a[0], b[0], f) / 255, lerp(a[1], b[1], f) / 255, lerp(a[2], b[2], f) / 255];
 }
 
-export function bakePalette(id: PaletteId): Uint8Array {
+export function parseTint(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec((hex ?? "").trim());
+  if (!m) return [1, 1, 1];
+  const n = parseInt(m[1]!, 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+export function bakePalette(id: PaletteId, tint = "#ffffff"): Uint8Array {
   const data = new Uint8Array(256 * 4);
+  const [tr, tg, tb] = parseTint(tint);
   for (let i = 0; i < 256; i++) {
     const [r, g, b] = samplePalette(id, i / 255);
     const o = i * 4;
-    data[o] = Math.round(r * 255);
-    data[o + 1] = Math.round(g * 255);
-    data[o + 2] = Math.round(b * 255);
+    data[o] = Math.round(r * 255 * tr);
+    data[o + 1] = Math.round(g * 255 * tg);
+    data[o + 2] = Math.round(b * 255 * tb);
     data[o + 3] = 255;
   }
   return data;
