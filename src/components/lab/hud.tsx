@@ -407,7 +407,7 @@ export function Hud() {
                 onSelect={async () => {
                   const url = shareUrl(currentCreationConfig(useLab.getState()));
                   const result = await shareOrCopy("Helion", url);
-                  if (result === "copied") toast.success("Link copied");
+                  if (result === "copied") toast.success("Link copied — they don't need a Grok account");
                   else if (result === "failed") toast.error("Could not copy link");
                 }}
               >

@@ -16,7 +16,7 @@ STANDING RULES (yours, override the bullets)
 - Production does not move until you merge.
 - Every reply includes this checklist. No exceptions.
 
-Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body (merged). Fill frame is live.
+Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body + public share links (merged). Fill frame is live.
 Preview now: nothing queued.
 
 WHERE WE ARE
@@ -25,6 +25,7 @@ WHERE WE ARE
 - Visual polish: shipped (orbit pitch, trail length, tablet chrome, GPU sprites, SPH cohesion, n-body mass grid).
 - Generator identity: shipped (Crystal snowflakes, Helix DNA, Mandala 8-fold, Molecule ball-and-stick). Not galaxies.
 - SPH / n-body: deeper (pressure, viscosity, cohesion, surface tension, XSPH; n-body pairwise to 1,600 then 32×24 mass grid). Honest, not Barnes-Hut, not a chemistry suite.
+- Public share: Copy link / embed use the public lab. No Grok account. Merged.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
@@ -46,7 +47,7 @@ Goal: A polished, monetizable particle simulator that beats everything else on t
 - GIF recording — DONE
 - MP4/WebM recording — PARTIAL (browser canvas recording, not a real encoder farm)
 - Preset save/load — DONE
-- URL sharing (?preset= encoded state) — DONE
+- URL sharing (?preset= encoded state) — DONE (Copy link / embed use the public lab, not the Grok wrapper)
 - Embed code — DONE
 
 3. Input & UX Polish
@@ -172,6 +173,7 @@ WHERE WE ARE
 - Visual polish: shipped.
 - Generator identity: shipped. Crystal / Helix / Mandala / Molecule are those things, not galaxies.
 - SPH / n-body: deeper, honest.
+- Public share: Copy link is the public lab. No Grok account.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
