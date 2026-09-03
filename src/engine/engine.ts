@@ -748,7 +748,7 @@ export class ParticleEngine {
       effectiveParams.pointSize = Math.min(24, this.params.pointSize * (1 + mid * 0.8));
     }
     
-    if (this.compute === "cpu") {
+    if (this.compute === "cpu" || this.springs.length > 0) {
       const pt0 = performance.now();
       const st = stepPhysics(
         this.soa,
@@ -773,14 +773,10 @@ export class ParticleEngine {
       this.telemetry.oobCount += st.oob;
       this.telemetry.sleeping = st.sleeping;
     } else if (this.gpu) {
-      
-      
-
       this.gpu.writeParams(
         effectiveParams,
         this.pointer,
         this.tool,
-
         this.brushRadius,
         this.brushStrength,
         this.soa.count,
@@ -808,7 +804,7 @@ export class ParticleEngine {
   
   render(): void {
     if (this.gpu) {
-      if (this.compute === "cpu") {
+      if (this.compute === "cpu" || this.springs.length > 0) {
         this.gpu.uploadSoA(this.soa);
         this.gpu.writeParams(this.params, this.pointer, this.tool, this.brushRadius, this.brushStrength, this.soa.count, this.worldW, this.worldH, FIXED_DT, 0, 0, this.totalTime);
       }
@@ -837,8 +833,15 @@ function spawnBudget(kind: GeneratorKind, cap: number): number {
     case "cloth":
       return 36 * 26;
     case "nbody":
+      return Math.min(Math.max(2800, (cap * 0.2) | 0), cap);
     case "blackhole":
       return Math.min(1800, cap);
+    case "molecule":
+      return Math.min(Math.max(1400, (cap * 0.08) | 0), 5000);
+    case "crystal":
+    case "helix":
+    case "mandala":
+      return Math.min(Math.max(3500, (cap * 0.1) | 0), cap);
     case "burst":
     case "fireworks":
     case "supernova":

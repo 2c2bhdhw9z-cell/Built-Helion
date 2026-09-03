@@ -14,13 +14,17 @@ STANDING RULES (yours, override the bullets)
 - Fill frame stays as accepted: zoom-out grows the world.
 - Not released. Do not treat billing as next.
 - Production does not move until you merge.
+- Every reply includes this checklist. No exceptions.
 
-Live now: Phase 1 + Phase 2 (merged). Fill frame is live.
-Preview now: visual polish on top of that.
+Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body (merged). Fill frame is live.
+Preview now: nothing queued.
 
 WHERE WE ARE
 - Phase 1: shipped, including Fill frame.
 - Phase 2: shipped. No seeded library, teams, history, usage, or authors.
+- Visual polish: shipped (orbit pitch, trail length, tablet chrome, GPU sprites, SPH cohesion, n-body mass grid).
+- Generator identity: shipped (Crystal snowflakes, Helix DNA, Mandala 8-fold, Molecule ball-and-stick). Not galaxies.
+- SPH / n-body: deeper (pressure, viscosity, cohesion, surface tension, XSPH; n-body pairwise to 1,600 then 32×24 mass grid). Honest, not Barnes-Hut, not a chemistry suite.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
@@ -147,9 +151,9 @@ Goal: Sell to studios, agencies, and researchers for $100–500/month.
 - API rate limiting — PARTIAL (60/min on the control API)
 
 15. Scientific Features
-- Fluid dynamics (SPH) — EARLY (Water + SPH with pressure, viscosity, cohesion)
-- Molecular modeling — PARTIAL (Molecule generator; not a chemistry suite)
-- Astrophysics (n-body, black holes) — EARLY (N-body pairwise to 1,600 then a mass grid; Black Hole generator)
+- Fluid dynamics (SPH) — PARTIAL (Water + SPH with pressure, viscosity, cohesion, surface tension, XSPH; packed pool spawn)
+- Molecular modeling — PARTIAL (ball-and-stick molecules with bonds; not a chemistry suite)
+- Astrophysics (n-body, black holes) — PARTIAL (N-body pairwise to 1,600 then a 32×24 mass grid with near-field cap; GPU 5×5 neighborhood; clump spawn)
 - Custom physics (define your own forces) — DONE (radial / swirl / sine / expr on the CPU sim)
 - Data import (CSV, JSON, 3D models) — DONE (CSV + OBJ vertices / XYZ; scene JSON; not meshes)
 
@@ -165,9 +169,11 @@ Goal: Sell to studios, agencies, and researchers for $100–500/month.
 WHERE WE ARE
 - Phase 1: shipped, including Fill frame.
 - Phase 2: shipped. No seeded library, teams, history, usage, or authors.
+- Visual polish: shipped.
+- Generator identity: shipped. Crystal / Helix / Mandala / Molecule are those things, not galaxies.
+- SPH / n-body: deeper, honest.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
 Still will not fake
 - FFmpeg farm, multi-GPU, headless GPU, render farm, Kubernetes, air-gapped certified, SSO/SAML, Sentry, A/B, Stripe (parked), neural rendering, depth estimation, real AI upscaling.
-

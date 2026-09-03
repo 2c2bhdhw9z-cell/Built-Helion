@@ -42,6 +42,11 @@ function add(
   return i;
 }
 
+function bond(springs: Spring[], a: number, b: number, rest: number, k = 0.48): void {
+  if (a < 0 || b < 0) return;
+  springs.push({ a, b, rest, k });
+}
+
 export function spawnGenerator(kind: GeneratorKind, soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   switch (kind) {
     case "galaxy":
@@ -229,20 +234,42 @@ export function spawnFlock(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
 }
 
 export function spawnNbody(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
-  const cx = opts.worldW * 0.5;
-  const cy = opts.worldH * 0.5;
+  const { worldW, worldH, mass } = opts;
+  const clumps = [
+    { nx: 0.28, ny: 0.46, spread: 0.09, heavy: 3.4, share: 0.38 },
+    { nx: 0.72, ny: 0.54, spread: 0.09, heavy: 3.0, share: 0.38 },
+    { nx: 0.5, ny: 0.24, spread: 0.07, heavy: 2.2, share: 0.24 },
+  ];
+  const n = opts.count;
   let spawned = 0;
-  const n = Math.min(opts.count, 2400);
-  for (let i = 0; i < n; i++) {
-    const r = Math.sqrt(rand()) * Math.min(opts.worldW, opts.worldH) * 0.38;
-    const t = rand() * Math.PI * 2;
-    const x = cx + Math.cos(t) * r;
-    const y = cy + Math.sin(t) * r * 0.85;
-    if (
-      add(soa, x, y, randRange(-0.05, 0.05), randRange(-0.05, 0.05), -1, opts.mass * randRange(0.4, 2.2)) >= 0
-    )
-      spawned++;
-    else break;
+  const comX = worldW * 0.5;
+  const comY = worldH * 0.48;
+  for (let c = 0; c < clumps.length; c++) {
+    const cl = clumps[c]!;
+    const cx = cl.nx * worldW;
+    const cy = cl.ny * worldH;
+    const dx = cx - comX;
+    const dy = cy - comY;
+    const dist = Math.hypot(dx, dy) + 1e-6;
+    const orbit = 0.42;
+    const bulkVx = (-dy / dist) * orbit;
+    const bulkVy = (dx / dist) * orbit;
+    const nClump = Math.max(8, Math.round(n * cl.share));
+    const span = Math.min(worldW, worldH);
+    for (let i = 0; i < nClump && spawned < n; i++) {
+      const u = rand();
+      const v = rand();
+      const r = Math.sqrt(u) * cl.spread * span;
+      const th = v * Math.PI * 2;
+      const x = cx + Math.cos(th) * r;
+      const y = cy + Math.sin(th) * r;
+      const heavy = i < 3;
+      const m = mass * (heavy ? cl.heavy * randRange(1.6, 2.8) : randRange(0.45, 1.4));
+      const vx = bulkVx + randRange(-0.04, 0.04);
+      const vy = bulkVy + randRange(-0.04, 0.04);
+      if (add(soa, x, y, vx, vy, -1, m, 0, heavy ? 0.95 : r / (cl.spread * span)) >= 0) spawned++;
+      else return { spawned, springs: [] };
+    }
   }
   return { spawned, springs: [] };
 }
@@ -477,18 +504,41 @@ export function spawnWater(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   const { worldW, worldH, mass } = opts;
   let spawned = 0;
   const n = opts.count;
-  const pool = Math.floor(n * 0.62);
-  for (let i = 0; i < pool; i++) {
-    const x = randRange(0.08, 0.92) * worldW;
-    const y = randRange(0.62, 0.96) * worldH;
-    if (add(soa, x, y, randRange(-0.04, 0.04), randRange(-0.02, 0.08), -1, mass * randRange(0.8, 1.4)) >= 0)
-      spawned++;
-    else break;
+  const pool = Math.floor(n * 0.78);
+  const h = Math.max(0.007, Math.min(worldW, worldH) * 0.012);
+  const x0 = worldW * 0.1;
+  const x1 = worldW * 0.9;
+  const y0 = worldH * 0.58;
+  const y1 = worldH * 0.96;
+  let row = 0;
+  for (let y = y0; y <= y1 && spawned < pool; y += h * 0.866, row++) {
+    const odd = row & 1;
+    for (let x = x0 + (odd ? h * 0.5 : 0); x <= x1 && spawned < pool; x += h) {
+      const jx = randRange(-h * 0.12, h * 0.12);
+      const jy = randRange(-h * 0.12, h * 0.12);
+      if (
+        add(
+          soa,
+          x + jx,
+          y + jy,
+          randRange(-0.015, 0.015),
+          randRange(-0.01, 0.02),
+          -1,
+          mass * randRange(0.9, 1.2),
+          0,
+          0.35,
+        ) >= 0
+      )
+        spawned++;
+      else return { spawned, springs: [] };
+    }
   }
-  for (let i = pool; i < n; i++) {
-    const x = worldW * 0.5 + randRange(-0.08, 0.08);
-    const y = randRange(0.02, 0.14);
-    if (add(soa, x, y, randRange(-0.05, 0.05), opts.speed * randRange(0.3, 0.8), -1, mass) >= 0) spawned++;
+  const streamX = worldW * 0.5;
+  for (let i = spawned; i < n; i++) {
+    const x = streamX + randRange(-0.045, 0.045) * worldW;
+    const y = randRange(0.02, 0.16) * worldH;
+    if (add(soa, x, y, randRange(-0.03, 0.03), opts.speed * randRange(0.35, 0.9), -1, mass, 0, 0.7) >= 0)
+      spawned++;
     else break;
   }
   return { spawned, springs: [] };
@@ -660,19 +710,99 @@ export function spawnSierpinski(soa: ParticleSoA, opts: SpawnOpts): SpawnResult 
 
 export function spawnCrystal(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   const { worldW, worldH, mass } = opts;
-  const cols = Math.max(8, Math.round(Math.sqrt(opts.count * (worldW / worldH))));
-  const rows = Math.max(8, Math.round(opts.count / cols));
+  const span = Math.min(worldW, worldH);
+  const n = opts.count;
   let spawned = 0;
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const ox = ((y & 1) * 0.5) / cols;
-      const px = ((x + 0.5) / cols + ox) * worldW * 0.72 + worldW * 0.14;
-      const py = ((y + 0.5) / rows) * worldH * 0.72 + worldH * 0.14;
-      const jx = randRange(-0.004, 0.004);
-      const jy = randRange(-0.004, 0.004);
-      if (add(soa, px + jx, py + jy, 0, 0, -1, mass, 0, ((x + y) % 7) / 7) >= 0) spawned++;
-      else return { spawned, springs: [] };
+
+  const addHex = (cx: number, cy: number, R: number, rot: number, phase: number, filled: boolean) => {
+    if (spawned >= n) return;
+    const rings = filled ? Math.max(2, Math.round(R / (span * 0.012))) : 1;
+    for (let q = -rings; q <= rings; q++) {
+      for (let r = -rings; r <= rings; r++) {
+        const s = -q - r;
+        if (Math.abs(s) > rings) continue;
+        const px = (3 / 2) * q;
+        const py = Math.sqrt(3) * (r + q / 2);
+        const dist = Math.hypot(px, py);
+        const maxD = rings * 1.05 + 1e-6;
+        if (!filled && dist < rings * 0.55) continue;
+        const ang = rot;
+        const ca = Math.cos(ang);
+        const sa = Math.sin(ang);
+        const gx = (px * ca - py * sa) * (R / maxD);
+        const gy = (px * sa + py * ca) * (R / maxD);
+        if (add(soa, cx + gx, cy + gy, 0, 0, -1, mass * randRange(0.85, 1.2), 0, phase) >= 0) spawned++;
+        else return;
+        if (spawned >= n) return;
+      }
     }
+  };
+
+  const addSnowflake = (cx: number, cy: number, R: number, rot: number, phase: number) => {
+    const perArm = Math.max(10, Math.round((n * 0.08) / 6));
+    for (let arm = 0; arm < 6; arm++) {
+      const ang = rot + arm * (Math.PI / 3);
+      for (let k = 0; k < perArm && spawned < n; k++) {
+        const t = k / Math.max(perArm - 1, 1);
+        const r = t * R;
+        const x = cx + Math.cos(ang) * r;
+        const y = cy + Math.sin(ang) * r;
+        if (add(soa, x, y, 0, 0, -1, mass, 0, (phase + t * 0.2) % 1) >= 0) spawned++;
+        else return;
+        if (k > 2 && k % 2 === 0) {
+          const br = R * 0.28 * (1 - t);
+          for (const sign of [-1, 1]) {
+            const bang = ang + sign * (Math.PI / 3);
+            const steps = 3;
+            for (let b = 1; b <= steps && spawned < n; b++) {
+              const u = b / steps;
+              if (
+                add(
+                  soa,
+                  x + Math.cos(bang) * br * u,
+                  y + Math.sin(bang) * br * u,
+                  0,
+                  0,
+                  -1,
+                  mass * 0.85,
+                  0,
+                  (phase + 0.15) % 1,
+                ) >= 0
+              )
+                spawned++;
+              else return;
+            }
+          }
+        }
+      }
+    }
+    addHex(cx, cy, R * 0.18, rot, phase, true);
+  };
+
+  const flakes = Math.max(5, Math.min(8, Math.round(n / 700)));
+  const layout = [
+    [0.22, 0.28],
+    [0.5, 0.22],
+    [0.78, 0.3],
+    [0.28, 0.68],
+    [0.72, 0.66],
+    [0.5, 0.52],
+    [0.18, 0.5],
+    [0.84, 0.5],
+  ];
+  for (let f = 0; f < flakes; f++) {
+    const [nx, ny] = layout[f % layout.length]!;
+    const cx = nx * worldW + randRange(-0.02, 0.02) * worldW;
+    const cy = ny * worldH + randRange(-0.02, 0.02) * worldH;
+    const R = span * randRange(0.1, 0.16);
+    addSnowflake(cx, cy, R, f * 0.35, (f % 6) / 6);
+  }
+
+  const shards = Math.max(4, Math.min(10, Math.round(n / 900)));
+  for (let s = 0; s < shards && spawned < n; s++) {
+    const cx = randRange(0.12, 0.88) * worldW;
+    const cy = randRange(0.12, 0.88) * worldH;
+    addHex(cx, cy, span * randRange(0.035, 0.06), rand() * Math.PI, (s % 5) / 5, true);
   }
   return { spawned, springs: [] };
 }
@@ -711,38 +841,121 @@ export function spawnAurora(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
 export function spawnHelix(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   const { worldW, worldH, mass } = opts;
   const cx = worldW * 0.5;
+  const R = 0.2 * Math.min(worldW, worldH);
+  const turns = 3.6;
+  const n = opts.count;
+  const springs: Spring[] = [];
+  const strandA: number[] = [];
+  const strandB: number[] = [];
   let spawned = 0;
-  for (let i = 0; i < opts.count; i++) {
-    const t = i / Math.max(opts.count - 1, 1);
-    const y = 0.06 + t * 0.88;
-    const theta = t * 18;
-    const r = 0.16 * Math.min(worldW, worldH);
-    const arm = i % 2 === 0 ? 0 : Math.PI;
-    const x = cx + Math.cos(theta + arm) * r;
-    const vx = -Math.sin(theta + arm) * 0.22;
-    const vy = 0.04;
-    if (add(soa, x, y * worldH, vx, vy, -1, mass, 0, t) >= 0) spawned++;
-    else break;
+  const strandBudget = Math.floor(n * 0.82);
+  for (let i = 0; i < strandBudget; i++) {
+    const strand = i & 1;
+    const t = (i >> 1) / Math.max((strandBudget >> 1) - 1, 1);
+    const theta = t * turns * Math.PI * 2 + strand * Math.PI;
+    const x = cx + Math.cos(theta) * R;
+    const y = (0.07 + t * 0.86) * worldH;
+    const vx = -Math.sin(theta) * 0.035;
+    const vy = 0.018;
+    const idx = add(soa, x, y, vx, vy, -1, mass, 0, strand * 0.55 + t * 0.4);
+    if (idx < 0) break;
+    spawned++;
+    if (strand === 0) strandA.push(idx);
+    else strandB.push(idx);
   }
-  return { spawned, springs: [] };
+  const rungs = Math.min(22, Math.min(strandA.length, strandB.length));
+  const step = Math.max(1, Math.floor(Math.min(strandA.length, strandB.length) / rungs));
+  for (let r = 0; r < rungs; r++) {
+    const ia = strandA[Math.min(strandA.length - 1, r * step)]!;
+    const ib = strandB[Math.min(strandB.length - 1, r * step)]!;
+    const x0 = soa.posX[ia]!;
+    const y0 = soa.posY[ia]!;
+    const x1 = soa.posX[ib]!;
+    const y1 = soa.posY[ib]!;
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const beads = 4;
+    let prev = ia;
+    for (let b = 1; b <= beads && spawned < n; b++) {
+      const u = b / (beads + 1);
+      const idx = add(
+        soa,
+        x0 + (x1 - x0) * u,
+        y0 + (y1 - y0) * u,
+        0,
+        0.018,
+        -1,
+        mass * 0.55,
+        0,
+        0.28,
+      );
+      if (idx < 0) break;
+      spawned++;
+      bond(springs, prev, idx, dist / (beads + 1), 0.55);
+      prev = idx;
+    }
+    bond(springs, prev, ib, dist / (beads + 1), 0.55);
+  }
+  return { spawned, springs };
 }
 
 export function spawnMandala(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   const { worldW, worldH, mass } = opts;
   const cx = worldW * 0.5;
   const cy = worldH * 0.5;
-  const rings = 9;
+  const outer = Math.min(worldW, worldH) * 0.42;
+  const n = opts.count;
   let spawned = 0;
-  let i = 0;
-  for (let ring = 1; ring <= rings && i < opts.count; ring++) {
-    const n = Math.min(6 * ring, opts.count - i);
-    const r = (ring / rings) * 0.42 * Math.min(worldW, worldH);
-    for (let k = 0; k < n && i < opts.count; k++, i++) {
-      const th = (k / n) * Math.PI * 2 + ring * 0.12;
-      const x = cx + Math.cos(th) * r;
-      const y = cy + Math.sin(th) * r;
-      if (add(soa, x, y, 0, 0, -1, mass, 0, ring / rings) >= 0) spawned++;
-      else return { spawned, springs: [] };
+  const place = (r: number, theta: number, phase: number, m = mass) => {
+    if (spawned >= n) return false;
+    const x = cx + Math.cos(theta) * r;
+    const y = cy + Math.sin(theta) * r;
+    if (add(soa, x, y, 0, 0, -1, m, 0, phase) < 0) return false;
+    spawned++;
+    return true;
+  };
+
+  const petalN = Math.floor(n * 0.55);
+  for (let i = 0; i < petalN && spawned < n; i++) {
+    const theta = (i / petalN) * Math.PI * 2;
+    const rose = Math.abs(Math.cos(4 * theta));
+    const rMax = outer * (0.22 + 0.78 * Math.pow(rose, 0.55));
+    const fill = 5 + ((i % 3) | 0);
+    for (let s = 2; s <= fill && spawned < n; s++) {
+      if (!place((rMax * s) / fill, theta, rose * 0.7 + 0.1)) return { spawned, springs: [] };
+    }
+  }
+
+  for (let ring = 0; ring < 3 && spawned < n; ring++) {
+    const r = outer * (0.18 + ring * 0.14);
+    const count = 8 * (6 + ring * 4);
+    for (let k = 0; k < count && spawned < n; k++) {
+      const theta = (k / count) * Math.PI * 2 + ring * 0.08;
+      if (!place(r, theta, 0.15 + ring * 0.12, mass * 0.9)) return { spawned, springs: [] };
+    }
+  }
+
+  for (let star = 0; star < 8 && spawned < n; star++) {
+    const a0 = star * (Math.PI / 4) - Math.PI / 2;
+    const a1 = a0 + Math.PI / 8;
+    const r0 = outer * 0.12;
+    const r1 = outer * 0.95;
+    const steps = 18;
+    for (let s = 0; s <= steps && spawned < n; s++) {
+      const u = s / steps;
+      const theta = u < 0.5 ? a0 : a1;
+      const r = u < 0.5 ? r0 + (r1 - r0) * (u * 2) : r1 + (r0 - r1) * ((u - 0.5) * 2);
+      if (!place(r, theta, 0.85)) return { spawned, springs: [] };
+    }
+  }
+
+  const hub = 8;
+  for (let q = -hub; q <= hub && spawned < n; q++) {
+    for (let r = -hub; r <= hub && spawned < n; r++) {
+      if (Math.abs(q) + Math.abs(r) > hub) continue;
+      const x = cx + q * outer * 0.018;
+      const y = cy + r * outer * 0.018;
+      if (add(soa, x, y, 0, 0, -1, mass * 1.1, 0, 0.05) < 0) return { spawned, springs: [] };
+      spawned++;
     }
   }
   return { spawned, springs: [] };
@@ -764,27 +977,90 @@ export function spawnConfetti(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   return { spawned, springs: [] };
 }
 
-/** Hexagonal lattice of "atoms" — scientific toy, not a chemistry solver. */
+/** Discrete ball-and-stick molecules — not a self-gravitating lattice. */
 export function spawnMolecule(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   const { worldW, worldH, mass } = opts;
-  const n = Math.max(8, Math.round(Math.sqrt(opts.count)));
-  const span = Math.min(worldW, worldH) * 0.72;
-  const ox = (worldW - span) * 0.5;
-  const oy = (worldH - span) * 0.5;
-  const dx = span / Math.max(n - 1, 1);
+  const n = opts.count;
+  const springs: Spring[] = [];
   let spawned = 0;
-  for (let row = 0; row < n; row++) {
-    const odd = row & 1;
-    for (let col = 0; col < n; col++) {
-      const x = ox + (col + (odd ? 0.5 : 0)) * dx;
-      const y = oy + row * dx * 0.866;
-      const species = (row + col * 2) % 5;
-      const m = mass * (0.6 + species * 0.25);
-      if (add(soa, x, y, 0, 0, -1, m, 0, species / 5) >= 0) spawned++;
-      else return { spawned, springs: [] };
+  const span = Math.min(worldW, worldH);
+
+  const atom = (x: number, y: number, m: number, species: number) => {
+    if (spawned >= n) return -1;
+    const i = add(soa, x, y, randRange(-0.01, 0.01), randRange(-0.01, 0.01), -1, m, 0, species);
+    if (i >= 0) spawned++;
+    return i;
+  };
+
+  const benzene = (cx: number, cy: number, s: number) => {
+    const ids: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      const th = (k / 6) * Math.PI * 2 - Math.PI / 2;
+      ids.push(atom(cx + Math.cos(th) * s, cy + Math.sin(th) * s, mass * 1.6, 0.15));
     }
+    for (let k = 0; k < 6; k++) {
+      bond(springs, ids[k]!, ids[(k + 1) % 6]!, s, 0.62);
+      const th = (k / 6) * Math.PI * 2 - Math.PI / 2;
+      const h = atom(cx + Math.cos(th) * s * 1.55, cy + Math.sin(th) * s * 1.55, mass * 0.45, 0.8);
+      bond(springs, ids[k]!, h, s * 0.55, 0.5);
+    }
+  };
+
+  const water = (cx: number, cy: number, s: number) => {
+    const o = atom(cx, cy, mass * 1.8, 0.05);
+    const a = (104.5 * Math.PI) / 180 / 2;
+    const h1 = atom(cx + Math.cos(Math.PI - a) * s, cy + Math.sin(Math.PI - a) * s, mass * 0.4, 0.85);
+    const h2 = atom(cx + Math.cos(a) * s, cy + Math.sin(a) * s, mass * 0.4, 0.85);
+    bond(springs, o, h1, s, 0.7);
+    bond(springs, o, h2, s, 0.7);
+  };
+
+  const chain = (x0: number, y0: number, len: number, s: number, ang: number) => {
+    let prev = -1;
+    for (let i = 0; i < len; i++) {
+      const x = x0 + Math.cos(ang) * s * i + ((i & 1) ? Math.cos(ang + Math.PI / 2) * s * 0.35 : 0);
+      const y = y0 + Math.sin(ang) * s * i + ((i & 1) ? Math.sin(ang + Math.PI / 2) * s * 0.35 : 0);
+      const id = atom(x, y, mass * (i % 3 === 0 ? 1.5 : 1), (i % 5) / 5);
+      if (prev >= 0) bond(springs, prev, id, s * 1.05, 0.55);
+      prev = id;
+    }
+  };
+
+  const sites = [
+    { x: 0.22, y: 0.32, kind: "benzene" as const },
+    { x: 0.5, y: 0.28, kind: "benzene" as const },
+    { x: 0.78, y: 0.34, kind: "benzene" as const },
+    { x: 0.3, y: 0.68, kind: "benzene" as const },
+    { x: 0.7, y: 0.7, kind: "benzene" as const },
+    { x: 0.5, y: 0.55, kind: "chain" as const },
+    { x: 0.18, y: 0.52, kind: "water" as const },
+    { x: 0.86, y: 0.55, kind: "water" as const },
+    { x: 0.42, y: 0.82, kind: "water" as const },
+    { x: 0.62, y: 0.18, kind: "water" as const },
+  ];
+  const sBen = span * 0.055;
+  const sWat = span * 0.04;
+  for (const site of sites) {
+    if (spawned >= n) break;
+    const x = site.x * worldW;
+    const y = site.y * worldH;
+    if (site.kind === "benzene") benzene(x, y, sBen);
+    else if (site.kind === "water") water(x, y, sWat);
+    else chain(x - span * 0.16, y, 9, span * 0.032, 0.15);
   }
-  return { spawned, springs: [] };
+
+  // Tile extra discrete rings with gaps — never a packed lattice or a disk.
+  let guard = 0;
+  while (spawned < n && guard < n + 8) {
+    guard++;
+    const x = randRange(0.1, 0.9) * worldW;
+    const y = randRange(0.1, 0.9) * worldH;
+    if (rand() < 0.55) benzene(x, y, sBen * randRange(0.7, 1.05));
+    else water(x, y, sWat * randRange(0.8, 1.2));
+    if (springs.length > 2400) break;
+  }
+  return { spawned, springs };
 }
+
 
 

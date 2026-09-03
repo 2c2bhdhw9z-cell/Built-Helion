@@ -642,12 +642,21 @@ function sphForces(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: nu
       fx += (vx[j]! - vx[i]!) * vTerm;
       fy += (vy[j]! - vy[i]!) * vTerm;
 
-      // Cohesion / surface tension — pulls neighboring fluid together.
+      // Cohesion + free-surface pull (CSF-lite). Low-density particles
+      // are the surface — they get extra inward force so blobs bead.
       const coh = params.sphCohesion;
       if (coh > 0) {
-        fx -= (dx / r) * coh * mj * q;
-        fy -= (dy / r) * coh * mj * q;
+        const restD = Math.max(params.sphRestDensity, 0.1);
+        const surface = Math.max(0, 1 - di / restD);
+        const mag = coh * mj * q * (1 + 1.6 * surface);
+        fx -= (dx / r) * mag;
+        fy -= (dy / r) * mag;
       }
+
+      // XSPH: mix neighbor velocity so the fluid doesn't grain.
+      const xsph = 0.12 * mj * q / dj;
+      fx += (vx[j]! - vx[i]!) * xsph;
+      fy += (vy[j]! - vy[i]!) * xsph;
     });
 
     ax[i] = fx / di;
@@ -692,9 +701,11 @@ function solveCloth(soa: ParticleSoA, springs: Spring[], iterations: number): vo
   }
 }
 
-const NBODY_COLS = 24;
-const NBODY_ROWS = 16;
+const NBODY_COLS = 32;
+const NBODY_ROWS = 24;
 const NBODY_CELLS = NBODY_COLS * NBODY_ROWS;
+/** Pairwise neighbor list cap per cell. Over that, the cell is treated as its COM (particle-mesh). */
+const NBODY_NEAR_CAP = 64;
 const nbodyMass = new Float64Array(NBODY_CELLS);
 const nbodyComX = new Float64Array(NBODY_CELLS);
 const nbodyComY = new Float64Array(NBODY_CELLS);
@@ -760,7 +771,9 @@ function nbodyGridForce(
     const cx = c % NBODY_COLS;
     const cy = (c / NBODY_COLS) | 0;
     const near = Math.abs(cx - ownX) <= 1 && Math.abs(cy - ownY) <= 1;
-    if (near) continue;
+    const list = nbodyNear[c]!;
+    const useCom = !near || list.length > NBODY_NEAR_CAP;
+    if (!useCom) continue;
     const dx = nbodyComX[c]! - x;
     const dy = nbodyComY[c]! - y;
     const d2 = dx * dx + dy * dy + eps;
@@ -773,6 +786,7 @@ function nbodyGridForce(
       const cy = ownY + oy;
       if (cx < 0 || cy < 0 || cx >= NBODY_COLS || cy >= NBODY_ROWS) continue;
       const list = nbodyNear[cy * NBODY_COLS + cx]!;
+      if (list.length > NBODY_NEAR_CAP) continue;
       for (let k = 0; k < list.length; k++) {
         const j = list[k]!;
         if (j === i) continue;
