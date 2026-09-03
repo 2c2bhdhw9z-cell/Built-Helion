@@ -66,8 +66,65 @@ export function decodePreset(token: string): CreationConfig | null {
   }
 }
 
+/** Public lab. Unsigned people can open this. Not a Grok login. */
+export const PUBLIC_SHARE_ORIGIN = "https://built-helion.vercel.app";
+
+/**
+ * Grok / xAI wrapper hosts. A link to one of these is what iMessage unfurls as
+ * "Sign In to Your Grok Account" — the sim never loads for people without a
+ * Grok session. Share/embed URLs must not use these.
+ */
+export function isGatedShareHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/\.$/, "");
+  if (!h) return true;
+  if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") return false;
+  return (
+    h === "grok.com" ||
+    h.endsWith(".grok.com") ||
+    h === "grok.me" ||
+    h.endsWith(".grok.me") ||
+    h === "grok-sandbox.com" ||
+    h.endsWith(".grok-sandbox.com") ||
+    h === "accounts.x.ai" ||
+    h.endsWith(".accounts.x.ai") ||
+    h === "auth.grok.me" ||
+    h.endsWith(".auth.grok.me")
+  );
+}
+
+function stripSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function envPublicOrigin(): string {
+  let fromEnv = "";
+  try {
+    fromEnv = String(
+      (import.meta as ImportMeta & { env?: { VITE_PUBLIC_ORIGIN?: string } }).env?.VITE_PUBLIC_ORIGIN ?? "",
+    );
+  } catch {
+    fromEnv = "";
+  }
+  if (/^https?:\/\//i.test(fromEnv)) return stripSlash(fromEnv);
+  return PUBLIC_SHARE_ORIGIN;
+}
+
+/** Origin that unsigned people can actually open. */
+export function publicShareOrigin(origin = ""): string {
+  const fallback = envPublicOrigin();
+  const raw = stripSlash(origin || (typeof window !== "undefined" ? window.location.origin : "") || "");
+  if (!raw) return fallback;
+  try {
+    const host = new URL(raw).hostname;
+    if (isGatedShareHost(host)) return fallback;
+  } catch {
+    return fallback;
+  }
+  return raw;
+}
+
 export function shareUrl(config: CreationConfig, origin = ""): string {
-  const base = origin || (typeof window !== "undefined" ? window.location.origin : "");
+  const base = publicShareOrigin(origin);
   return `${base}/?p=${encodePreset(config)}`;
 }
 

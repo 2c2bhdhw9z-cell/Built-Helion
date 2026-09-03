@@ -13,6 +13,9 @@ let embedSnippet: typeof import("./codec.ts").embedSnippet;
 let shareUrl: typeof import("./codec.ts").shareUrl;
 let isEmbedSearch: typeof import("./codec.ts").isEmbedSearch;
 let readPresetFromSearch: typeof import("./codec.ts").readPresetFromSearch;
+let isGatedShareHost: typeof import("./codec.ts").isGatedShareHost;
+let publicShareOrigin: typeof import("./codec.ts").publicShareOrigin;
+let PUBLIC_SHARE_ORIGIN: typeof import("./codec.ts").PUBLIC_SHARE_ORIGIN;
 let creationConfigSchema: typeof import("../creations/types.ts").creationConfigSchema;
 let DEFAULT_PARAMS: LabParams;
 
@@ -25,6 +28,9 @@ before(async () => {
   shareUrl = codec.shareUrl;
   isEmbedSearch = codec.isEmbedSearch;
   readPresetFromSearch = codec.readPresetFromSearch;
+  isGatedShareHost = codec.isGatedShareHost;
+  publicShareOrigin = codec.publicShareOrigin;
+  PUBLIC_SHARE_ORIGIN = codec.PUBLIC_SHARE_ORIGIN;
   const types = await import("../creations/types.ts");
   creationConfigSchema = types.creationConfigSchema;
   const engine = await import("../../engine/types.ts");
@@ -92,5 +98,23 @@ describe("preset codec", () => {
     assert.equal(loaded!.spawnKind, "fire");
     assert.equal(isEmbedSearch("?embed=1"), true);
     assert.equal(isEmbedSearch(""), false);
+  });
+
+  it("treats Grok / xAI wrapper hosts as gated", () => {
+    assert.equal(isGatedShareHost("foo.grok-sandbox.com"), true);
+    assert.equal(isGatedShareHost("grok.com"), true);
+    assert.equal(isGatedShareHost("accounts.x.ai"), true);
+    assert.equal(isGatedShareHost("auth.grok.me"), true);
+    assert.equal(isGatedShareHost("built-helion.vercel.app"), false);
+    assert.equal(isGatedShareHost("localhost"), false);
+  });
+
+  it("rewrites gated origins to the public lab", () => {
+    const gated = publicShareOrigin("https://abc.grok-sandbox.com");
+    assert.equal(gated, PUBLIC_SHARE_ORIGIN);
+    const url = shareUrl(sample(), "https://abc.grok-sandbox.com");
+    assert.ok(url.startsWith(`${PUBLIC_SHARE_ORIGIN}/?p=`));
+    assert.equal(publicShareOrigin("https://built-helion.vercel.app"), "https://built-helion.vercel.app");
+    assert.equal(publicShareOrigin("https://helion.example"), "https://helion.example");
   });
 });

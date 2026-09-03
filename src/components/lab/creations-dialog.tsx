@@ -9,6 +9,7 @@ import { useLab } from "@/store/lab-store";
 import { useCreations } from "@/lib/creations/use-creations";
 import { normalizeCreationConfig, type CreationRow } from "@/lib/creations/types";
 import { copyText } from "@/lib/platform/clipboard";
+import { publicShareOrigin, shareUrl } from "@/lib/share/codec";
 
 /**
  * Save / manage your creations. Radix Dialog + sonner toast + a store open flag,
@@ -18,7 +19,7 @@ import { copyText } from "@/lib/platform/clipboard";
  *     the save hook) and persists it. Requires sign-in — signed out shows a
  *     short prompt with a Link to /login and never blocks the sim.
  *   - List: the signed-in user's own creations, each with Load (apply + close),
- *     Copy link (`${origin}/s/${id}` -> clipboard), and Delete (confirm via
+ *     Copy link (self-contained public URL — no Grok login), and Delete (confirm via
  *     radix AlertDialog). Empty state is a genuinely empty query — no mock rows.
  */
 
@@ -35,7 +36,7 @@ function CreationRowItem({
 }: {
   row: CreationRow;
   onLoad: (row: CreationRow) => void;
-  onCopy: (id: string) => void;
+  onCopy: (row: CreationRow) => void;
   onDelete: (id: string) => void;
   onPublish: (id: string, next: boolean) => void;
 }) {
@@ -70,7 +71,7 @@ function CreationRowItem({
         size="sm"
         className="h-8 shrink-0 px-2"
         aria-label={`Copy share link for ${row.name}`}
-        onClick={() => onCopy(row.id)}
+        onClick={() => onCopy(row)}
       >
         <Share2 className="size-3.5" />
         <span className="hidden sm:inline">Copy link</span>
@@ -166,10 +167,11 @@ export function CreationsDialog() {
     toast.success(`Loaded "${row.name}"`);
   };
 
-  const onCopy = async (id: string) => {
-    const url = `${window.location.origin}/s/${id}`;
+  const onCopy = async (row: CreationRow) => {
+    const config = normalizeCreationConfig(row.config);
+    const url = config ? shareUrl(config) : `${publicShareOrigin()}/`;
     const ok = await copyText(url);
-    if (ok) toast.success("Link copied");
+    if (ok) toast.success("Link copied — they don't need a Grok account");
     else toast.error("Could not copy link");
   };
 
@@ -281,7 +283,7 @@ export function CreationsDialog() {
                         key={row.id}
                         row={row}
                         onLoad={onLoad}
-                        onCopy={(id) => void onCopy(id)}
+                        onCopy={(row) => void onCopy(row)}
                         onDelete={(id) => void onDelete(id)}
                         onPublish={(id, next) => void onPublish(id, next)}
                       />
