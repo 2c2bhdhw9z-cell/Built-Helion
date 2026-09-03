@@ -131,6 +131,11 @@ export class WebGLRenderer {
     this.packed = new Float32Array(Math.max(1, cap) * 4);
     this.packedCap = Math.max(1, cap);
 
+    // Allocate GPU buffer storage once for the maximum packed capacity to avoid
+    // creating a new GL buffer on every frame.
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, this.packed.byteLength, gl.DYNAMIC_DRAW);
+
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 
@@ -184,6 +189,9 @@ export class WebGLRenderer {
     if (cap > this.packedCap) {
       this.packed = new Float32Array(cap * 4);
       this.packedCap = cap;
+      // Resize GPU-side buffer storage to match new capacity.
+      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buf);
+      this.gl.bufferData(this.gl.ARRAY_BUFFER, this.packed.byteLength, this.gl.DYNAMIC_DRAW);
     }
   }
 
@@ -340,7 +348,7 @@ export class WebGLRenderer {
     const n = this.pack(soa, params.colorMap, 2.4, worldW, worldH);
     this.setPalette(params.palette, params.tint, params.colorA, params.colorB);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
-    if (n > 0) gl.bufferData(gl.ARRAY_BUFFER, this.packed.subarray(0, n * 4), gl.DYNAMIC_DRAW);
+    if (n > 0) gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.packed.subarray(0, n * 4));
 
     const bgR = 0.031;
     const bgG = 0.035;
