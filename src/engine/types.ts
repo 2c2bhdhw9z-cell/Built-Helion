@@ -394,14 +394,9 @@ export const QUALITY_CAPS: Record<QualityMode, number> = {
   high: 65_536,
 };
 
-/** High-quality cap once a plan unlocks more buffer. */
-export function qualityCap(
-  quality: QualityMode,
-  entitled: boolean,
-  plan: "free" | "pro" | "enterprise" = "free",
-): number {
-  if (quality !== "high" || !entitled) return QUALITY_CAPS[quality];
-  return plan === "enterprise" ? SYSTEM_LIMIT : 262_144;
+/** Suggested buffer for a quality preset. Same for every plan — cap is not a paywall. */
+export function qualityCap(quality: QualityMode): number {
+  return QUALITY_CAPS[quality];
 }
 
 /** Max device-pixel-ratio the backing canvas is allowed to use. */
@@ -414,6 +409,6 @@ export const QUALITY_DPR: Record<QualityMode, number> = {
 export const QUALITY_BLURB: Record<QualityMode, string> = {
   low: "Softer pixels — cooler on a phone",
   medium: "Balanced sharpness",
-  high: "Full retina. Pro raises the buffer; Enterprise High is 1M.",
+  high: "Full retina — crisp edges",
 };
 

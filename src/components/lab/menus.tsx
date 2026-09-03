@@ -35,7 +35,7 @@ import { Type,
 import { useRef, useState } from "react";
 import { PALETTE_IDS } from "@/engine/palettes";
 import { SCENES, type SceneId } from "@/engine/scenes";
-import { isProGenerator, type GeneratorKind, type ParamTab, type ToolKind } from "@/engine/types";
+import { isProGenerator, SYSTEM_LIMIT, type GeneratorKind, type ParamTab, type ToolKind } from "@/engine/types";
 import { useLab } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
 import { Chip, Segmented, SliderRow, ToggleRow } from "./controls";
@@ -130,9 +130,8 @@ export function GeneratorBar() {
   const applyScene = useLab((s) => s.applyScene);
   const activeSceneId = useLab((s) => s.activeSceneId);
   const entitled = useLab((s) => s.entitled);
-  const plan = useLab((s) => s.plan);
   const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
-  const countMax = plan === "enterprise" ? 200_000 : entitled ? 50_000 : 20_000;
+  const countMax = SYSTEM_LIMIT;
 
   const isActive = (id: GeneratorKind) => {
     if (id === "pour") return pouring;
@@ -204,7 +203,10 @@ export function GeneratorBar() {
             max={countMax}
             step={100}
             format={(n) => n.toLocaleString()}
-            onChange={setSpawnCount}
+            onChange={(n) => {
+              setSpawnCount(n);
+              if (n > useLab.getState().cap) useLab.getState().setCap(n);
+            }}
           />
           {spawnKind === "text" && (
             <div className="mt-2 flex items-center gap-2">

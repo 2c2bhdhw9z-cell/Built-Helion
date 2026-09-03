@@ -75,7 +75,7 @@ export const PLANS: {
     label: "Free",
     price: "$0",
     blurb: "The full lab, with a small mark on exports.",
-    perks: ["All core generators", "PNG / JPG / GIF / video", "Save & share", "Watermarked stills"],
+    perks: ["All core generators", "Particle cap up to 1M", "PNG / JPG / GIF / video", "Save & share", "Watermarked stills"],
   },
   {
     id: "pro",
@@ -89,6 +89,6 @@ export const PLANS: {
     label: "Enterprise",
     price: "$20/mo",
     blurb: "Headroom for studios.",
-    perks: ["Everything in Pro", "8K stills", "1M particles on High", "Team workspaces", "REST API, tokens, webhooks", "Admin kick in sessions"],
+    perks: ["Everything in Pro", "8K stills", "Team workspaces", "REST API, tokens, webhooks", "Admin kick in sessions"],
   },
 ];

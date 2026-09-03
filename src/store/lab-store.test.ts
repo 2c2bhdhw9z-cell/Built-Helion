@@ -122,18 +122,22 @@ test("view-only session rejects sim edits", async () => {
   useSession.setState({ role: null });
 });
 
-test("high quality on enterprise is 1M particles", () => {
+test("particle cap is not a paywall", () => {
   const prev = {
     entitled: useLab.getState().entitled,
     plan: useLab.getState().plan,
     quality: useLab.getState().quality,
     cap: useLab.getState().cap,
   };
-  useLab.setState({ entitled: true, plan: "enterprise", quality: "medium" });
+  useLab.setState({ entitled: false, plan: "free", quality: "medium" });
   useLab.getState().setQuality("high");
+  expect(useLab.getState().cap).toBe(65_536);
+  useLab.getState().setCap(1_000_000);
   expect(useLab.getState().cap).toBe(1_000_000);
-  useLab.setState({ entitled: true, plan: "pro" });
-  useLab.getState().setQuality("high");
-  expect(useLab.getState().cap).toBe(262_144);
+  useLab.getState().setPlan("enterprise");
+  useLab.getState().setEntitled(true);
+  expect(useLab.getState().cap).toBe(1_000_000);
+  useLab.getState().setSpawnCount(500_000);
+  expect(useLab.getState().spawnCount).toBe(500_000);
   useLab.setState(prev);
 });

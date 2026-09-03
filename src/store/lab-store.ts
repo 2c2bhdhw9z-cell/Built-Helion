@@ -4,7 +4,7 @@ import {
   DEFAULT_CAP,
   DEFAULT_PARAMS,
   DEFAULT_TELEMETRY,
-  qualityCap,
+  QUALITY_CAPS,
   SYSTEM_LIMIT,
   isProGenerator,
   type GeneratorKind,
@@ -389,7 +389,7 @@ export const useLab = create<LabState>((set, get) => ({
     if (rejectIfView()) return;
     set({ speed: v });
   },
-  setCap: (v) => set({ cap: v }),
+  setCap: (v) => set({ cap: Math.max(1024, Math.min(SYSTEM_LIMIT, v | 0)) }),
   setTool: (t) => {
     if (rejectIfView()) return;
     set({ tool: t });
@@ -419,16 +419,8 @@ export const useLab = create<LabState>((set, get) => ({
   setLibraryOpen: (v) => set({ libraryOpen: v }),
   setProfileOpen: (v) => set({ profileOpen: v }),
   setUpgradeOpen: (v) => set({ upgradeOpen: v }),
-  setEntitled: (v) =>
-    set((s) => ({
-      entitled: v,
-      cap: qualityCap(s.quality, v, s.plan),
-    })),
-  setPlan: (p) =>
-    set((s) => ({
-      plan: p,
-      cap: qualityCap(s.quality, s.entitled, p),
-    })),
+  setEntitled: (v) => set({ entitled: v }),
+  setPlan: (p) => set({ plan: p }),
   setHistoryOpen: (v) => set({ historyOpen: v }),
   setDeveloperOpen: (v) => set({ developerOpen: v }),
   setExportSize: (v) => set({ exportSize: v }),
@@ -467,7 +459,7 @@ export const useLab = create<LabState>((set, get) => ({
   setQuality: (q) =>
     set((s) => ({
       quality: q,
-      cap: qualityCap(q, s.entitled, s.plan),
+      cap: QUALITY_CAPS[q],
     })),
   runGenerator: (kind) => {
     if (rejectIfView()) return;
