@@ -48,7 +48,7 @@ export function UpgradeDialog() {
               </Dialog.Title>
               <Dialog.Description className="text-2xs text-faint">
                 Pro is $5/mo. Enterprise is $20/mo. New accounts get 7 days of Pro on the house.
-              </Dialog.Title>
+              </Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <Button variant="ghost" size="icon" aria-label="Close">
