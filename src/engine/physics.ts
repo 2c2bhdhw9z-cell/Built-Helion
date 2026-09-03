@@ -182,7 +182,10 @@ export function stepPhysics(
   const cMass = params.centralMass;
   const eps = params.softening * params.softening;
   const lifespan = params.lifespan;
-  const pairwiseNbody = params.nbody && n <= 900;
+  const pairwiseNbody = params.nbody && n <= 1600;
+  if (params.nbody && !pairwiseNbody) {
+    buildNbodyGrid(soa, n, worldW, worldH);
+  }
 
   for (let i = 0; i < n; i++) {
     const f = flags[i]!;
@@ -285,14 +288,9 @@ export function stepPhysics(
       } else {
         const mi = mass[i]!;
         const G = params.nbodyG;
-        hash.query(x, y, (j) => {
-          if (j === i) return;
-          const dx = px[j]! - x;
-          const dy = py[j]! - y;
-          const d2 = dx * dx + dy * dy + eps;
-          const inv = (G * mi * mass[j]!) / (d2 * Math.sqrt(d2));
-          ax += dx * inv;
-          ay += dy * inv;
+        nbodyGridForce(i, x, y, mi, G, eps, (fx, fy) => {
+          ax += fx;
+          ay += fy;
         });
       }
     }
@@ -643,6 +641,13 @@ function sphForces(soa: ParticleSoA, hash: SpatialHash, params: LabParams, n: nu
       const vTerm = mu * mj * (q / dj) * 35;
       fx += (vx[j]! - vx[i]!) * vTerm;
       fy += (vy[j]! - vy[i]!) * vTerm;
+
+      // Cohesion / surface tension — pulls neighboring fluid together.
+      const coh = params.sphCohesion;
+      if (coh > 0) {
+        fx -= (dx / r) * coh * mj * q;
+        fy -= (dy / r) * coh * mj * q;
+      }
     });
 
     ax[i] = fx / di;
@@ -682,6 +687,100 @@ function solveCloth(soa: ParticleSoA, springs: Spring[], iterations: number): vo
         py[a] = py[a]! + corrY * 0.5;
         px[b] = px[b]! - corrX * 0.5;
         py[b] = py[b]! - corrY * 0.5;
+      }
+    }
+  }
+}
+
+const NBODY_COLS = 24;
+const NBODY_ROWS = 16;
+const NBODY_CELLS = NBODY_COLS * NBODY_ROWS;
+const nbodyMass = new Float64Array(NBODY_CELLS);
+const nbodyComX = new Float64Array(NBODY_CELLS);
+const nbodyComY = new Float64Array(NBODY_CELLS);
+const nbodyNear: number[][] = Array.from({ length: NBODY_CELLS }, () => []);
+let nbodyWorldW = 1;
+let nbodyWorldH = 1;
+let nbodySoA: ParticleSoA | null = null;
+
+function nbodyCell(x: number, y: number, worldW: number, worldH: number): number {
+  const cx = Math.max(0, Math.min(NBODY_COLS - 1, Math.floor((x / Math.max(worldW, 1e-6)) * NBODY_COLS)));
+  const cy = Math.max(0, Math.min(NBODY_ROWS - 1, Math.floor((y / Math.max(worldH, 1e-6)) * NBODY_ROWS)));
+  return cy * NBODY_COLS + cx;
+}
+
+function buildNbodyGrid(soa: ParticleSoA, n: number, worldW: number, worldH: number): void {
+  nbodyWorldW = worldW;
+  nbodyWorldH = worldH;
+  nbodySoA = soa;
+  nbodyMass.fill(0);
+  nbodyComX.fill(0);
+  nbodyComY.fill(0);
+  for (let c = 0; c < NBODY_CELLS; c++) nbodyNear[c]!.length = 0;
+  const px = soa.posX;
+  const py = soa.posY;
+  const mass = soa.mass;
+  for (let i = 0; i < n; i++) {
+    const c = nbodyCell(px[i]!, py[i]!, worldW, worldH);
+    const m = mass[i]!;
+    nbodyMass[c]! += m;
+    nbodyComX[c]! += px[i]! * m;
+    nbodyComY[c]! += py[i]! * m;
+    nbodyNear[c]!.push(i);
+  }
+  for (let c = 0; c < NBODY_CELLS; c++) {
+    const m = nbodyMass[c]!;
+    if (m > 0) {
+      nbodyComX[c]! /= m;
+      nbodyComY[c]! /= m;
+    }
+  }
+}
+
+function nbodyGridForce(
+  i: number,
+  x: number,
+  y: number,
+  mi: number,
+  G: number,
+  eps: number,
+  add: (fx: number, fy: number) => void,
+): void {
+  const soa = nbodySoA;
+  if (!soa) return;
+  const own = nbodyCell(x, y, nbodyWorldW, nbodyWorldH);
+  const ownX = own % NBODY_COLS;
+  const ownY = (own / NBODY_COLS) | 0;
+  const px = soa.posX;
+  const py = soa.posY;
+  const mass = soa.mass;
+  for (let c = 0; c < NBODY_CELLS; c++) {
+    const m = nbodyMass[c]!;
+    if (m <= 0) continue;
+    const cx = c % NBODY_COLS;
+    const cy = (c / NBODY_COLS) | 0;
+    const near = Math.abs(cx - ownX) <= 1 && Math.abs(cy - ownY) <= 1;
+    if (near) continue;
+    const dx = nbodyComX[c]! - x;
+    const dy = nbodyComY[c]! - y;
+    const d2 = dx * dx + dy * dy + eps;
+    const inv = (G * mi * m) / (d2 * Math.sqrt(d2));
+    add(dx * inv, dy * inv);
+  }
+  for (let oy = -1; oy <= 1; oy++) {
+    for (let ox = -1; ox <= 1; ox++) {
+      const cx = ownX + ox;
+      const cy = ownY + oy;
+      if (cx < 0 || cy < 0 || cx >= NBODY_COLS || cy >= NBODY_ROWS) continue;
+      const list = nbodyNear[cy * NBODY_COLS + cx]!;
+      for (let k = 0; k < list.length; k++) {
+        const j = list[k]!;
+        if (j === i) continue;
+        const dx = px[j]! - x;
+        const dy = py[j]! - y;
+        const d2 = dx * dx + dy * dy + eps;
+        const inv = (G * mi * mass[j]!) / (d2 * Math.sqrt(d2));
+        add(dx * inv, dy * inv);
       }
     }
   }

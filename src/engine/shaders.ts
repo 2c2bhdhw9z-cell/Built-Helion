@@ -5,6 +5,8 @@ layout(location=1) in float a_life;
 layout(location=2) in float a_metric;
 uniform vec2 u_world;
 uniform float u_size;
+uniform vec2 u_orbit;
+uniform float u_cam;
 out float v_life;
 out float v_metric;
 void main() {
@@ -12,9 +14,24 @@ void main() {
     a_pos.x / max(u_world.x, 0.000001) * 2.0 - 1.0,
     1.0 - a_pos.y / max(u_world.y, 0.000001) * 2.0
   );
-  gl_Position = vec4(ndc, 0.0, 1.0);
   float alive = a_life == 0.0 ? 0.0 : 1.0;
-  gl_PointSize = max(1.0, u_size) * alive;
+  float size = max(1.0, u_size) * alive;
+  if (abs(u_orbit.x) + abs(u_orbit.y) > 0.0001) {
+    float cy = cos(u_orbit.x);
+    float sy = sin(u_orbit.x);
+    float cp = cos(u_orbit.y);
+    float sp = sin(u_orbit.y);
+    float x1 = ndc.x * cy;
+    float z1 = -ndc.x * sy;
+    float y2 = ndc.y * cp - z1 * sp;
+    float z2 = ndc.y * sp + z1 * cp;
+    float zCam = u_cam - z2;
+    float persp = u_cam / max(zCam, 0.2);
+    ndc = vec2(x1, y2) * persp;
+    size *= clamp(persp, 0.35, 2.8);
+  }
+  gl_Position = vec4(ndc, 0.0, 1.0);
+  gl_PointSize = size;
   v_life = a_life;
   v_metric = a_metric;
 }
@@ -38,7 +55,7 @@ float lifeAlpha(float life) {
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(p, p);
-  if (u_shape == 10.0) {
+  if (u_shape == 10.0 || u_shape == 11.0) {
     vec4 g = texture(u_glyph, gl_PointCoord);
     if (g.a < 0.06) discard;
     float metric = clamp(v_metric, 0.0, 0.92);
@@ -157,18 +174,21 @@ void main() {
   vec3 bg = vec3(0.031, 0.035, 0.047);
   vec3 bloom = vec3(0.0);
   
-  vec2 offsets[12] = vec2[](
+  vec2 offsets[20] = vec2[](
     vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
     vec2(-0.707, -0.707), vec2(0.707, -0.707), vec2(-0.707, 0.707), vec2(0.707, 0.707),
-    vec2(-2.0, 0.0), vec2(2.0, 0.0), vec2(0.0, -2.0), vec2(0.0, 2.0)
+    vec2(-2.0, 0.0), vec2(2.0, 0.0), vec2(0.0, -2.0), vec2(0.0, 2.0),
+    vec2(-3.2, 0.0), vec2(3.2, 0.0), vec2(0.0, -3.2), vec2(0.0, 3.2),
+    vec2(-2.2, -2.2), vec2(2.2, -2.2), vec2(-2.2, 2.2), vec2(2.2, 2.2)
   );
   
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 20; i++) {
     vec3 s = texture(u_screenTex, v_uv + offsets[i] * step).rgb;
     vec3 bright = max(s - bg, vec3(0.0));
-    bloom += bright;
+    float lum = dot(bright, vec3(0.3, 0.59, 0.11));
+    bloom += bright * smoothstep(0.04, 0.22, lum);
   }
-  bloom = (bloom / 12.0) * u_bloomStrength * 1.8;
+  bloom = (bloom / 20.0) * u_bloomStrength * 2.1;
   frag = vec4(baseColor.rgb + bloom, 1.0);
 }
 `;
@@ -302,6 +322,14 @@ struct Params {
   _padExtra0: u32,
   _padExtra1: u32,
   _padExtra2: u32,
+  orbitYaw: f32,
+  orbitPitch: f32,
+  canvasW: f32,
+  canvasH: f32,
+  trailLength: f32,
+  sphCohesion: f32,
+  _padEnd0: f32,
+  _padEnd1: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -398,7 +426,7 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
   }
 
   // Grid / spatial hash logic for flocking, collisions, and SPH fluid
-  if ((params.flags & 7u) != 0u) {
+  if ((params.flags & 15u) != 0u) {
     var numNeighbors = 0u;
     var sep = vec2<f32>(0.0, 0.0);
     var ali = vec2<f32>(0.0, 0.0);
@@ -456,6 +484,14 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
                   let press = params.sphPressure * q * q * 18.0;
                   sphPressureForce += normal * press;
                   sphViscForce += (v2 - v) * (params.sphViscosity * q * 35.0);
+                  sphPressureForce -= normal * (params.sphCohesion * q);
+               }
+            }
+            if ((params.flags & 8u) != 0u) { // N-body (neighborhood + softening)
+               let d2s = d2 + params.softening * params.softening;
+               if (d2s > 0.0000001) {
+                  let inv = (params.nbodyG * mass * lifeMassPhase[j].y) / (d2s * sqrt(d2s));
+                  acc -= d * inv;
                }
             }
           }
@@ -650,6 +686,8 @@ struct Params {
   sphRestDensity: f32, sphPressure: f32, sphViscosity: f32, sphSmoothing: f32,
   extraX: f32, extraY: f32, extraForce: f32, extraRadius: f32,
   extraMode: u32, _padExtra0: u32, _padExtra1: u32, _padExtra2: u32,
+  orbitYaw: f32, orbitPitch: f32, canvasW: f32, canvasH: f32,
+  trailLength: f32, sphCohesion: f32, _padEnd0: f32, _padEnd1: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -685,10 +723,35 @@ fn vs(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VSO
   let mass = lmp.y;
   let phase = lmp.z;
   let ndc = vec2<f32>(p.x / max(params.worldW, 0.000001) * 2.0 - 1.0, 1.0 - p.y / max(params.worldH, 0.000001) * 2.0);
+  var ndcP = ndc;
+  var persp = 1.0;
+  if (abs(params.orbitYaw) + abs(params.orbitPitch) > 0.0001) {
+    let cy = cos(params.orbitYaw);
+    let sy = sin(params.orbitYaw);
+    let cp = cos(params.orbitPitch);
+    let sp = sin(params.orbitPitch);
+    let x1 = ndc.x * cy;
+    let z1 = -ndc.x * sy;
+    let y2 = ndc.y * cp - z1 * sp;
+    let z2 = ndc.y * sp + z1 * cp;
+    let zCam = 2.4 - z2;
+    persp = 2.4 / max(zCam, 0.2);
+    ndcP = vec2<f32>(x1, y2) * persp;
+  }
   let alive = select(0.0, 1.0, life != 0.0);
-  let px = max(1.5, params.pointSize) * alive;
-  let offset = corner * px * vec2<f32>(2.0 / max(params.worldW * 800.0, 800.0), 2.0 / max(params.worldH * 800.0, 600.0));
-  out.position = vec4<f32>(ndc + offset, 0.0, 1.0);
+  let pxH = max(params.canvasH, 1.0);
+  let pxW = max(params.canvasW, 1.0);
+  let pixel = max(1.5, params.pointSize) * alive * clamp(persp, 0.35, 2.8);
+  var c = corner;
+  let spd = length(vel[iid]);
+  if (params.trailLength > 0.08 && spd > 0.04) {
+    let dir = vel[iid] / spd;
+    let tan = vec2<f32>(-dir.y, dir.x);
+    let stretch = 1.0 + params.trailLength * min(spd, 2.4);
+    c = dir * corner.x * stretch + tan * corner.y;
+  }
+  let offset = c * vec2<f32>(pixel / pxW * 2.0, pixel / pxH * 2.0);
+  out.position = vec4<f32>(ndcP + offset, 0.0, 1.0);
   out.life = life;
   
   let cm = (params.flags >> 8u) & 7u;
@@ -765,7 +828,7 @@ fn fs(in: VSOut) -> @location(0) vec4<f32> {
     let spark = min(plus, dia * 0.72);
     if (spark > 1.0) { discard; }
     soft = 1.0 - smoothstep(0.72, 1.0, spark);
-  } else if (shp == 10u) { // Emoji atlas
+  } else if (shp == 10u || shp == 11u) { // Emoji atlas / uploaded sprite
     let uv = vec2<f32>(in.coord.x * 0.5 + 0.5, 0.5 - in.coord.y * 0.5);
     let g = textureSample(glyphTex, palSamp, uv);
     if (g.a < 0.06) { discard; }
@@ -849,18 +912,21 @@ fn fs_post(in: PostVSOut) -> @location(0) vec4<f32> {
   var bloom = vec3<f32>(0.0, 0.0, 0.0);
   let bg = vec3<f32>(0.031, 0.035, 0.047);
   
-  let offsets = array<vec2<f32>, 12>(
+  let offsets = array<vec2<f32>, 20>(
     vec2<f32>(-1.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0),
     vec2<f32>(-0.707, -0.707), vec2<f32>(0.707, -0.707), vec2<f32>(-0.707, 0.707), vec2<f32>(0.707, 0.707),
-    vec2<f32>(-2.0, 0.0), vec2<f32>(2.0, 0.0), vec2<f32>(0.0, -2.0), vec2<f32>(0.0, 2.0)
+    vec2<f32>(-2.0, 0.0), vec2<f32>(2.0, 0.0), vec2<f32>(0.0, -2.0), vec2<f32>(0.0, 2.0),
+    vec2<f32>(-3.2, 0.0), vec2<f32>(3.2, 0.0), vec2<f32>(0.0, -3.2), vec2<f32>(0.0, 3.2),
+    vec2<f32>(-2.2, -2.2), vec2<f32>(2.2, -2.2), vec2<f32>(-2.2, 2.2), vec2<f32>(2.2, 2.2)
   );
   
-  for (var k = 0u; k < 12u; k++) {
+  for (var k = 0u; k < 20u; k++) {
     let s = textureSample(screenTex, screenSamp, in.uv + offsets[k] * step).rgb;
     let bright = max(s - bg, vec3<f32>(0.0));
-    bloom += bright;
+    let lum = dot(bright, vec3<f32>(0.3, 0.59, 0.11));
+    bloom += bright * smoothstep(0.04, 0.22, lum);
   }
-  bloom = (bloom / 12.0) * postU.bloomStrength * 1.8;
+  bloom = (bloom / 20.0) * postU.bloomStrength * 2.1;
   return vec4<f32>(baseColor.rgb + bloom, 1.0);
 }
 `;

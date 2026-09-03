@@ -106,6 +106,47 @@ html[data-theme="light"] {
   border-radius: 99px;
 }
 
+/* Tablet: persistent chrome. Canvas is the leftover playground, 44px taps. */
+[data-lab-layout="tablet"] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "top"
+    "stage"
+    "bottom";
+}
+[data-lab-layout="tablet"] > .lab-stage {
+  grid-area: stage;
+  position: relative;
+  inset: auto;
+  min-height: 0;
+}
+[data-lab-layout="tablet"] > .lab-top {
+  grid-area: top;
+  position: relative;
+  inset: auto;
+}
+[data-lab-layout="tablet"] > .lab-bottom {
+  grid-area: bottom;
+  position: relative;
+  inset: auto;
+}
+[data-lab-layout="tablet"] .lab-chevron {
+  display: none;
+}
+[data-lab-layout="tablet"] .lab-top-panel {
+  max-height: 28dvh;
+  overflow-y: auto;
+}
+[data-lab-layout="tablet"] .lab-bottom-panel {
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+[data-lab-layout="tablet"] button:not(:disabled),
+[data-lab-layout="tablet"] [role="button"]:not(:disabled) {
+  min-height: 2.75rem;
+}
+
 input[type="range"].lab-range {
   -webkit-appearance: none;
   appearance: none;

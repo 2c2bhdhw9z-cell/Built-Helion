@@ -74,7 +74,7 @@ export function rasterizeGlyph(ch: string): GlyphRaster | null {
   const ctx = ensureHost();
   if (!ctx || !host) return null;
   const s = GLYPH_ATLAS_SIZE;
-  const text = ch && ch.trim() ? ch.trim() : "\u2728";
+  const text = ch && ch.trim() ? ch.trim() : "✨";
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = "copy";
@@ -99,4 +99,34 @@ export function rasterizeGlyph(ch: string): GlyphRaster | null {
     raster = snapshot(ctx);
   }
   return raster;
+}
+
+/** Fit an uploaded sprite into the GPU atlas so WebGL/WebGPU can sample it. */
+export function rasterizeImage(img: CanvasImageSource): GlyphRaster | null {
+  const ctx = ensureHost();
+  if (!ctx || !host) return null;
+  const s = GLYPH_ATLAS_SIZE;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = "copy";
+  ctx.clearRect(0, 0, s, s);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  let iw = s;
+  let ih = s;
+  if ("width" in img && "height" in img) {
+    const w = Number((img as { width: number }).width);
+    const h = Number((img as { height: number }).height);
+    if (Number.isFinite(w) && w > 0) iw = w;
+    if (Number.isFinite(h) && h > 0) ih = h;
+  }
+  const scale = Math.min(s / Math.max(iw, 1), s / Math.max(ih, 1));
+  const dw = Math.max(1, iw * scale);
+  const dh = Math.max(1, ih * scale);
+  try {
+    ctx.drawImage(img, (s - dw) / 2, (s - dh) / 2, dw, dh);
+  } catch {
+    return snapshot(ctx);
+  }
+  return snapshot(ctx);
 }

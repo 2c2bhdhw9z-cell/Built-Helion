@@ -1,8 +1,9 @@
 import { bakePalette, bakeStops, usesCustomStops } from "./palettes";
-import { rasterizeGlyph, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
+import { rasterizeGlyph, rasterizeImage, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { WGSL_FADE, WGSL_INTEGRATE, WGSL_POST, WGSL_RENDER_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
 import { HASH_MAX_PER_CELL, IDLE_EXTRA_BRUSH, brushMode, shapeId, type ExtraBrush, type LabParams, type PointerState, type ToolKind } from "./types";
+import { trailFadeAlpha } from "./camera";
 
 const UNIFORM_BYTES = 256;
 
@@ -62,6 +63,9 @@ export class WebGPUBackend {
   lastDrawCalls = 0;
   /** Instance count passed to the particle draw during the last render(). */
   lastDrawnPoints = 0;
+  orbitYaw = 0;
+  orbitPitch = 0;
+  private spriteBound = false;
   private staging = new Float32Array(UNIFORM_BYTES / 4);
   private stagingU = new Uint32Array(this.staging.buffer);
   private lastPalette = "";
@@ -418,8 +422,10 @@ export class WebGPUBackend {
     s[21] = params.settleThreshold;
     s[22] = params.sph
       ? Math.max(params.sphSmoothing, params.particleRadius * 4, 0.02)
-      : Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
-    s[23] = params.pointSize * (params.shape === "emoji" ? 1.7 : 1);
+      : params.nbody
+        ? Math.max(params.particleRadius * 4, params.flockRadius, 0.07)
+        : Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
+    s[23] = params.pointSize * (params.shape === "emoji" || params.shape === "sprite" ? 1.7 : 1);
     const mouseOn = pointer.down || (pointer.inside && tool === "attract" && !params.sph);
     u[24] = brushMode(tool, mouseOn);
     u[25] = count;
@@ -428,6 +434,7 @@ export class WebGPUBackend {
     if (params.collide) flags |= 1;
     if (params.flock) flags |= 2;
     if (params.sph) flags |= 4;
+    if (params.nbody) flags |= 8;
     
     let cm = 0;
     if (params.colorMap === "life") cm = 1;
@@ -456,6 +463,13 @@ export class WebGPUBackend {
     s[42] = extraBrush.force;
     s[43] = extraBrush.radius;
     u[44] = extraBrush.mode | 0;
+    s[48] = this.orbitYaw;
+    s[49] = this.orbitPitch;
+    const canvas = this.context?.canvas as HTMLCanvasElement | undefined;
+    s[50] = canvas?.width ?? 1280;
+    s[51] = canvas?.height ?? 800;
+    s[52] = params.trails ? params.trailLength : 0;
+    s[53] = params.sphCohesion;
     this.device.queue.writeBuffer(this.uniformBuf, 0, this.staging.buffer);
     
     // Write walls buffer
@@ -482,7 +496,7 @@ export class WebGPUBackend {
         { width: 256, height: 1 },
       );
     }
-    if (this.lastGlyph !== params.emoji) {
+    if (!this.spriteBound && this.lastGlyph !== params.emoji) {
       const key = params.emoji && params.emoji.trim() ? params.emoji.trim() : "✨";
       const src = rasterizeGlyph(key);
       if (src?.hasPixels) {
@@ -502,6 +516,30 @@ export class WebGPUBackend {
         this.glyphMisses++;
         if (this.glyphMisses >= 12) this.lastGlyph = key;
       }
+    }
+  }
+
+  setSprite(img: ImageBitmap | HTMLImageElement | null): void {
+    if (!img) {
+      this.spriteBound = false;
+      this.lastGlyph = "";
+      return;
+    }
+    const src = rasterizeImage(img);
+    if (!src?.hasPixels) return;
+    this.spriteBound = true;
+    this.lastGlyph = "\0SPRITE";
+    this.glyphMisses = 0;
+    try {
+      this.device.queue.writeTexture(
+        { texture: this.glyphTex },
+        src.data as unknown as GPUAllowSharedBufferSource,
+        { bytesPerRow: src.size * 4 },
+        { width: src.size, height: src.size },
+      );
+    } catch {
+      this.spriteBound = false;
+      this.lastGlyph = "";
     }
   }
 
@@ -600,7 +638,7 @@ export class WebGPUBackend {
       clearPass.end();
       this.firstFrame = false;
     } else {
-      const fade = Math.min(0.45, Math.max(0.04, params.trailDecay));
+      const fade = trailFadeAlpha(params.trailDecay, params.trailLength);
       const fadeData = new Float32Array([0.031, 0.035, 0.047, fade]);
       this.device.queue.writeBuffer(this.fadeUniformBuf, 0, fadeData);
 
@@ -622,7 +660,7 @@ export class WebGPUBackend {
 
     // 2. Render particles into accumView
     if (count > 0) {
-      const additive = params.blend === "additive" && params.shape !== "emoji";
+      const additive = params.blend === "additive" && params.shape !== "emoji" && params.shape !== "sprite";
       const partPass = enc.beginRenderPass({
         colorAttachments: [
           {

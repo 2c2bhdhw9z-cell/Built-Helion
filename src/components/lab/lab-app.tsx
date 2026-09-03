@@ -31,10 +31,28 @@ export function LabApp() {
   const toggleUiTop = useLab((s) => s.toggleUiTop);
   const toggleUiBottom = useLab((s) => s.toggleUiBottom);
   const [embed, setEmbed] = useState(false);
+  const [layout, setLayout] = useState<"phone" | "tablet" | "desktop">("phone");
   const sessionCode = useSession((s) => s.code);
   const sessionIsHost = useSession((s) => s.isHost);
   const listenToken = useLab((s) => s.listenToken);
   const { user } = useCurrentUserState();
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1280px)");
+    const tablet = window.matchMedia("(min-width: 768px) and (min-height: 520px)");
+    const sync = () => {
+      if (desktop.matches) setLayout("desktop");
+      else if (tablet.matches) setLayout("tablet");
+      else setLayout("phone");
+    };
+    sync();
+    desktop.addEventListener("change", sync);
+    tablet.addEventListener("change", sync);
+    return () => {
+      desktop.removeEventListener("change", sync);
+      tablet.removeEventListener("change", sync);
+    };
+  }, []);
 
   useEffect(() => {
     const search = window.location.search;
@@ -157,9 +175,11 @@ export function LabApp() {
   }, [tiltEnabled, setTilt]);
 
   return (
-    <div className="relative h-dvh min-h-0 overflow-hidden bg-bg text-fg">
+    <div className="relative h-dvh min-h-0 overflow-hidden bg-bg text-fg" data-lab-layout={layout}>
       <BillingSync />
-      <CanvasStage />
+      <div className="lab-stage absolute inset-0">
+        <CanvasStage />
+      </div>
       {embed ? (
         <a
           href={window.location.pathname + window.location.search.replace(/([?&])embed=1(&|$)/, "$1").replace(/[?&]$/, "")}
@@ -189,10 +209,10 @@ export function LabApp() {
         translated with the menu instead of dismissing). Chevrons live OUTSIDE
         the clipping panel so they stay tappable when the menus are hidden.
       */}
-      <div className="absolute inset-x-0 top-0 z-20 flex flex-col items-stretch">
+      <div className="lab-top absolute inset-x-0 top-0 z-20 flex flex-col items-stretch">
         <div
-          className="overflow-x-hidden overflow-y-auto transition-[max-height] duration-300 ease-in-out"
-          style={{ maxHeight: uiTopOpen ? "72dvh" : 0 }}
+          className="lab-top-panel overflow-x-hidden overflow-y-auto transition-[max-height] duration-300 ease-in-out"
+          style={layout === "tablet" ? undefined : { maxHeight: uiTopOpen ? "72dvh" : 0 }}
         >
           <Hud />
           <GeneratorBar />
@@ -200,25 +220,25 @@ export function LabApp() {
         <button
           type="button"
           onClick={toggleUiTop}
-          className="z-30 ml-auto mr-3 flex h-7 items-center justify-center rounded-b-md border-b border-l border-r border-border bg-surface/80 px-4 text-faint backdrop-blur-md hover:text-fg"
+          className="lab-chevron z-30 ml-auto mr-3 flex h-7 items-center justify-center rounded-b-md border-b border-l border-r border-border bg-surface/80 px-4 text-faint backdrop-blur-md hover:text-fg"
           aria-label={uiTopOpen ? "Hide top menu" : "Show top menu"}
         >
           <ChevronUp className={`size-4 transition-transform duration-300 ${uiTopOpen ? "" : "rotate-180"}`} />
         </button>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-stretch">
+      <div className="lab-bottom absolute inset-x-0 bottom-0 z-20 flex flex-col items-stretch">
         <button
           type="button"
           onClick={toggleUiBottom}
-          className="z-30 ml-auto mr-3 flex h-7 items-center justify-center rounded-t-md border-t border-l border-r border-border bg-surface/80 px-4 text-faint backdrop-blur-md hover:text-fg"
+          className="lab-chevron z-30 ml-auto mr-3 flex h-7 items-center justify-center rounded-t-md border-t border-l border-r border-border bg-surface/80 px-4 text-faint backdrop-blur-md hover:text-fg"
           aria-label={uiBottomOpen ? "Hide bottom menu" : "Show bottom menu"}
         >
           <ChevronDown className={`size-4 transition-transform duration-300 ${uiBottomOpen ? "" : "rotate-180"}`} />
         </button>
         <div
-          className="overflow-x-hidden overflow-y-auto transition-[max-height] duration-300 ease-in-out"
-          style={{ maxHeight: uiBottomOpen ? "72dvh" : 0 }}
+          className="lab-bottom-panel overflow-x-hidden overflow-y-auto transition-[max-height] duration-300 ease-in-out"
+          style={layout === "tablet" ? undefined : { maxHeight: uiBottomOpen ? "72dvh" : 0 }}
         >
           <ToolBar />
           <ParamDock />

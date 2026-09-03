@@ -3,7 +3,7 @@ Source: your Phase 1–4 paste. Billing is parked. Particle cap is not a paywall
 You merge. I don’t.
 
 STATUS KEY
-  DONE      in the preview (and live if Phase 1, except Fill frame)
+  DONE      in the preview, and live after a merge
   PARTIAL   exists, not the full bullet
   SKIPPED   will not do unless you ask (honest no)
   NOT BUILT not started
@@ -15,8 +15,14 @@ STANDING RULES (yours, override the bullets)
 - Not released. Do not treat billing as next.
 - Production does not move until you merge.
 
-Live now: Phase 1 (Fill frame is in PR #23 / also inside #24, not live).
-Preview now: rest of the plan in PR #24. Not live.
+Live now: Phase 1 + Phase 2 (merged). Fill frame is live.
+Preview now: visual polish on top of that.
+
+WHERE WE ARE
+- Phase 1: shipped, including Fill frame.
+- Phase 2: shipped. No seeded library, teams, history, usage, or authors.
+- Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
+- Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
 
 ════════════════════════════════
@@ -25,11 +31,11 @@ Goal: A polished, monetizable particle simulator that beats everything else on t
 
 1. Visual & Generator Polish
 - 10+ new generators (Fire, Smoke, Fireworks, Water, Tornado, Lightning, Black Hole, Supernova, Fibonacci Spiral, Sierpinski Triangle) — DONE
-- Custom particle shapes (Circles → Squares, Triangles, Sprites, Emojis) — DONE (canvas sprites; GPU backends fall back to a circle)
+- Custom particle shapes (Circles → Squares, Triangles, Sprites, Emojis) — DONE (canvas + WebGL SDF + WebGPU quads; sprites sample the atlas on GPU too)
 - Advanced color controls (gradient by lifetime/velocity/position + color picker) — DONE (From/To stops + color maps)
-- Particle trails (motion blur, fading trails, glow) — PARTIAL (trails + bloom)
+- Particle trails (motion blur, fading trails, glow) — DONE (history buffer + velocity streaks; length actually drives persistence)
 - Background options (Gradient, Image, Video, Starfield, Procedural) — DONE (void, starfield, gradient, nebula, image, video)
-- Camera controls (Zoom, Pan, Orbit, Reset view) — PARTIAL (zoom, pan, rotate, reset, fill-frame, auto orbit; not a 3D orbit camera)
+- Camera controls (Zoom, Pan, Orbit, Reset view) — DONE (zoom, pan, yaw/pitch perspective orbit, fill-frame, auto orbit)
 
 2. Export & Sharing
 - Screenshot export (PNG, JPG) — DONE
@@ -40,7 +46,7 @@ Goal: A polished, monetizable particle simulator that beats everything else on t
 - Embed code — DONE
 
 3. Input & UX Polish
-- Touch optimization — PARTIAL (works; not a dedicated tablet layout)
+- Touch optimization — DONE (phone overlay + tablet persistent chrome, 44px taps)
 - Keyboard shortcuts — DONE
 - Undo/Redo — DONE
 - Performance modes (Low/Medium/High) — DONE (real pixel density)
@@ -65,7 +71,7 @@ Goal: A polished, monetizable particle simulator that beats everything else on t
 ════════════════════════════════
 PHASE 2: ENTERPRISE GRADE
 Goal: Features that justify $20–50/month for professionals.
-Status: built in preview (PR #24) except the SKIPPED rows.
+Status: shipped (merged as PR #24) except the SKIPPED rows.
 
 6. Collaboration
 - Real-time multiplayer (shared canvas, live cursors) — DONE (peer-to-peer; each browser runs its own physics, can drift)
@@ -141,9 +147,9 @@ Goal: Sell to studios, agencies, and researchers for $100–500/month.
 - API rate limiting — PARTIAL (60/min on the control API)
 
 15. Scientific Features
-- Fluid dynamics (SPH) — EARLY (Water + SPH already in the lab)
+- Fluid dynamics (SPH) — EARLY (Water + SPH with pressure, viscosity, cohesion)
 - Molecular modeling — PARTIAL (Molecule generator; not a chemistry suite)
-- Astrophysics (n-body, black holes) — EARLY (N-body + Black Hole generator)
+- Astrophysics (n-body, black holes) — EARLY (N-body pairwise to 1,600 then a mass grid; Black Hole generator)
 - Custom physics (define your own forces) — DONE (radial / swirl / sine / expr on the CPU sim)
 - Data import (CSV, JSON, 3D models) — DONE (CSV + OBJ vertices / XYZ; scene JSON; not meshes)
 
@@ -157,10 +163,10 @@ Goal: Sell to studios, agencies, and researchers for $100–500/month.
 
 ════════════════════════════════
 WHERE WE ARE
-- Phase 1: shipped. Fill frame still in PR until you merge.
-- Phase 2: playable in preview. No seeded library, teams, history, usage, or authors.
+- Phase 1: shipped, including Fill frame.
+- Phase 2: shipped. No seeded library, teams, history, usage, or authors.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
-- Phase 3–4 remainder that can run in a browser: in this preview / PR #24.
+- Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
 Still will not fake
 - FFmpeg farm, multi-GPU, headless GPU, render farm, Kubernetes, air-gapped certified, SSO/SAML, Sentry, A/B, Stripe (parked), neural rendering, depth estimation, real AI upscaling.

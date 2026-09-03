@@ -13,7 +13,7 @@ import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
 import { SCENES } from "@/engine/scenes";
 import { SessionCursors } from "./session-cursors";
-import { fillWorldScale, viewCssPanEnabled, viewCssScale } from "@/engine/camera";
+import { fillWorldScale, viewCssPanEnabled, viewCssScale, degToRad, unprojectOrbit } from "@/engine/camera";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import { pickLiveExtraBrush } from "@/lib/multiplayer/protocol";
 import { useSession } from "@/lib/multiplayer/session-store";
@@ -157,6 +157,7 @@ export function CanvasStage() {
         const wrapped = ((((next + 180) % 360) + 360) % 360) - 180;
         useLab.setState({ viewRotate: wrapped });
       }
+      engine.setOrbit(degToRad(useLab.getState().viewRotate), degToRad(useLab.getState().viewPitch));
       const worldScale = engine.worldScale || 1;
       const session = useSession.getState();
       const viewOnly = session.role === "view";
@@ -597,7 +598,6 @@ export function CanvasStage() {
   const viewZoom = useLab((s) => s.viewZoom);
   const viewPanX = useLab((s) => s.viewPanX);
   const viewPanY = useLab((s) => s.viewPanY);
-  const viewRotate = useLab((s) => s.viewRotate);
   const fillFrame = useLab((s) => s.fillFrame);
   const bgObjectUrl = useLab((s) => s.bgObjectUrl);
   const worldScale = fillWorldScale(fillFrame, viewZoom);
@@ -625,12 +625,15 @@ export function CanvasStage() {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    const h = Math.max(rect.height, 1);
-    const scale = fillWorldScale(useLab.getState().fillFrame, useLab.getState().viewZoom);
-    return {
-      x: ((e.clientX - rect.left) / h) * scale,
-      y: ((e.clientY - rect.top) / h) * scale,
-    };
+    const rw = Math.max(rect.width, 1);
+    const rh = Math.max(rect.height, 1);
+    const nx = ((e.clientX - rect.left) / rw) * 2 - 1;
+    const ny = 1 - ((e.clientY - rect.top) / rh) * 2;
+    const st = useLab.getState();
+    const scale = fillWorldScale(st.fillFrame, st.viewZoom);
+    const worldH = scale;
+    const worldW = (rw / rh) * scale;
+    return unprojectOrbit(nx, ny, worldW, worldH, degToRad(st.viewRotate), degToRad(st.viewPitch));
   };
 
   const isPanEvent = (e: React.PointerEvent) => e.button === 1 || e.button === 2 || e.altKey;
@@ -645,7 +648,7 @@ export function CanvasStage() {
       <div
         className="absolute inset-0 origin-center"
         style={{
-          transform: `translate(${cssPan ? viewPanX : 0}px, ${cssPan ? viewPanY : 0}px) rotate(${viewRotate}deg) scale(${cssScale})`,
+          transform: `translate(${cssPan ? viewPanX : 0}px, ${cssPan ? viewPanY : 0}px) scale(${cssScale})`,
         }}
       >
         <canvas

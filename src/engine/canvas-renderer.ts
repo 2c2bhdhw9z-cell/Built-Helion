@@ -1,6 +1,7 @@
 import { parseTint, samplePalette, sampleStops, usesCustomStops } from "./palettes";
 import type { ParticleSoA } from "./soa";
 import type { LabParams } from "./types";
+import { projectOrbit, trailFadeAlpha } from "./camera";
 
 export class Canvas2DRenderer {
   /** fillRect ops issued during the last render() (background clear + each drawn particle). */
@@ -9,6 +10,8 @@ export class Canvas2DRenderer {
   /** Particles actually drawn during the last render() (honoring `step` decimation). */
   lastDrawnPoints = 0;
   sprite: ImageBitmap | HTMLImageElement | null = null;
+  orbitYaw = 0;
+  orbitPitch = 0;
 
   constructor(private ctx: CanvasRenderingContext2D) {}
 
@@ -28,7 +31,8 @@ export class Canvas2DRenderer {
     this.lastDrawnPoints = 0;
     if (params.trails) {
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = `rgba(8,9,12,${Math.min(0.55, params.trailDecay + 0.08)})`;
+      const fade = trailFadeAlpha(params.trailDecay, params.trailLength);
+      ctx.fillStyle = `rgba(8,9,12,${fade})`;
       ctx.fillRect(0, 0, w, h);
     } else {
       ctx.globalCompositeOperation = "source-over";
@@ -38,17 +42,17 @@ export class Canvas2DRenderer {
     this.lastDrawCalls++;
     ctx.globalCompositeOperation = params.blend === "additive" ? "lighter" : "source-over";
     if (params.bloom) {
-      ctx.shadowBlur = Math.min(24, 8 * params.bloomStrength);
-      ctx.shadowColor = "rgba(255,255,255,0.6)";
+      ctx.shadowBlur = Math.min(36, 10 * params.bloomStrength);
+      ctx.shadowColor = "rgba(255,255,255,0.72)";
     } else {
       ctx.shadowBlur = 0;
     }
     const n = soa.count;
-    const sx = w / Math.max(worldW, 1e-6);
-    const sy = h / Math.max(worldH, 1e-6);
     const size = Math.max(1, params.pointSize * dpr * 0.5);
     const energy = params.blend === "additive" ? 0.55 / (1 + params.pointSize * params.pointSize * 0.02) : 0.9;
     const step = n > 12000 ? Math.ceil(n / 12000) : 1;
+    const yaw = this.orbitYaw;
+    const pitch = this.orbitPitch;
     let drawn = 0;
     for (let i = 0; i < n; i += step) {
       const life = soa.life[i]!;
@@ -73,15 +77,29 @@ export class Canvas2DRenderer {
       const b = pb * tb;
       const a = (life < 0 ? 1 : Math.min(1, life)) * energy;
       ctx.fillStyle = `rgba(${(r * 255) | 0},${(g * 255) | 0},${(b * 255) | 0},${a})`;
-      const px = soa.posX[i]! * sx;
-      const py = soa.posY[i]! * sy;
+      const proj = projectOrbit(soa.posX[i]!, soa.posY[i]!, worldW, worldH, yaw, pitch);
+      const px = ((proj.nx + 1) * 0.5) * w;
+      const py = ((1 - proj.ny) * 0.5) * h;
+      const sz = size * proj.scale;
+      if (params.trails && params.trailLength > 0.15) {
+        const prev = projectOrbit(soa.prevX[i]!, soa.prevY[i]!, worldW, worldH, yaw, pitch);
+        const qx = ((prev.nx + 1) * 0.5) * w;
+        const qy = ((1 - prev.ny) * 0.5) * h;
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = Math.max(1, sz * 0.9);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(qx, qy);
+        ctx.lineTo(px, py);
+        ctx.stroke();
+      }
       if (params.shape === "sprite" && this.sprite) {
-        const s = Math.max(2, size * 2);
+        const s = Math.max(2, sz * 2);
         ctx.globalAlpha = a;
         ctx.drawImage(this.sprite, px - s / 2, py - s / 2, s, s);
         ctx.globalAlpha = 1;
       } else {
-        drawDot(ctx, params.shape, params.emoji, px, py, size);
+        drawDot(ctx, params.shape, params.emoji, px, py, sz);
       }
       drawn++;
     }
