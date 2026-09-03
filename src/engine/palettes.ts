@@ -91,4 +91,32 @@ export function bakePalette(id: PaletteId, tint = "#ffffff"): Uint8Array {
   return data;
 }
 
+/** Two-stop gradient used when colorA !== colorB. Tinted like a named palette. */
+export function usesCustomStops(colorA: string, colorB: string): boolean {
+  return (colorA || "#ffffff").toLowerCase() !== (colorB || "#ffffff").toLowerCase();
+}
+
+export function bakeStops(colorA: string, colorB: string, tint = "#ffffff"): Uint8Array {
+  const data = new Uint8Array(256 * 4);
+  const [ar, ag, ab] = parseTint(colorA);
+  const [br, bg, bb] = parseTint(colorB);
+  const [tr, tg, tb] = parseTint(tint);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    const o = i * 4;
+    data[o] = Math.round((ar + (br - ar) * t) * 255 * tr);
+    data[o + 1] = Math.round((ag + (bg - ag) * t) * 255 * tg);
+    data[o + 2] = Math.round((ab + (bb - ab) * t) * 255 * tb);
+    data[o + 3] = 255;
+  }
+  return data;
+}
+
+export function sampleStops(colorA: string, colorB: string, t: number): [number, number, number] {
+  const [ar, ag, ab] = parseTint(colorA);
+  const [br, bg, bb] = parseTint(colorB);
+  const u = Math.min(1, Math.max(0, t));
+  return [ar + (br - ar) * u, ag + (bg - ag) * u, ab + (bb - ab) * u];
+}
+
 export const PALETTE_IDS: PaletteId[] = ["rainbow", "ember", "ice", "aurora", "solar", "mono", "plasma"];

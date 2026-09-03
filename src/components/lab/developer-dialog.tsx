@@ -219,7 +219,7 @@ req = urllib.request.Request(
                 <section className="flex flex-col gap-2">
                   <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Webhooks</h3>
                   <p className="text-2xs leading-relaxed text-faint">
-                    POST JSON to your URL when a creation is saved or published. Best-effort, 3s timeout, no retry queue.
+                    POST JSON to your URL when a creation is saved or published. Best-effort, 3s timeout, one retry.
                   </p>
                   <div className="flex gap-2">
                     <input
@@ -260,8 +260,29 @@ req = urllib.request.Request(
             <section className="flex flex-col gap-2">
               <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">REST</h3>
               <p className="text-2xs leading-relaxed text-faint">
-                GET /api/v1/meta · GET /api/v1/library · GET/POST /api/v1/creations (Bearer hl_…)
+                GET /api/v1/meta · GET /api/v1/library · GET/POST /api/v1/creations · POST/GET /api/v1/control (Bearer hl_…). Helpers at /sdk/helion.js and /sdk/helion.py.
               </p>
+              <p className="text-2xs leading-relaxed text-faint">
+                No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Live control is a command queue: POST /api/v1/control, then Listen here.
+              </p>
+              {signedIn ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 self-start"
+                  onClick={() => {
+                    const raw = revealed;
+                    if (!raw) {
+                      toast.error("Mint a token and copy it first");
+                      return;
+                    }
+                    useLab.getState().setListenToken(raw);
+                    toast.success("Lab is listening for API commands");
+                  }}
+                >
+                  Listen with last minted token
+                </Button>
+              ) : null}
               <pre className="overflow-x-auto rounded-md border border-border bg-elevated/40 p-3 font-mono text-2xs leading-relaxed text-muted">
                 {jsSnippet}
               </pre>

@@ -43,6 +43,12 @@ export async function insertCreation(
     values (${id}, ${userId}, ${name}, ${JSON.stringify(config)})
     returning id, user_id, name, config, created_at, is_public
   `;
+  try {
+    const { writeAudit } = await import("@/lib/audit/server");
+    void writeAudit(userId, "creation.save", name);
+  } catch {
+    /* audit is best-effort */
+  }
   return toCreationRow(rows[0]);
 }
 
@@ -83,6 +89,8 @@ export async function setCreationPublic(
     try {
       const { fireWebhooks } = await import("@/lib/dev-api/tokens");
       void fireWebhooks(userId, { event: "creation.published", id, public: true });
+      const { writeAudit } = await import("@/lib/audit/server");
+      void writeAudit(userId, "creation.publish", id);
     } catch {
       /* webhooks are best-effort */
     }

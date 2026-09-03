@@ -26,7 +26,9 @@ import {
   Square,
   Undo2,
   UserRound,
+  Trophy,
   Video,
+  Wand2,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -98,6 +100,8 @@ export function Hud() {
   const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
   const setHistoryOpen = useLab((s) => s.setHistoryOpen);
   const setDeveloperOpen = useLab((s) => s.setDeveloperOpen);
+  const setCreateOpen = useLab((s) => s.setCreateOpen);
+  const setPlayOpen = useLab((s) => s.setPlayOpen);
   const setPerfHubOpen = useLab((s) => s.setPerfHubOpen);
   const entitled = useLab((s) => s.entitled);
   const plan = useLab((s) => s.plan);
@@ -243,6 +247,28 @@ export function Hud() {
             variant="outline"
             size="icon"
             className="shrink-0"
+            aria-label="Create from text, image, or CSV"
+            title="Create"
+            data-testid="open-create"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Wand2 className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Play — challenges and badges"
+            title="Play"
+            data-testid="open-play"
+            onClick={() => setPlayOpen(true)}
+          >
+            <Trophy className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
             aria-label="Community library"
             title="Library"
             data-testid="open-library"
@@ -306,6 +332,16 @@ export function Hud() {
                 JPG screenshot
               </DropdownMenuItem>
               <DropdownMenuItem
+                disabled={!captureScreenshot}
+                onSelect={() => {
+                  captureScreenshot?.("png");
+                  window.setTimeout(() => captureScreenshot?.("jpg"), 400);
+                }}
+              >
+                <Camera className="size-3.5" />
+                Batch PNG + JPG
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 data-testid="export-json"
                 onSelect={() => {
                   const json = sceneJson(currentCreationConfig(useLab.getState()));
@@ -357,7 +393,7 @@ export function Hud() {
                 <Image className="size-3.5" />
                 {gifRecording ? "Stop GIF" : "Record GIF"}
               </DropdownMenuItem>
-              {([24, 30, 60] as RecordFps[]).map((fps) => (
+              {([24, 30, 60, 120] as RecordFps[]).map((fps) => (
                 <DropdownMenuItem key={fps} onSelect={() => setRecordFps(fps)}>
                   {recordFps === fps ? <Check className="size-3.5" /> : <span className="size-3.5" />}
                   {fps} fps

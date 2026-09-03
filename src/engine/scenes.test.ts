@@ -135,6 +135,7 @@ describe("scene spawnCount honors the base emitter's real cap", () => {
     helix: Infinity,
     mandala: Infinity,
     confetti: Infinity,
+    molecule: Infinity,
   };
 
   it("declares no spawnCount above what its emitter can actually spawn", () => {

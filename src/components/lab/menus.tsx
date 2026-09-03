@@ -35,11 +35,13 @@ import { Type,
 import { useRef, useState } from "react";
 import { PALETTE_IDS } from "@/engine/palettes";
 import { SCENES, type SceneId } from "@/engine/scenes";
-import { isProGenerator, SYSTEM_LIMIT, type GeneratorKind, type ParamTab, type ToolKind } from "@/engine/types";
+import { isProGenerator, SYSTEM_LIMIT, type ForceKind, type GeneratorKind, type ParamTab, type ToolKind } from "@/engine/types";
 import { useLab } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
 import { Chip, Segmented, SliderRow, ToggleRow } from "./controls";
 import { cn } from "@/lib/utils";
+import { audioManager } from "@/engine/audio";
+import { forceExprOk } from "@/engine/force-expr";
 
 const GENERATORS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
   { id: "galaxy", label: "Galaxy", icon: Orbit },
@@ -64,6 +66,7 @@ const EFFECTS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
   { id: "supernova", label: "Supernova", icon: Sun },
   { id: "fibonacci", label: "Fibonacci", icon: Flower2 },
   { id: "sierpinski", label: "Sierpinski", icon: Triangle },
+  { id: "molecule", label: "Molecule", icon: Atom },
 ];
 
 const PRO_EFFECTS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
@@ -308,6 +311,8 @@ export function ParamDock() {
   const resetView = useLab((s) => s.resetView);
   const fillFrame = useLab((s) => s.fillFrame);
   const setFillFrame = useLab((s) => s.setFillFrame);
+  const viewOrbit = useLab((s) => s.viewOrbit);
+  const setViewOrbit = useLab((s) => s.setViewOrbit);
   const setBgMedia = useLab((s) => s.setBgMedia);
   const bgObjectUrl = useLab((s) => s.bgObjectUrl);
   const [open, setOpen] = useState(false);
@@ -450,6 +455,63 @@ export function ParamDock() {
                   format={() => cap.toLocaleString()}
                   onChange={(n) => setCap(2 ** n)}
                 />
+                <div className="col-span-2">
+                  <div className="mb-1 text-xs text-muted">Custom force</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {([
+                      ["off", "Off"],
+                      ["radial", "Radial"],
+                      ["swirl", "Swirl"],
+                      ["sine", "Sine"],
+                      ["expr", "Expr"],
+                    ] as const).map(([id, label]) => (
+                      <Chip key={id} active={params.forceKind === id} onClick={() => setParam("forceKind", id as ForceKind)}>
+                        {label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                {params.forceKind !== "off" ? (
+                  <SliderRow
+                    label="Force strength"
+                    value={params.forceStrength}
+                    min={0}
+                    max={4}
+                    step={0.05}
+                    onChange={(n) => setParam("forceStrength", n)}
+                  />
+                ) : null}
+                {params.forceKind === "expr" ? (
+                  <div className="col-span-2 grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-2xs text-faint">ax =</span>
+                      <input
+                        value={params.forceExprX}
+                        onChange={(e) => setParam("forceExprX", e.target.value.slice(0, 96))}
+                        className="h-9 rounded-sm border border-border bg-bg px-2 font-mono text-2xs text-fg"
+                        aria-label="Force X expression"
+                      />
+                      {!forceExprOk(params.forceExprX) ? (
+                        <span className="text-2xs text-danger">Check that expression</span>
+                      ) : null}
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-2xs text-faint">ay =</span>
+                      <input
+                        value={params.forceExprY}
+                        onChange={(e) => setParam("forceExprY", e.target.value.slice(0, 96))}
+                        className="h-9 rounded-sm border border-border bg-bg px-2 font-mono text-2xs text-fg"
+                        aria-label="Force Y expression"
+                      />
+                      {!forceExprOk(params.forceExprY) ? (
+                        <span className="text-2xs text-danger">Check that expression</span>
+                      ) : null}
+                    </label>
+                    <p className="col-span-2 text-2xs text-faint">
+                      Names: x y vx vy t r bass. CPU sim only — WebGPU compute ignores this.
+                    </p>
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -513,6 +575,40 @@ export function ParamDock() {
                     </Button>
                   ) : null}
                 </div>
+                <div className="col-span-2 flex flex-wrap items-end gap-3">
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs text-muted">From</span>
+                    <input
+                      type="color"
+                      value={params.colorA}
+                      onChange={(e) => setParam("colorA", e.target.value)}
+                      aria-label="Gradient from"
+                      className="size-8 cursor-pointer rounded-sm border border-border bg-elevated p-0.5"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs text-muted">To</span>
+                    <input
+                      type="color"
+                      value={params.colorB}
+                      onChange={(e) => setParam("colorB", e.target.value)}
+                      aria-label="Gradient to"
+                      className="size-8 cursor-pointer rounded-sm border border-border bg-elevated p-0.5"
+                    />
+                  </label>
+                  {params.colorA !== params.colorB ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => useLab.getState().patchParams({ colorA: "#ffffff", colorB: "#ffffff" })}
+                    >
+                      Use palette
+                    </Button>
+                  ) : (
+                    <span className="text-2xs text-faint">Same colors → named palette. Different → lifetime/speed gradient.</span>
+                  )}
+                </div>
                 <div className="col-span-2">
                   <div className="mb-1 text-xs text-muted">Shape</div>
                   <div className="flex flex-wrap gap-1.5">
@@ -529,6 +625,7 @@ export function ParamDock() {
                         ["heart", "Heart"],
                         ["spark", "Spark"],
                         ["emoji", "Emoji"],
+                        ["sprite", "Sprite"],
                       ] as const
                     ).map(([id, label]) => (
                       <Chip
@@ -577,6 +674,26 @@ export function ParamDock() {
                       />
                     </div>
                     <p className="mt-1 text-2xs text-faint">Tap a glyph or paste any emoji. Size it up if it’s tiny.</p>
+                  </div>
+                ) : null}
+                {params.shape === "sprite" ? (
+                  <div className="col-span-2">
+                    <div className="mb-1 text-xs text-muted">Sprite image</div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      aria-label="Upload particle sprite"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const prev = useLab.getState().spriteObjectUrl;
+                        const url = URL.createObjectURL(file);
+                        useLab.getState().setSpriteMedia(url);
+                        if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+                      }}
+                      className="text-2xs text-muted file:mr-2 file:rounded-sm file:border file:border-border file:bg-elevated file:px-2 file:py-1 file:text-2xs file:text-fg"
+                    />
+                    <p className="mt-1 text-2xs text-faint">Tiny copies of this image. Canvas path draws it; GPU backends fall back to a circle.</p>
                   </div>
                 ) : null}
                 <SliderRow
@@ -668,6 +785,13 @@ export function ParamDock() {
                     label="Fill frame"
                     checked={fillFrame}
                     onChange={setFillFrame}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <ToggleRow
+                    label="Auto orbit"
+                    checked={viewOrbit}
+                    onChange={setViewOrbit}
                   />
                 </div>
                 <SliderRow
@@ -931,7 +1055,11 @@ export function ParamDock() {
             )}
             {tab === "audio" && (
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 md:grid-cols-4">
-                <ToggleRow label="Mic active" checked={params.audioReactive} onChange={(v) => setParam("audioReactive", v)} />
+                <ToggleRow
+                  label="React to audio"
+                  checked={params.audioReactive}
+                  onChange={(v) => setParam("audioReactive", v)}
+                />
                 <SliderRow
                   label="Sensitivity"
                   value={params.audioSensitivity}
@@ -940,6 +1068,38 @@ export function ParamDock() {
                   step={0.1}
                   onChange={(n) => setParam("audioSensitivity", n)}
                 />
+                <div className="col-span-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => {
+                      useLab.getState().setParam("audioReactive", true);
+                      void audioManager.startMic();
+                    }}
+                  >
+                    Microphone
+                  </Button>
+                  <label className="inline-flex h-8 cursor-pointer items-center rounded-md border border-border px-2.5 text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg">
+                    Music file
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        useLab.getState().setParam("audioReactive", true);
+                        void audioManager.startFile(file);
+                      }}
+                    />
+                  </label>
+                  {audioManager.trackName ? (
+                    <span className="text-2xs text-faint">{audioManager.trackName}</span>
+                  ) : (
+                    <span className="text-2xs text-faint">Mic or a track. Bass pulses mass; mids scale size.</span>
+                  )}
+                </div>
               </div>
             )}
             {tab === "walls" && (

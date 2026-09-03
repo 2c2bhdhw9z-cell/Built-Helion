@@ -118,13 +118,23 @@ export async function fireWebhooks(
   if (hooks.length === 0) return;
   const body = JSON.stringify(payload);
   await Promise.all(
-    hooks.map((hook) =>
-      fetch(hook.url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => {}),
-    ),
+    hooks.map(async (hook) => {
+      const send = () =>
+        fetch(hook.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+          signal: AbortSignal.timeout(3000),
+        });
+      try {
+        await send();
+      } catch {
+        try {
+          await send();
+        } catch {
+          /* best-effort, one retry */
+        }
+      }
+    }),
   );
 }

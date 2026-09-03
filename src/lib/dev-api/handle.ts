@@ -1,5 +1,8 @@
 import { saveCreationSchema } from "@/lib/creations/types";
 import { resolveToken } from "./tokens";
+import { allowV1 } from "./rate-limit";
+import { writeAudit } from "@/lib/audit/server";
+import { getSql } from "@/lib/db";
 
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -38,6 +41,8 @@ export async function handleV1(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/v1\/?/, "").replace(/\/$/, "");
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
+  if (!allowV1(ip)) return json(429, { error: "Slow down" });
 
   if (request.method === "GET" && (path === "" || path === "meta")) {
     return json(200, {
@@ -48,7 +53,12 @@ export async function handleV1(request: Request): Promise<Response> {
         "GET /api/v1/creations": "Your saved creations (Bearer token)",
         "POST /api/v1/creations": "Save a scene { name, config }",
         "GET /api/v1/creations/:id": "Load a creation by id",
+        "POST /api/v1/control": "Queue a command { type: spawn|params, ... } for a listening lab",
+        "GET /api/v1/control": "Pop pending commands (Bearer)",
+        "GET /sdk/helion.js": "JS helper",
+        "GET /sdk/helion.py": "Python helper",
       },
+      notes: "No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Control is a command queue.",
     });
   }
 
@@ -82,7 +92,44 @@ export async function handleV1(request: Request): Promise<Response> {
     const row = await insertCreation(auth.userId, parsed.data.name, parsed.data.config);
     const { fireWebhooks } = await import("./tokens");
     void fireWebhooks(auth.userId, { event: "creation.saved", id: row.id, name: row.name });
+    void writeAudit(auth.userId, "creation.save", row.name);
     return json(201, { id: row.id, name: row.name });
+  }
+
+  if (path === "control" && request.method === "POST") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    let payload: unknown;
+    try {
+      payload = await request.json();
+    } catch {
+      return json(400, { error: "JSON body required" });
+    }
+    if (!payload || typeof payload !== "object") return json(400, { error: "Object required" });
+    const sql = await getSql();
+    const id = crypto.randomUUID();
+    await sql`insert into api_commands (id, user_id, payload) values (${id}, ${auth.userId}, ${JSON.stringify(payload)})`;
+    void writeAudit(auth.userId, "api.control", "queued");
+    return json(202, { id });
+  }
+
+  if (path === "control" && request.method === "GET") {
+    const auth = await requireToken(request);
+    if (!auth) return json(401, { error: "Bearer token required" });
+    const sql = await getSql();
+    const rows = await sql<{ id: string; payload: unknown }>`
+      select id, payload from api_commands
+      where user_id = ${auth.userId} and consumed_at is null
+      order by created_at asc
+      limit 20
+    `;
+    if (rows.length) {
+      const ids = rows.map((r) => r.id);
+      for (const id of ids) {
+        await sql`update api_commands set consumed_at = now() where id = ${id}`;
+      }
+    }
+    return json(200, { commands: rows });
   }
 
   const creationMatch = /^creations\/([a-zA-Z0-9_-]+)$/.exec(path);

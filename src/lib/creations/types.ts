@@ -90,6 +90,7 @@ export const labParamsSchema: z.ZodType<LabParams> = z
         "heart",
         "spark",
         "emoji",
+        "sprite",
       ],
       DEFAULT_PARAMS.shape,
     ),
@@ -151,6 +152,23 @@ export const labParamsSchema: z.ZodType<LabParams> = z
       .catch(DEFAULT_PARAMS.tint)
       .default(DEFAULT_PARAMS.tint),
     emoji: z.string().min(1).max(8).catch(DEFAULT_PARAMS.emoji).default(DEFAULT_PARAMS.emoji),
+    forceKind: enumField(
+      ["off", "radial", "swirl", "sine", "expr"],
+      DEFAULT_PARAMS.forceKind,
+    ),
+    forceStrength: num(DEFAULT_PARAMS.forceStrength),
+    forceExprX: z.string().max(96).catch(DEFAULT_PARAMS.forceExprX).default(DEFAULT_PARAMS.forceExprX),
+    forceExprY: z.string().max(96).catch(DEFAULT_PARAMS.forceExprY).default(DEFAULT_PARAMS.forceExprY),
+    colorA: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .catch(DEFAULT_PARAMS.colorA)
+      .default(DEFAULT_PARAMS.colorA),
+    colorB: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .catch(DEFAULT_PARAMS.colorB)
+      .default(DEFAULT_PARAMS.colorB),
   })
   .catch({ ...DEFAULT_PARAMS }) as z.ZodType<LabParams>;
 
@@ -190,6 +208,7 @@ export const creationConfigSchema = z.object({
       "helix",
       "mandala",
       "confetti",
+      "molecule",
     ],
     "galaxy",
   ),

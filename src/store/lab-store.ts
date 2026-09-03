@@ -23,6 +23,8 @@ import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
 import type { PlanId } from "@/lib/billing/types";
 import type { ExportSize, RecordFps } from "@/lib/capture/composite";
+import type { ImageSample } from "@/lib/import/image-particles";
+import type { CsvParticle } from "@/lib/import/csv";
 
 export type SpeedMul = 0.25 | 0.5 | 1 | 2 | 4;
 
@@ -68,6 +70,15 @@ type LabState = {
   plan: PlanId;
   historyOpen: boolean;
   developerOpen: boolean;
+  createOpen: boolean;
+  playOpen: boolean;
+  viewOrbit: boolean;
+  imageSpawnId: number;
+  imageSamples: ImageSample[] | null;
+  csvSpawnId: number;
+  csvRows: CsvParticle[] | null;
+  listenToken: string | null;
+  spriteObjectUrl: string | null;
   exportSize: ExportSize;
   exportAlpha: boolean;
   recordFps: RecordFps;
@@ -165,6 +176,14 @@ type LabState = {
   setPlan: (p: PlanId) => void;
   setHistoryOpen: (v: boolean) => void;
   setDeveloperOpen: (v: boolean) => void;
+  setCreateOpen: (v: boolean) => void;
+  setPlayOpen: (v: boolean) => void;
+  setViewOrbit: (v: boolean) => void;
+  applyAiScene: (scene: { generator: GeneratorKind; spawnCount: number; params: Partial<LabParams> }) => void;
+  spawnImageSamples: (samples: ImageSample[]) => void;
+  spawnCsvRows: (rows: CsvParticle[]) => void;
+  setListenToken: (v: string | null) => void;
+  setSpriteMedia: (url: string | null) => void;
   setExportSize: (v: ExportSize) => void;
   setExportAlpha: (v: boolean) => void;
   setRecordFps: (v: RecordFps) => void;
@@ -342,6 +361,15 @@ export const useLab = create<LabState>((set, get) => ({
   plan: "free",
   historyOpen: false,
   developerOpen: false,
+  createOpen: false,
+  playOpen: false,
+  viewOrbit: false,
+  imageSpawnId: 0,
+  imageSamples: null,
+  csvSpawnId: 0,
+  csvRows: null,
+  listenToken: null,
+  spriteObjectUrl: null,
   exportSize: "4k",
   exportAlpha: false,
   recordFps: 60,
@@ -423,6 +451,54 @@ export const useLab = create<LabState>((set, get) => ({
   setPlan: (p) => set({ plan: p }),
   setHistoryOpen: (v) => set({ historyOpen: v }),
   setDeveloperOpen: (v) => set({ developerOpen: v }),
+  setCreateOpen: (v) => set({ createOpen: v }),
+  setPlayOpen: (v) => set({ playOpen: v }),
+  setViewOrbit: (v) => set({ viewOrbit: v }),
+  applyAiScene: (scene) => {
+    if (rejectIfView()) return;
+    pushHistory(get());
+    set((s) => ({
+      params: { ...s.params, ...scene.params },
+      spawnKind: scene.generator,
+      spawnCount: Math.max(50, Math.min(SYSTEM_LIMIT, Math.round(scene.spawnCount))),
+      spawnId: s.spawnId + 1,
+      replaceMode: true,
+      activeSceneId: null,
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  spawnImageSamples: (samples) => {
+    if (rejectIfView()) return;
+    pushHistory(get());
+    set((s) => ({
+      imageSamples: samples,
+      imageSpawnId: s.imageSpawnId + 1,
+      replaceMode: true,
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  spawnCsvRows: (rows) => {
+    if (rejectIfView()) return;
+    pushHistory(get());
+    set((s) => ({
+      csvRows: rows,
+      csvSpawnId: s.csvSpawnId + 1,
+      replaceMode: true,
+      canUndo: past.length > 0,
+      canRedo: false,
+    }));
+  },
+  setListenToken: (v) => set({ listenToken: v }),
+  setSpriteMedia: (url) => {
+    const prev = get().spriteObjectUrl;
+    if (prev && prev !== url) revokeBg(prev);
+    set({ spriteObjectUrl: url });
+    if (url) {
+      set((s) => ({ params: { ...s.params, shape: "sprite", pointSize: Math.max(s.params.pointSize, 8) } }));
+    }
+  },
   setExportSize: (v) => set({ exportSize: v }),
   setExportAlpha: (v) => set({ exportAlpha: v }),
   setRecordFps: (v) => set({ recordFps: v }),
@@ -471,6 +547,12 @@ export const useLab = create<LabState>((set, get) => ({
     const stream = kind === "pour" || kind === "fall" || kind === "fire" || kind === "smoke";
     const burst = kind !== "pour" && kind !== "fall";
     pushHistory(get());
+    void import("@/lib/play/analytics").then(({ noteSpawn }) => noteSpawn(kind));
+    void import("@/lib/play/progress").then(({ noteChallenge, awardBadge }) => {
+      noteChallenge(kind);
+      awardBadge("first-spark");
+      if (get().params.shape === "emoji") noteChallenge("emoji");
+    });
     set((s) => ({
       params: { ...s.params, ...patch },
       pouring: kind === "pour" ? !s.pouring : false,

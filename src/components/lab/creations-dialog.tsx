@@ -184,6 +184,9 @@ export function CreationsDialog() {
 
   const onPublish = async (id: string, next: boolean) => {
     const ok = await setPublic(id, next);
+    if (ok && next) {
+      void import("@/lib/play/progress").then(({ awardBadge }) => awardBadge("publisher"));
+    }
     toast[ok ? "success" : "error"](
       ok
         ? next

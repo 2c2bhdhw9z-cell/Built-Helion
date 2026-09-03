@@ -12,7 +12,7 @@ export type CompositeSize = {
 };
 
 export type ExportSize = "1080" | "4k" | "8k";
-export type RecordFps = 24 | 30 | 60;
+export type RecordFps = 24 | 30 | 60 | 120;
 
 /** Longest-side cap for free (watermarked) stills and recordings. */
 export const FREE_EXPORT_MAX = 1280;

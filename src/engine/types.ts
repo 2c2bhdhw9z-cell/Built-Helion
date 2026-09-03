@@ -1,3 +1,5 @@
+import type { ForceKind } from "./force-expr";
+
 export const SYSTEM_LIMIT = 1_000_000;
 export const DEFAULT_CAP = 65_536;
 export const HASH_MAX_PER_CELL = 24;
@@ -5,6 +7,8 @@ export const FIXED_DT = 1 / 60;
 export const MAX_SUBSTEPS = 5;
 export const MAX_ACCEL = 80;
 export const MAX_SPEED = 12;
+
+export type { ForceKind } from "./force-expr";
 
 export type BackendKind = "webgpu" | "webgl" | "canvas";
 export type ComputeKind = "webgpu" | "cpu";
@@ -34,7 +38,8 @@ export type GeneratorKind =
   | "aurora"
   | "helix"
   | "mandala"
-  | "confetti";
+  | "confetti"
+  | "molecule";
 
 export const GENERATOR_KINDS: readonly GeneratorKind[] = [
   "galaxy",
@@ -62,6 +67,7 @@ export const GENERATOR_KINDS: readonly GeneratorKind[] = [
   "helix",
   "mandala",
   "confetti",
+  "molecule",
 ];
 
 /** Pro-tier generators. Free/unsigned visitors see them locked. */
@@ -99,7 +105,8 @@ export type ParticleShape =
   | "plus"
   | "heart"
   | "spark"
-  | "emoji";
+  | "emoji"
+  | "sprite";
 export type BoundaryMode = "bounce" | "wrap" | "destroy";
 export type ColorMap = "life" | "speed" | "density" | "mass" | "palette" | "position";
 export type PaletteId = "rainbow" | "ember" | "ice" | "aurora" | "solar" | "mono" | "plasma";
@@ -141,6 +148,8 @@ export function shapeId(shape: ParticleShape): number {
       return 9;
     case "emoji":
       return 10;
+    case "sprite":
+      return 11;
     default:
       return 0;
   }
@@ -219,6 +228,12 @@ export type LabParams = {
   background: BackgroundKind;
   tint: string;
   emoji: string;
+  forceKind: ForceKind;
+  forceStrength: number;
+  forceExprX: string;
+  forceExprY: string;
+  colorA: string;
+  colorB: string;
 };
 
 export type PointerState = {
@@ -365,6 +380,12 @@ export const DEFAULT_PARAMS: LabParams = {
   background: "void",
   tint: "#ffffff",
   emoji: "✨",
+  forceKind: "off",
+  forceStrength: 1,
+  forceExprX: "sin(t + y * 6) * 0.4",
+  forceExprY: "cos(t + x * 6) * 0.4",
+  colorA: "#ffffff",
+  colorB: "#ffffff",
 };
 
 export const DEFAULT_TELEMETRY: Telemetry = {

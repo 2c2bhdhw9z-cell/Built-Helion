@@ -17,6 +17,7 @@ import { fillWorldScale, viewCssPanEnabled, viewCssScale } from "@/engine/camera
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import { pickLiveExtraBrush } from "@/lib/multiplayer/protocol";
 import { useSession } from "@/lib/multiplayer/session-store";
+import { awardBadge } from "@/lib/play/progress";
 
 
 function WallsOverlay({
@@ -151,6 +152,11 @@ export function CanvasStage() {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = useLab.getState();
+      if (s.viewOrbit) {
+        const next = s.viewRotate + dt * 18;
+        const wrapped = ((((next + 180) % 360) + 360) % 360) - 180;
+        useLab.setState({ viewRotate: wrapped });
+      }
       const worldScale = engine.worldScale || 1;
       const session = useSession.getState();
       const viewOnly = session.role === "view";
@@ -196,6 +202,12 @@ export function CanvasStage() {
       if (now - hudAt > 120) {
         hudAt = now;
         s.setTelemetry({ ...engine.telemetry });
+        if (engine.telemetry.live > 0) {
+          void import("@/lib/play/analytics").then(({ notePeak }) => notePeak(engine.telemetry.live));
+          if (engine.telemetry.live >= 100_000) {
+            void import("@/lib/play/progress").then(({ noteChallenge }) => noteChallenge("cap-100k"));
+          }
+        }
       }
     };
 
@@ -312,6 +324,7 @@ export function CanvasStage() {
     );
     if (!blob) return;
     downloadBlobObject(captureFilename(kind), blob);
+    void import("@/lib/play/analytics").then(({ noteExport }) => noteExport());
   };
 
   /**
@@ -366,6 +379,11 @@ export function CanvasStage() {
     recorderRef.current = recorder;
     recordingRef.current = true;
     useLab.getState().setRecording(true);
+    void import("@/lib/play/progress").then(({ awardBadge, noteChallenge }) => {
+      awardBadge("recorder");
+      noteChallenge("record");
+    });
+    void import("@/lib/play/analytics").then(({ noteExport }) => noteExport());
   };
 
   /**
@@ -445,6 +463,10 @@ export function CanvasStage() {
     gifRecorderRef.current = recorder;
     gifRunningRef.current = true;
     useLab.getState().setGifRecording(true);
+    void import("@/lib/play/progress").then(({ awardBadge, noteChallenge }) => {
+      awardBadge("recorder");
+      noteChallenge("gif");
+    });
   };
 
   const stopGif = async () => {
@@ -462,6 +484,8 @@ export function CanvasStage() {
     }
     if (!blob) return;
     downloadBlobObject(captureFilename("gif"), blob);
+    void import("@/lib/play/analytics").then(({ noteExport }) => noteExport());
+    void import("@/lib/play/progress").then(({ noteChallenge }) => noteChallenge("gif"));
   };
 
   const spawnId = useLab((s) => s.spawnId);
@@ -473,7 +497,48 @@ export function CanvasStage() {
     if (!engine || !spawnKind || spawnId === 0) return;
     const s = useLab.getState();
     engine.spawn(spawnKind, s.replaceMode, undefined, s.spawnCount);
+    awardBadge("first-spark");
+    if (s.spawnCount >= 1_000_000) awardBadge("million");
   }, [spawnId, spawnKind]);
+
+  const imageSpawnId = useLab((s) => s.imageSpawnId);
+  const csvSpawnId = useLab((s) => s.csvSpawnId);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || imageSpawnId === 0) return;
+    const samples = useLab.getState().imageSamples;
+    if (!samples?.length) return;
+    engine.spawnSamples(samples, useLab.getState().replaceMode);
+  }, [imageSpawnId]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || csvSpawnId === 0) return;
+    const rows = useLab.getState().csvRows;
+    if (!rows?.length) return;
+    engine.spawnSamples(rows, useLab.getState().replaceMode);
+  }, [csvSpawnId]);
+
+  const spriteObjectUrl = useLab((s) => s.spriteObjectUrl);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (!spriteObjectUrl) {
+      engine.setSprite(null);
+      return;
+    }
+    let dead = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (!dead) engine.setSprite(img);
+    };
+    img.src = spriteObjectUrl;
+    return () => {
+      dead = true;
+    };
+  }, [spriteObjectUrl]);
 
   useEffect(() => {
     if (clearId === 0) return;

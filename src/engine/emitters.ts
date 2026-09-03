@@ -94,6 +94,10 @@ export function spawnGenerator(kind: GeneratorKind, soa: ParticleSoA, opts: Spaw
       return spawnMandala(soa, opts);
     case "confetti":
       return spawnConfetti(soa, opts);
+    case "molecule":
+      return spawnMolecule(soa, opts);
+    default:
+      return spawnGalaxy(soa, opts);
   }
 }
 
@@ -759,4 +763,28 @@ export function spawnConfetti(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
   }
   return { spawned, springs: [] };
 }
+
+/** Hexagonal lattice of "atoms" — scientific toy, not a chemistry solver. */
+export function spawnMolecule(soa: ParticleSoA, opts: SpawnOpts): SpawnResult {
+  const { worldW, worldH, mass } = opts;
+  const n = Math.max(8, Math.round(Math.sqrt(opts.count)));
+  const span = Math.min(worldW, worldH) * 0.72;
+  const ox = (worldW - span) * 0.5;
+  const oy = (worldH - span) * 0.5;
+  const dx = span / Math.max(n - 1, 1);
+  let spawned = 0;
+  for (let row = 0; row < n; row++) {
+    const odd = row & 1;
+    for (let col = 0; col < n; col++) {
+      const x = ox + (col + (odd ? 0.5 : 0)) * dx;
+      const y = oy + row * dx * 0.866;
+      const species = (row + col * 2) % 5;
+      const m = mass * (0.6 + species * 0.25);
+      if (add(soa, x, y, 0, 0, -1, m, 0, species / 5) >= 0) spawned++;
+      else return { spawned, springs: [] };
+    }
+  }
+  return { spawned, springs: [] };
+}
+
 

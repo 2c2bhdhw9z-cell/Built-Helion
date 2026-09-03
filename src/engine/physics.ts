@@ -13,6 +13,7 @@ import {
   type Spring,
   type ToolKind,
 } from "./types";
+import { applyCustomForce } from "./force-expr";
 
 export type PhysicsStats = {
   nan: number;
@@ -203,6 +204,23 @@ export function stepPhysics(
     if (cMass > 0) {
       ax += (cx - x) * cMass;
       ay += (cy - y) * cMass;
+    }
+
+    if (params.forceKind !== "off") {
+      const nx = x / Math.max(worldW, 1e-6);
+      const ny = y / Math.max(worldH, 1e-6);
+      const extra = applyCustomForce(
+        params.forceKind,
+        params.forceStrength,
+        params.forceExprX,
+        params.forceExprY,
+        nx,
+        ny,
+        vxi,
+        vyi,
+      );
+      ax += extra.ax;
+      ay += extra.ay;
     }
 
     let kickX = 0;

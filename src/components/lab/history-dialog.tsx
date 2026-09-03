@@ -10,6 +10,8 @@ import {
   removeVersion,
   type VersionEntry,
 } from "@/lib/history/versions";
+import { deleteCloudVersionFn, listCloudVersionsFn, pushCloudVersionFn } from "@/lib/history/cloud";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 function formatWhen(at: number): string {
   try {
@@ -28,20 +30,36 @@ export function HistoryDialog() {
   const open = useLab((s) => s.historyOpen);
   const setOpen = useLab((s) => s.setHistoryOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
+  const { user } = useCurrentUserState();
   const [name, setName] = useState("");
   const [rows, setRows] = useState<VersionEntry[]>([]);
+  const [cloud, setCloud] = useState<VersionEntry[]>([]);
 
   const refresh = () => setRows(listVersions());
 
   useEffect(() => {
     if (open) refresh();
-  }, [open]);
+    if (open && user) {
+      void listCloudVersionsFn()
+        .then((list) =>
+          setCloud(list.map((r) => ({ id: r.id, at: r.at, name: r.name, config: r.config }))),
+        )
+        .catch(() => setCloud([]));
+    }
+  }, [open, user]);
 
   const save = () => {
-    const entry = pushVersion(name, currentCreationConfig(useLab.getState()));
+    const config = currentCreationConfig(useLab.getState());
+    const entry = pushVersion(name, config);
     setName("");
     refresh();
     toast.success(`Saved “${entry.name}”`);
+    void import("@/lib/play/progress").then(({ noteChallenge }) => noteChallenge("checkpoint"));
+    if (user) {
+      void pushCloudVersionFn({ data: { name: entry.name, config } })
+        .then((row) => setCloud((prev) => [{ id: row.id, at: row.at, name: row.name, config: row.config }, ...prev]))
+        .catch(() => toast.error("Could not sync to the account"));
+    }
   };
 
   const restore = (row: VersionEntry) => {
@@ -66,7 +84,8 @@ export function HistoryDialog() {
                 History
               </Dialog.Title>
               <Dialog.Description className="text-2xs text-faint">
-                Named checkpoints on this device. Last 40. Not a shared timeline.
+                Named checkpoints on this device (last 40)
+                {user ? " plus a copy on your account." : ". Sign in to also keep them on the account."}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -135,6 +154,40 @@ export function HistoryDialog() {
                 ))}
               </ul>
             )}
+            {cloud.length > 0 ? (
+              <>
+                <p className="mt-3 text-2xs uppercase tracking-[0.12em] text-faint">On your account</p>
+                <ul className="flex flex-col gap-2">
+                  {cloud.map((row) => (
+                    <li
+                      key={`c-${row.id}`}
+                      className="flex items-center gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-fg">{row.name}</p>
+                        <p className="text-2xs text-faint">{formatWhen(row.at)}</p>
+                      </div>
+                      <Button variant="outline" size="sm" className="h-8 shrink-0 px-2" onClick={() => restore(row)}>
+                        Restore
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0"
+                        aria-label={`Delete ${row.name}`}
+                        onClick={() => {
+                          void deleteCloudVersionFn({ data: { id: row.id } }).then(() =>
+                            setCloud((prev) => prev.filter((r) => r.id !== row.id)),
+                          );
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
           </div>
         </Dialog.Content>
       </Dialog.Portal>
