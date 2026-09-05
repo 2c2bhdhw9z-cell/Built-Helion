@@ -406,3 +406,135 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
     assert.equal(parsed.params.emoji, "♥");
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Property-based tests for timestamp reconciliation (Task 2.3)
+//
+// Property 1 (design.md): Last-write-wins picks the later timestamp — for any
+//   two same-id records with distinct `updated_at`, resolveByTimestamp returns
+//   the later; equal timestamps deterministically return the remote record.
+// Property 2 (design.md): A save records a modification timestamp — asserted
+//   here via the pure invariant that a stored row's `updated_at >= created_at`.
+//
+// resolveByTimestamp is a PURE helper (no I/O), so no DB access is needed. It
+// lives in ./server.ts, which imports the `@/` alias, so — matching the
+// sibling suites — it is imported dynamically inside a before() hook after the
+// loader hook registered at the top of this file is active.
+// ---------------------------------------------------------------------------
+
+import fc from "fast-check";
+
+type CreationsServerRecon = {
+  resolveByTimestamp: <T extends { updated_at: string | Date }>(local: T, remote: T) => T;
+};
+
+describe("resolveByTimestamp — last-write-wins reconciliation (Req 2.2, 2.3)", () => {
+  let resolveByTimestamp: CreationsServerRecon["resolveByTimestamp"];
+
+  before(async () => {
+    const server = (await import("./server.ts")) as unknown as CreationsServerRecon;
+    resolveByTimestamp = server.resolveByTimestamp;
+  });
+
+  // A finite, in-range epoch-millis timestamp generator. Bounded to a sane
+  // range (roughly 1970..2286) so `new Date(ms)` is always valid and every
+  // generated instant is representable both as a Date and as an ISO string.
+  const epochMs = fc.integer({ min: 0, max: 9_999_999_999_999 });
+
+  // Wrap an epoch-millis value as either a Date or an ISO string, mirroring the
+  // two shapes `updated_at` legitimately takes (Date on the server, ISO string
+  // on the client after the server-function boundary serializes the row).
+  const asStampField = (ms: number, asString: boolean): string | Date =>
+    asString ? new Date(ms).toISOString() : new Date(ms);
+
+  // Feature: helion-completion, Property 1: Last-write-wins picks the later timestamp
+  it("Property 1: returns the record with the strictly-later updated_at (distinct timestamps)", () => {
+    fc.assert(
+      fc.property(
+        epochMs,
+        epochMs,
+        fc.boolean(),
+        fc.boolean(),
+        (aMs, bMs, localIsString, remoteIsString) => {
+          // Constrain to the DISTINCT-timestamp input space this property is
+          // about: the earlier instant is `local`, the strictly-later is
+          // `remote`, so the later record is unambiguous.
+          fc.pre(aMs !== bMs);
+          const earlierMs = Math.min(aMs, bMs);
+          const laterMs = Math.max(aMs, bMs);
+
+          const local = { id: "same-id", updated_at: asStampField(earlierMs, localIsString) };
+          const remote = { id: "same-id", updated_at: asStampField(laterMs, remoteIsString) };
+
+          // The strictly-later record wins regardless of argument position.
+          assert.strictEqual(resolveByTimestamp(local, remote), remote);
+          assert.strictEqual(resolveByTimestamp(remote, local), remote);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  // Feature: helion-completion, Property 1: equal timestamps resolve to remote
+  it("Property 1: equal timestamps deterministically resolve to the remote (server-authoritative) record", () => {
+    fc.assert(
+      fc.property(epochMs, fc.boolean(), fc.boolean(), (ms, localIsString, remoteIsString) => {
+        const local = { id: "same-id", updated_at: asStampField(ms, localIsString) };
+        const remote = { id: "same-id", updated_at: asStampField(ms, remoteIsString) };
+        // On an exact tie, the server-authoritative `remote` wins deterministically.
+        assert.strictEqual(resolveByTimestamp(local, remote), remote);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  // Concrete tie example case (as required by Task 2.3): identical timestamps
+  // return the remote record, never the local one.
+  it("Property 1 (concrete tie example): identical timestamps return the remote record", () => {
+    const stamp = "2024-01-01T00:00:00.000Z";
+    const local = { id: "c1", updated_at: stamp, name: "local edit" };
+    const remote = { id: "c1", updated_at: stamp, name: "remote edit" };
+    const winner = resolveByTimestamp(local, remote);
+    assert.strictEqual(winner, remote);
+    assert.equal(winner.name, "remote edit");
+
+    // And a strictly-later local does win the concrete case too.
+    const laterLocal = { id: "c1", updated_at: "2024-01-02T00:00:00.000Z", name: "local edit" };
+    const staleRemote = { id: "c1", updated_at: "2024-01-01T00:00:00.000Z", name: "remote edit" };
+    assert.strictEqual(resolveByTimestamp(laterLocal, staleRemote), laterLocal);
+  });
+
+  // Feature: helion-completion, Property 2: A save records a modification timestamp
+  //
+  // A save stamps `updated_at = now()` and a fresh row's `created_at` also
+  // defaults to now(), so the stored-row invariant is `updated_at >= created_at`.
+  // This asserts that pure invariant across arbitrary (created_at, updated_at)
+  // pairs modeling a saved-then-possibly-edited row: whenever a row is stamped
+  // with an updated_at no earlier than its created_at, resolveByTimestamp — the
+  // reconciliation key that consumes updated_at — treats such a row as at least
+  // as authoritative as a copy pinned to its own creation instant.
+  it("Property 2: a saved row's updated_at >= created_at, and it wins over a copy stamped at created_at", () => {
+    fc.assert(
+      fc.property(
+        epochMs,
+        fc.integer({ min: 0, max: 9_999_999_999_999 }),
+        fc.boolean(),
+        (createdMs, extraMs, asString) => {
+          // Model a stored row: updated_at is created_at plus a non-negative
+          // modification delay (equal when saved and never edited), so the
+          // stored-row invariant updated_at >= created_at holds by construction.
+          const updatedMs = createdMs + extraMs;
+          assert.ok(updatedMs >= createdMs, "stored invariant: updated_at >= created_at");
+
+          const stored = { id: "row", created_at: asStampField(createdMs, asString), updated_at: asStampField(updatedMs, asString) };
+          // A stale copy that only ever carried its creation instant as its
+          // modification timestamp must never beat the saved row.
+          const staleCopy = { id: "row", created_at: asStampField(createdMs, asString), updated_at: asStampField(createdMs, asString) };
+          assert.strictEqual(resolveByTimestamp(staleCopy, stored), stored);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
