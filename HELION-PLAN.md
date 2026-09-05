@@ -16,7 +16,7 @@ STANDING RULES (yours, override the bullets)
 - Production does not move until you merge.
 - Every reply includes this checklist. No exceptions.
 
-Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body + public share links (on GitHub). Fill frame is live.
+Live now: Phase 1 + Phase 2 + visual polish + generator identity + deeper SPH/n-body + public share links + the Helion Completion feature (cloud save, admin dashboard, global leaderboards & server achievements, closed-loop AI tuning + style, WebSocket control channel, opt-in telemetry, editorial curation, admin audit view — merged to main via PR #30). Fill frame is live.
 Preview now: Vercel git deploys paused (hobby quota / failed-build mail). Public lab stays on the last good Fill-frame host.
 
 WHERE WE ARE
@@ -26,6 +26,7 @@ WHERE WE ARE
 - Generator identity: shipped (Crystal snowflakes, Helix DNA, Mandala 8-fold, Molecule ball-and-stick). Not galaxies.
 - SPH / n-body: deeper (pressure, viscosity, cohesion, surface tension, XSPH; n-body pairwise to 1,600 then 32×24 mass grid). Honest, not Barnes-Hut, not a chemistry suite.
 - Public share: Copy link / embed use the public lab. No Grok account. Merged.
+- Helion Completion: merged (PR #30). Cloud save on the hosted DB (needs DATABASE_URL on deploy to persist), fail-closed admin dashboard, global ranked leaderboard + server achievements (1M, 24h session), closed-loop AI tuning + stronger style mapping, WebSocket control channel with polling fallback, opt-in anonymous telemetry, editorial curation row, admin-wide audit view. Migration 0009_completion.sql is additive.
 - Vercel: git deploys paused (`ignoreCommand`). Hobby quota was cooking failed preview+production builds. Public host is the last successful Fill-frame deploy until quota resets.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
@@ -60,11 +61,11 @@ Goal: A polished, monetizable particle simulator that beats everything else on t
 - Dark/Light theme — DONE
 
 4. Cloud & Persistence
-- Cloud save (sync presets across devices) — PARTIAL (signed-in creations; needs a real hosted DB on deploy)
+- Cloud save (sync presets across devices) — DONE (signed-in creations persist on the hosted DB; last-write-wins by updated_at; ephemeral fallback surfaced in the HUD when no DATABASE_URL. Set DATABASE_URL on deploy for cross-device persistence.)
 - User profiles (avatars, stats, favorites) — PARTIAL (profile + hue avatar + local stats; not a photo suite)
 - Preset library (browse/save community presets) — DONE
 - Like/Heart system — DONE
-- Recent/Featured — PARTIAL (library recent/featured sort; not a curated editorial row)
+- Recent/Featured — DONE (recent + most-liked sorts plus a Curated editorial row fed by admin-marked featured public creations)
 
 5. Monetization
 - Subscription tiers Free / Pro ($5/mo) / Enterprise ($20/mo) — PARTIAL (tiers exist, preview only, no card)
@@ -102,14 +103,14 @@ Status: shipped (merged as PR #24) except the SKIPPED rows.
 
 9. Developer API
 - REST API — DONE (meta, library, creations CRUD, history, teams, usage, webhook deliveries, control queue)
-- WebSocket API — PARTIAL (command queue the lab polls; this host has no socket)
+- WebSocket API — DONE (real-time control channel at /api/v1/control/socket, bearer via sec-websocket-protocol; falls back to the polling command queue where the host has no socket upgrade, at-most-once either way)
 - JavaScript SDK — DONE (public/sdk/helion.js talks to the real REST)
 - Python SDK — DONE (public/sdk/helion.py talks to the real REST)
 - Webhook support — DONE (save/publish, one retry, last deliveries stored)
 
 10. Analytics & Insights
 - Usage analytics — DONE (this-device always; account totals when signed in; never seeded)
-- Performance telemetry — PARTIAL (in-app Performance hub; not anonymous cloud stats)
+- Performance telemetry — DONE (in-app Performance hub plus opt-in anonymous cloud samples; the telemetry table has no identity columns, and admin sees only aggregates)
 - Crash reporting (Sentry) — SKIPPED
 - A/B testing — SKIPPED
 - User feedback (in-app surveys) — PARTIAL (Feedback dialog + admin board, not surveys)
@@ -121,8 +122,8 @@ Goal: 10x user engagement with AI assistance.
 
 11. AI-Assisted Creation
 - AI preset generator ("Make a galaxy" → auto-config) — DONE (Create, signed-in, grok-4.5)
-- AI style transfer (Van Gogh on particles) — PARTIAL (style mode maps a look onto params, not a painted filter)
-- AI parameter tuning (auto-optimize physics) — PARTIAL (tune mode; not a closed-loop optimizer)
+- AI style transfer (Van Gogh on particles) — DONE (style mode maps a described look onto a coherent palette/color/blend set, preserving generator + count; still a param mapping, not a painted post-filter)
+- AI parameter tuning (auto-optimize physics) — DONE (closed-loop tuner: >=2 scored iterations, returns a candidate no worse than the seed, every param clamped to valid ranges)
 - Text-to-particles ("Fireworks over water" → simulation) — DONE
 - AI upscaling (enhance low-res exports) — SKIPPED (not a real upscaler)
 
@@ -134,8 +135,8 @@ Goal: 10x user engagement with AI assistance.
 - Neural rendering (ML anti-aliasing) — SKIPPED
 
 13. Gamification
-- Achievements ("1M particles", "24hr session") — PARTIAL (badges including 1M; not a 24-hour timer)
-- Leaderboards (top creators, most liked) — PARTIAL (most-liked in Play; not a global ranked board)
+- Achievements ("1M particles", "24hr session") — DONE (server-recorded, account-scoped achievements incl. 1M peak and 24-hour cumulative session; local badges still exist too)
+- Leaderboards (top creators, most liked) — DONE (global ranked board over stored public-creation + like rows, stable ties; public GET /api/v1/leaderboard, no auth)
 - Daily challenges ("Create a tornado") — DONE (auto-completes when you do the thing)
 - Badges & rewards — DONE
 - XP system — DONE (this device)
@@ -147,8 +148,8 @@ Goal: Sell to studios, agencies, and researchers for $100–500/month.
 
 14. Team & Organization
 - SSO/SAML — SKIPPED
-- Audit logs — PARTIAL (signed-in save/publish rows; not a compliance suite)
-- Admin dashboard (user management, analytics) — PARTIAL (feedback admin only)
+- Audit logs — DONE (admin-wide cross-account audit view at /admin/audit, newest-first, capped; privileged admin actions record entries. Not a full compliance suite.)
+- Admin dashboard (user management, analytics) — DONE (/admin/dashboard: account list with suspend/reinstate + aggregate analytics from stored rows; server-side fail-closed constant-time gate. Feedback admin still lives at /admin/feedback.)
 - Custom branding / white-label — PARTIAL (studio mark on free exports)
 - API rate limiting — PARTIAL (60/min on the control API)
 
@@ -175,6 +176,7 @@ WHERE WE ARE
 - Generator identity: shipped. Crystal / Helix / Mandala / Molecule are those things, not galaxies.
 - SPH / n-body: deeper, honest.
 - Public share: Copy link is the public lab. No Grok account.
+- Helion Completion: merged (PR #30) — cloud save, admin dashboard, leaderboards & achievements, AI tuning + style, WebSocket channel, opt-in telemetry, curation, audit view.
 - Native later: engine stays canvas/WebGPU; all I/O (KV, files, clipboard, share) goes through src/lib/platform. Browser now. Capacitor (iOS/Android) and Tauri (Windows/macOS/Linux) plug in via setKvStore / setSaveBlob / setCopyText — not a fake store build.
 - Phase 3–4 remainder that can run in a browser: live with Phase 2.
 
