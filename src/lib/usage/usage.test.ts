@@ -21,6 +21,16 @@ before(async () => {
   ({ mergeUsageMath } = await import("./server.ts"));
 });
 
+/** A UsageStats delta literal for the integration tests below. */
+const delta = (over: Partial<UsageStats> = {}): UsageStats => ({
+  seconds: 0,
+  spawns: 0,
+  exports: 0,
+  peak: 0,
+  generators: {},
+  ...over,
+});
+
 // ---------------------------------------------------------------------------
 // Generators
 // ---------------------------------------------------------------------------
@@ -179,5 +189,93 @@ describe("Property 4: applied usage merge is monotonic and non-negative", () => 
       }),
       { numRuns: 200 },
     );
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Integration tests: usage-flush idempotency against a REAL usage_stats row
+// with last_activity_seq (Task 2.7)
+//
+// EXAMPLE-based integration tests (NOT property tests) against a real embedded
+// PGLite database via the glob loader registered at the top of this file. They
+// drive mergeAccountUsage / readAccountUsage exactly as the usage server
+// function does — no DB mocking, no seeded rows — and assert the at-most-once
+// guarantee the last_activity_seq high-water mark provides.
+//
+// Covers:
+//   - a repeated flush with the same/lower activitySeq does NOT double-count,
+//     and a strictly-higher seq applies (Req 3.3)
+//   - peak is the max of the current and delta peaks (Req 3.2)
+//   - accumulation of applied deltas (Reqs 3.2, 3.4)
+// ---------------------------------------------------------------------------
+
+type UsageServerDb = {
+  mergeAccountUsage: (userId: string, delta: UsageStats, activitySeq?: number) => Promise<UsageStats>;
+  readAccountUsage: (userId: string) => Promise<UsageStats>;
+};
+
+describe("usage flush idempotency (real PGLite usage_stats + last_activity_seq, Task 2.7)", () => {
+  let server: UsageServerDb;
+
+  before(async () => {
+    server = (await import("./server.ts")) as unknown as UsageServerDb;
+  });
+
+  it("starts from a genuine empty account (no seeded rows)", async () => {
+    const u = await server.readAccountUsage("usage-empty-user");
+    assert.deepEqual(
+      u,
+      { seconds: 0, spawns: 0, exports: 0, peak: 0, generators: {} },
+      "a fresh account must read zeroes, not mock data",
+    );
+  });
+
+  it("a replayed flush with the same/lower seq does not double-count; a higher seq applies (Req 3.3)", async () => {
+    const userId = "usage-idempotent-user";
+
+    // First flush at seq 5 applies against an empty account.
+    const first = await server.mergeAccountUsage(userId, delta({ seconds: 100, spawns: 40 }), 5);
+    assert.equal(first.seconds, 100);
+    assert.equal(first.spawns, 40);
+
+    // Replay the SAME seq (5): a stale flush must be a no-op — totals unchanged.
+    const replaySame = await server.mergeAccountUsage(userId, delta({ seconds: 100, spawns: 40 }), 5);
+    assert.equal(replaySame.seconds, 100, "same-seq replay must not double-count seconds");
+    assert.equal(replaySame.spawns, 40, "same-seq replay must not double-count spawns");
+
+    // A LOWER seq (3) is also stale and must be ignored.
+    const replayLower = await server.mergeAccountUsage(userId, delta({ seconds: 999, spawns: 999 }), 3);
+    assert.equal(replayLower.seconds, 100, "lower-seq flush must not apply");
+    assert.equal(replayLower.spawns, 40, "lower-seq flush must not apply");
+
+    // A strictly-higher seq (6) applies and accumulates on top of the totals.
+    const advance = await server.mergeAccountUsage(userId, delta({ seconds: 20, spawns: 5 }), 6);
+    assert.equal(advance.seconds, 120, "higher-seq flush must accumulate seconds");
+    assert.equal(advance.spawns, 45, "higher-seq flush must accumulate spawns");
+
+    // Persistence: a fresh read reflects the accumulated, non-double-counted totals.
+    const persisted = await server.readAccountUsage(userId);
+    assert.equal(persisted.seconds, 120);
+    assert.equal(persisted.spawns, 45);
+  });
+
+  it("peak is the max of stored and incoming, and never regresses on a smaller delta (Req 3.2)", async () => {
+    const userId = "usage-peak-user";
+
+    // Establish a peak of 1000 at seq 1.
+    const a = await server.mergeAccountUsage(userId, delta({ peak: 1000 }), 1);
+    assert.equal(a.peak, 1000);
+
+    // A higher incoming peak (5000) at seq 2 raises the stored peak to the max.
+    const b = await server.mergeAccountUsage(userId, delta({ peak: 5000 }), 2);
+    assert.equal(b.peak, 5000, "peak must rise to the larger incoming value");
+
+    // A lower incoming peak (200) at seq 3 must NOT lower the stored peak — max wins.
+    const c = await server.mergeAccountUsage(userId, delta({ peak: 200 }), 3);
+    assert.equal(c.peak, 5000, "peak must stay at the max, never regress");
+
+    const persisted = await server.readAccountUsage(userId);
+    assert.equal(persisted.peak, 5000);
   });
 });

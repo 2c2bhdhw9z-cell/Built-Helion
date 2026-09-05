@@ -51,6 +51,12 @@ type CreationsServer = {
     name: string,
     config: CreationConfig,
   ) => Promise<CreationRow>;
+  updateCreation: (
+    userId: string,
+    id: string,
+    name: string,
+    config: CreationConfig,
+  ) => Promise<CreationRow | null>;
   listCreations: (userId: string) => Promise<CreationRow[]>;
   deleteCreation: (userId: string, id: string) => Promise<boolean>;
   getPublicCreation: (id: string) => Promise<PublicCreation | null>;
@@ -404,6 +410,119 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
     assert.equal(parsed.spawnKind, "crystal");
     assert.equal(parsed.params.shape, "heart");
     assert.equal(parsed.params.emoji, "♥");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Integration tests: save / list / update round-trips carry updated_at (Task 2.7)
+//
+// EXAMPLE-based integration tests (1-3 cases) against a REAL embedded PGLite
+// database via the glob loader registered at the top of this file — NOT
+// property tests. They exercise the full data layer (insertCreation,
+// updateCreation, listCreations) exactly as the server functions do, with no
+// DB mocking and no seeded rows.
+//
+// Covers:
+//   - save -> list -> update carries `updated_at` (Reqs 1.1, 1.2, 1.3, 2.3)
+//   - owner-scoped list (Req 1.2)
+//   - config equality on re-read (Reqs 1.1, 1.3)
+// ---------------------------------------------------------------------------
+
+describe("creations save/list/update round-trip carries updated_at (real PGLite, Task 2.7)", () => {
+  let server: CreationsServer;
+
+  before(async () => {
+    server = (await import("./server.ts")) as unknown as CreationsServer;
+  });
+
+  it("save -> list -> update carries updated_at (>= created_at) and advances it on edit", async () => {
+    const userId = "rt-updated-at-user";
+    const inserted = await server.insertCreation(userId, "Nebula v1", validConfig());
+
+    // A freshly-saved row carries a modification timestamp (Req 2.3): updated_at
+    // is populated and is not earlier than created_at.
+    assert.ok(inserted.updated_at, "insertCreation must stamp updated_at");
+    const insertedUpdatedMs = new Date(inserted.updated_at).getTime();
+    const insertedCreatedMs = new Date(inserted.created_at).getTime();
+    assert.ok(
+      insertedUpdatedMs >= insertedCreatedMs,
+      "a saved row's updated_at must be >= created_at",
+    );
+
+    // The list projection includes updated_at so the client can reconcile (Req 1.2/2.3).
+    const listed = await server.listCreations(userId);
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].id, inserted.id);
+    assert.ok(listed[0].updated_at, "listCreations must project updated_at");
+    assert.equal(
+      new Date(listed[0].updated_at).getTime(),
+      insertedUpdatedMs,
+      "listed updated_at must equal the stored value",
+    );
+
+    // Edit in place: updateCreation stamps a fresh updated_at that is >= the
+    // original, while created_at is preserved (Reqs 1.3, 2.3).
+    const editedConfig = validConfig();
+    editedConfig.spawnCount = 54_321;
+    const updated = await server.updateCreation(userId, inserted.id, "Nebula v2", editedConfig);
+    assert.ok(updated, "owner update must return the row");
+    assert.equal(updated!.name, "Nebula v2");
+    assert.equal(updated!.config.spawnCount, 54_321);
+    const updatedUpdatedMs = new Date(updated!.updated_at).getTime();
+    assert.ok(
+      updatedUpdatedMs >= insertedUpdatedMs,
+      "update must advance (or hold) updated_at, never move it backwards",
+    );
+    assert.equal(
+      new Date(updated!.created_at).getTime(),
+      insertedCreatedMs,
+      "update must preserve the original created_at",
+    );
+
+    // Re-read reflects the edited name/config and the advanced updated_at.
+    const afterEdit = await server.listCreations(userId);
+    assert.equal(afterEdit.length, 1, "editing must not create a second row");
+    assert.equal(afterEdit[0].name, "Nebula v2");
+    assert.equal(afterEdit[0].config.spawnCount, 54_321);
+    assert.equal(new Date(afterEdit[0].updated_at).getTime(), updatedUpdatedMs);
+  });
+
+  it("update is OWNER-SCOPED: a non-owner edit changes nothing and returns null", async () => {
+    const owner = "rt-owner";
+    const attacker = "rt-attacker";
+    const inserted = await server.insertCreation(owner, "Owned config", validConfig());
+
+    const attempt = await server.updateCreation(attacker, inserted.id, "Hijacked", validConfig());
+    assert.equal(attempt, null, "a non-owner update must report no update (null)");
+
+    // The owner's row is untouched: same name, same config.
+    const ownerList = await server.listCreations(owner);
+    const stillOwned = ownerList.find((r) => r.id === inserted.id);
+    assert.ok(stillOwned, "the owner's row must survive a non-owner update attempt");
+    assert.equal(stillOwned!.name, "Owned config");
+  });
+
+  it("config round-trips EXACTLY on re-read (deep equality, owner-scoped)", async () => {
+    const userId = "rt-config-equality";
+    const config = validConfig();
+    const inserted = await server.insertCreation(userId, "Exact config", config);
+
+    const listed = await server.listCreations(userId);
+    const found = listed.find((r) => r.id === inserted.id);
+    assert.ok(found, "the saved row must list for its owner");
+
+    // The stored config re-reads deep-equal to what was saved — nothing lost or
+    // mutated through the JSON round trip (Reqs 1.1, 1.3).
+    assert.deepEqual(found!.config, config, "re-read config must deep-equal the saved config");
+    assert.deepEqual(found!.config, inserted.config, "list and insert must agree on config");
+
+    // A different user sees none of it (owner scoping, Req 1.2).
+    const otherList = await server.listCreations("rt-config-equality-other");
+    assert.ok(
+      !otherList.some((r) => r.id === inserted.id),
+      "another user must not see this creation",
+    );
   });
 });
 
