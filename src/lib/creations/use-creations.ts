@@ -65,8 +65,10 @@ export function useCreations(): CreationsController {
       const rows = await listCreationsFn();
       setCreations(rows);
     } catch {
-      // Never throw to the page — degrade to whatever we already have.
-      setCreations([]);
+      // Never throw to the page. On a transient fetch failure, RETAIN the last
+      // successfully loaded set instead of discarding it — a sync failure must
+      // not drop local data (Req 2.4). We only clear to [] when the user is
+      // signed out (handled by the early return above).
     }
   }, [userId]);
 
@@ -87,7 +89,9 @@ export function useCreations(): CreationsController {
         if (!cancelled) setCreations(rows);
       })
       .catch(() => {
-        if (!cancelled) setCreations([]);
+        // Retain the last successfully loaded set on a failed fetch instead of
+        // clearing to [] — a sync failure must not discard data (Req 2.4). The
+        // signed-out case clears to [] via the `!userId` branch above.
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
