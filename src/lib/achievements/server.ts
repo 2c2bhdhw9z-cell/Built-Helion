@@ -1,12 +1,18 @@
-import type { AchievementDef } from "./types.ts";
+import { getSql } from "@/lib/db";
+import type { AchievementDef, GrantedAchievement } from "./types.ts";
 
 /**
  * The Achievement_Service data layer.
  *
- * This module currently exposes the static achievement definition table and the
- * PURE first-crossing evaluator. The DB-backed `grantIfEarned` / `listAchievements`
- * functions land in a later task; only the pure logic and the definitions live
- * here for now so they can be unit- and property-tested without a database.
+ * This module exposes the static achievement definition table, the PURE
+ * first-crossing evaluator, and the DB-backed `grantIfEarned` /
+ * `listAchievements` persistence functions.
+ *
+ * The pure parts (`ACHIEVEMENTS`, `evaluateAchievements`) carry no I/O so they
+ * remain unit- and property-testable without a database; the DB functions use
+ * the shared `getSql()` client and back onto the `achievements` table from
+ * migration 0009 (composite primary key `(user_id, achievement_id)`, which
+ * makes first-crossing grants idempotent via `on conflict do nothing`).
  */
 
 /**
@@ -57,4 +63,64 @@ export function evaluateAchievements(
     }
   }
   return newlyEarned;
+}
+
+
+type RawAchievementRow = {
+  achievement_id: string;
+  granted_at: string | Date;
+};
+
+/**
+ * Grant every achievement whose threshold the account's metrics have now first
+ * crossed, then return the account's FULL granted set (Reqs 8.1-8.4).
+ *
+ * The flow is: read the ids already granted to the account, run the PURE
+ * `evaluateAchievements` to find the newly-qualifying ids (first-crossing only),
+ * and insert those rows. The insert uses `on conflict do nothing` against the
+ * `(user_id, achievement_id)` composite primary key so a concurrent flush or a
+ * re-run never double-grants and never errors (idempotent, Req 8.3). Finally the
+ * complete granted set is read back and returned so the caller always sees the
+ * authoritative state — including grants made by a racing request.
+ *
+ * @param userId   the account to grant against
+ * @param metrics  the account's current `peak` and cumulative `seconds` values
+ * @returns        every achievement granted to the account, newest first
+ */
+export async function grantIfEarned(
+  userId: string,
+  metrics: { peak: number; seconds: number },
+): Promise<GrantedAchievement[]> {
+  const sql = await getSql();
+  const existing = await sql<{ achievement_id: string }>`
+    select achievement_id from achievements where user_id = ${userId}
+  `;
+  const current = existing.map((r) => r.achievement_id);
+  const newlyEarned = evaluateAchievements(current, metrics);
+
+  for (const id of newlyEarned) {
+    await sql`
+      insert into achievements (user_id, achievement_id)
+      values (${userId}, ${id})
+      on conflict do nothing
+    `;
+  }
+
+  return listAchievements(userId);
+}
+
+/**
+ * Return every achievement granted to the account, newest first (Req 8.4).
+ * Signed-out callers never reach this — the client hook returns an empty set
+ * when signed out (Req 8.5) — so this always operates on a real account id.
+ */
+export async function listAchievements(userId: string): Promise<GrantedAchievement[]> {
+  const sql = await getSql();
+  const rows = await sql<RawAchievementRow>`
+    select achievement_id, granted_at
+    from achievements
+    where user_id = ${userId}
+    order by granted_at desc, achievement_id asc
+  `;
+  return rows.map((row) => ({ id: row.achievement_id, grantedAt: row.granted_at }));
 }

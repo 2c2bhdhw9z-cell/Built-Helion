@@ -177,5 +177,19 @@ export async function mergeAccountUsage(
       last_activity_seq = excluded.last_activity_seq,
       updated_at = now()
   `;
+
+  // Server-side achievement grants (Reqs 8.1, 8.2): once a delta is applied, the
+  // account's updated peak / cumulative seconds may have first crossed an
+  // achievement threshold, so grant against the NEW totals. Best-effort and
+  // dynamically imported: a grant failure must never fail the usage flush, and
+  // the dynamic import keeps the achievements module (and its DB coupling) off
+  // any client bundle that might reach this file's exports.
+  try {
+    const { grantIfEarned } = await import("@/lib/achievements/server");
+    await grantIfEarned(userId, { peak: next.peak, seconds: next.seconds });
+  } catch {
+    /* achievement granting is best-effort — never block the flush */
+  }
+
   return next;
 }

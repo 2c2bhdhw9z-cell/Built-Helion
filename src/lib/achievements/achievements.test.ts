@@ -1,15 +1,33 @@
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import fc from "fast-check";
-import { ACHIEVEMENTS, evaluateAchievements } from "./server.ts";
+import type { AchievementDef } from "./types.ts";
 
-// server.ts here is PURE: it only carries a `import type { AchievementDef }`
-// from ./types.ts, so importing it runs no DB / server side effects and needs
-// no PGLite loader hook (unlike creations.test.ts). A plain static import is
-// sufficient and keeps this suite a pure-logic property test.
+// server.ts exposes the pure `ACHIEVEMENTS` / `evaluateAchievements` this suite
+// exercises, but it now also imports `@/lib/db` for the DB-backed grant layer
+// (task 6.6). The `@/` alias only resolves once the PGLite glob loader hook is
+// registered, so — matching creations.test.ts — we register the hook and import
+// server.ts dynamically inside a before() hook (a static import would be hoisted
+// and resolved before register() runs). This stays a pure-logic property test:
+// merely importing the module opens no database and the DB functions are never
+// called here.
+register("../feedback/pglite-glob-loader.mjs", import.meta.url);
 
-/** Every achievement id defined in the static table. */
-const ALL_IDS = ACHIEVEMENTS.map((def) => def.id);
+let ACHIEVEMENTS: AchievementDef[];
+let evaluateAchievements: (
+  current: string[],
+  metrics: { peak: number; seconds: number },
+) => string[];
+let ALL_IDS: string[];
+
+before(async () => {
+  const server = await import("./server.ts");
+  ACHIEVEMENTS = server.ACHIEVEMENTS;
+  evaluateAchievements = server.evaluateAchievements;
+  // Every achievement id defined in the static table.
+  ALL_IDS = ACHIEVEMENTS.map((def) => def.id);
+});
 
 /**
  * Reference oracle, computed independently of the implementation: the ids whose
@@ -45,13 +63,17 @@ describe("evaluateAchievements — Property 7 (fast-check, >=100 runs)", () => {
     fc.constantFrom(0, 1, 999_999, 1_000_000, 1_000_001, 86_399, 86_400, 86_401),
   );
   const metricsArb = fc.record({ peak: metric, seconds: metric });
-  const grantedArb = fc.uniqueArray(
-    fc.oneof(fc.constantFrom(...ALL_IDS), fc.constantFrom("ghost", "legacy-id")),
-  );
+  // `ALL_IDS` is populated in the before() hook, so build the id-dependent
+  // arbitrary lazily (inside each test body) rather than at describe-collection
+  // time when it is still undefined.
+  const grantedArb = () =>
+    fc.uniqueArray(
+      fc.oneof(fc.constantFrom(...ALL_IDS), fc.constantFrom("ghost", "legacy-id")),
+    );
 
   it("grants exactly the not-yet-granted ids whose thresholds are met", () => {
     fc.assert(
-      fc.property(grantedArb, metricsArb, (granted, metrics) => {
+      fc.property(grantedArb(), metricsArb, (granted, metrics) => {
         const grantedSet = new Set(granted);
         const result = evaluateAchievements(granted, metrics);
         const expected = expectedNewGrants(grantedSet, metrics);
@@ -79,7 +101,7 @@ describe("evaluateAchievements — Property 7 (fast-check, >=100 runs)", () => {
       seconds: fc.integer({ min: 0, max: 5_000_000 }),
     });
     fc.assert(
-      fc.property(grantedArb, metricsArb, higher, (granted, metrics, bump) => {
+      fc.property(grantedArb(), metricsArb, higher, (granted, metrics, bump) => {
         // Same or strictly higher metrics — idempotence is about re-running at
         // an equal-or-higher metric level, so the first pass is evaluated at the
         // higher metrics too. (Grants earned only at the lower metrics are a
