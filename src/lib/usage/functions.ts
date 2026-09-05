@@ -26,6 +26,8 @@ export const flushUsageFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => deltaSchema.parse(input))
   .handler(async ({ data, context }): Promise<UsageStats> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
     const { mergeAccountUsage } = await import("./server.ts");
     return mergeAccountUsage(context.userId, data);
   });

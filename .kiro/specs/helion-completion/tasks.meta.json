@@ -1,0 +1,821 @@
+{
+  "pbtResults": {
+    "2.3 Write property test for timestamp reconciliation": {
+      "status": "passed",
+      "lastRunTimestamp": 1788622171304
+    }
+  },
+  "executionHistory": {
+    "1.1 Add `fast-check` as a dev dependency": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290458
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621296303
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621489029
+      }
+    ],
+    "1.2 Write the additive migration `migrations/0009_completion.sql`": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290462
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621297330
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621489963
+      }
+    ],
+    "2.1 Extend creation types with the reconciliation key": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290465
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621494007
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621631766
+      }
+    ],
+    "2.2 Implement the pure `resolveByTimestamp` helper": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290469
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621495387
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621633213
+      }
+    ],
+    "2.4 Implement the pure usage-merge math helper": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290472
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621496338
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621634118
+      }
+    ],
+    "2.6 Wire idempotent flush + updated_at into the usage/creation data layers": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290475
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621846433
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622059769
+      }
+    ],
+    "2.8 Implement the `assertNotSuspended` write gate": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290481
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621847883
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622062119
+      }
+    ],
+    "2.9 Add the ephemeral-backend server function and wire the gate into writes": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290487
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622361758
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622889237
+      }
+    ],
+    "2.10 Update the Sync_Client hook for non-destructive refresh": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290494
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623186779
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623474788
+      }
+    ],
+    "2.11 Surface the ephemeral-storage indicator in the UI": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290500
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623193029
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623476184
+      }
+    ],
+    "3. Checkpoint — Area 1": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290507
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625512046
+      }
+    ],
+    "4.1 Create the admin data layer": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290516
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621848781
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622063743
+      }
+    ],
+    "4.2 Create admin server functions behind the shared gate": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290520
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622363207
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622657561
+      }
+    ],
+    "4.4 Build the admin dashboard UI (accounts + analytics)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290524
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623188226
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623668056
+      }
+    ],
+    "5. Checkpoint — Area 2": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290527
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625512989
+      }
+    ],
+    "6.1 Implement the pure `rankRows` helper and leaderboard types": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290530
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621497737
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621635067
+      }
+    ],
+    "6.3 Implement the leaderboard data layer": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290533
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621849732
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622060669
+      }
+    ],
+    "6.4 Implement the pure `evaluateAchievements` helper and definitions": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290537
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621498441
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621636137
+      }
+    ],
+    "6.6 Implement the achievements data layer": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290541
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622364153
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622656608
+      }
+    ],
+    "6.8 Add leaderboard + achievements server functions and REST route": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290544
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622899161
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623043610
+      }
+    ],
+    "6.9 Add client hooks and UI for leaderboard + achievements": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290547
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623189061
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623477134
+      }
+    ],
+    "7. Checkpoint — Area 3": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290551
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625513943
+      }
+    ],
+    "8.1 Implement the pure scoring objective": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290554
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621639738
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621840704
+      }
+    ],
+    "8.2 Implement the pure closed-loop tuner": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290557
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621850742
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622063017
+      }
+    ],
+    "8.3 Implement the pure style mapper": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290562
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621641141
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621837719
+      }
+    ],
+    "8.5 Branch the AI entry point by mode": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290565
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622365050
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622655215
+      }
+    ],
+    "8.6 Wire tuner/style modes into the AI client UI": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290569
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623484976
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623666118
+      }
+    ],
+    "9. Checkpoint — Area 4": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290572
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625514932
+      }
+    ],
+    "10.1 Implement the WebSocket control handler": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290575
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621642083
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621838668
+      }
+    ],
+    "10.2 Deliver live + fall back to the polling queue without double-delivery": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290578
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622673179
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623183027
+      }
+    ],
+    "11.1 Implement the telemetry data layer and types": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290582
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621642883
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621840066
+      }
+    ],
+    "11.3 Add telemetry submit/aggregate functions and opt-in client": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290585
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622674126
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622891027
+      }
+    ],
+    "12.1 Implement the featured filter and admin mark": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290589
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622366154
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622658510
+      }
+    ],
+    "12.3 Add curation server function and curated-row UI": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290592
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623192053
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623478213
+      }
+    ],
+    "13.1 Implement the cross-account audit query": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290595
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622675169
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622890141
+      }
+    ],
+    "13.2 Add the gated audit server function and admin audit UI": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290598
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623485930
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623667068
+      }
+    ],
+    "14. Final checkpoint — full suite": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621290601
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625518041
+      }
+    ],
+    "1. Project setup for testing and shared plumbing": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788621489968
+      }
+    ],
+    "2.3 Write property test for timestamp reconciliation": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622089237
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622348547
+      }
+    ],
+    "2.5 Write property tests for usage merge": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622090634
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622349947
+      }
+    ],
+    "6.2 Write property tests for leaderboard ranking": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622091587
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622350895
+      }
+    ],
+    "6.5 Write property test for achievement evaluation": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622092545
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622351846
+      }
+    ],
+    "8.4 Write property tests for tuner and style": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622093573
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622352709
+      }
+    ],
+    "11. Polish — Opt-in anonymous telemetry (Req 12)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788622891030
+      }
+    ],
+    "10. Polish — WebSocket control channel (Req 11)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623183031
+      }
+    ],
+    "2. Area 1 — Cloud Save & Hosted-DB persistence (Reqs 1–3)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623476188
+      }
+    ],
+    "6. Area 3 — Leaderboards & Achievements (Reqs 7–8)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623477138
+      }
+    ],
+    "12. Polish — Editorial curation row (Req 13)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623478216
+      }
+    ],
+    "8. Area 4 — AI Tuning & Style (Reqs 9–10)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623666122
+      }
+    ],
+    "13. Polish — Admin-wide audit view (Req 14)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623667071
+      }
+    ],
+    "4. Area 2 — Admin Dashboard (Reqs 4–6)": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623668060
+      }
+    ],
+    "4.3 Write integration tests for admin data + authorization": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623673284
+      },
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623854786
+      }
+    ],
+    "6.7 Write integration tests for leaderboard + achievements": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623674185
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788624651669
+      }
+    ],
+    "2.7 Write integration tests for save/list/usage round-trips": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623675239
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788624510214
+      }
+    ],
+    "10.3 Write example/integration tests for the control channel": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623678423
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625398671
+      }
+    ],
+    "12.2 Write property + integration tests for curation": [
+      {
+        "executionId": "cac12040-9679-4ebe-afdc-c0cd9ef6b61d",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788623679145
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625235054
+      }
+    ],
+    "11.2 Write property test for telemetry sample shape": [
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625526500
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625737332
+      }
+    ],
+    "13.3 Write integration test for the audit view": [
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625527098
+      },
+      {
+        "executionId": "d43391a6-464e-405b-97ed-2de77aa68846",
+        "chatSessionId": "404f9c58-19ce-4dcc-9452-97f52b059918",
+        "timestamp": 1788625739295
+      }
+    ]
+  }
+}

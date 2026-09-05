@@ -13,6 +13,7 @@ type RawCreationRow = {
   name: string;
   config: unknown;
   created_at: string | Date;
+  updated_at?: string | Date;
   is_public?: boolean | number | string;
 };
 
@@ -34,6 +35,11 @@ function toCreationRow(row: RawCreationRow): CreationRow | null {
     name: row.name,
     config,
     created_at: row.created_at,
+    // `updated_at` is the last-write-wins reconciliation key (Req 2.2/2.3).
+    // A query that doesn't project it (older/narrow SELECTs) falls back to
+    // `created_at`, which is a valid lower bound (a fresh row's updated_at
+    // equals its created_at), so the field is always populated and honest.
+    updated_at: row.updated_at ?? row.created_at,
     is_public: asBool(row.is_public),
   };
 }
@@ -45,10 +51,14 @@ export async function insertCreation(
 ): Promise<CreationRow> {
   const sql = await getSql();
   const id = crypto.randomUUID();
+  // Stamp `updated_at = now()` on save so the row carries a modification
+  // timestamp for last-write-wins reconciliation (Req 2.3). A fresh row's
+  // updated_at therefore equals its created_at (the column defaults to now()
+  // too, but we set it explicitly so the contract holds regardless of default).
   const rows = await sql<RawCreationRow>`
-    insert into creations (id, user_id, name, config)
-    values (${id}, ${userId}, ${name}, ${JSON.stringify(config)})
-    returning id, user_id, name, config, created_at, is_public
+    insert into creations (id, user_id, name, config, updated_at)
+    values (${id}, ${userId}, ${name}, ${JSON.stringify(config)}, now())
+    returning id, user_id, name, config, created_at, updated_at, is_public
   `;
   try {
     const { writeAudit } = await import("@/lib/audit/server");
@@ -61,10 +71,39 @@ export async function insertCreation(
   return saved;
 }
 
+/**
+ * Edit a creation in place (owner-scoped), stamping a fresh `updated_at` so the
+ * modified row wins last-write-wins reconciliation against a stale copy on
+ * another device (Req 2.2/2.3). Returns the updated row, or null when no
+ * owner-matching row exists (nothing updated).
+ */
+export async function updateCreation(
+  userId: string,
+  id: string,
+  name: string,
+  config: CreationConfig,
+): Promise<CreationRow | null> {
+  const sql = await getSql();
+  const rows = await sql<RawCreationRow>`
+    update creations
+    set name = ${name}, config = ${JSON.stringify(config)}, updated_at = now()
+    where id = ${id} and user_id = ${userId}
+    returning id, user_id, name, config, created_at, updated_at, is_public
+  `;
+  if (rows.length === 0) return null;
+  try {
+    const { writeAudit } = await import("@/lib/audit/server");
+    void writeAudit(userId, "creation.update", name);
+  } catch {
+    /* audit is best-effort */
+  }
+  return toCreationRow(rows[0]);
+}
+
 export async function listCreations(userId: string): Promise<CreationRow[]> {
   const sql = await getSql();
   const rows = await sql<RawCreationRow>`
-    select id, user_id, name, config, created_at, is_public
+    select id, user_id, name, config, created_at, updated_at, is_public
     from creations
     where user_id = ${userId}
     order by created_at desc
@@ -235,4 +274,71 @@ export async function toggleLike(
   `;
   const likeCount = Number(countRows[0]?.n ?? 0) || 0;
   return { liked: !exists[0], likeCount };
+}
+
+/**
+ * Pure last-write-wins reconciliation (Req 2.2, design Property 1).
+ *
+ * Given two same-id creation records that each carry an `updated_at` value,
+ * return the one whose `updated_at` is later. This performs NO I/O — it is a
+ * pure decision function so it can be exercised directly by property tests.
+ *
+ * `updated_at` may be either an ISO `string` (as seen on the client after the
+ * server-function boundary serializes the row) or a `Date` (as the pg/PGLite
+ * drivers hand it back on the server); both are normalized to epoch millis for
+ * the comparison.
+ *
+ * Ties resolve deterministically to `remote`: the server-authoritative record
+ * wins when the timestamps are equal (or when either timestamp is unparseable,
+ * so a garbage local clock can never displace the stored row).
+ */
+export function resolveByTimestamp<T extends { updated_at: string | Date }>(
+  local: T,
+  remote: T,
+): T {
+  const localMs = toEpochMs(local.updated_at);
+  const remoteMs = toEpochMs(remote.updated_at);
+  // Strictly-later local wins; equal or unparseable falls through to remote.
+  return localMs > remoteMs ? local : remote;
+}
+
+/**
+ * Normalize an `updated_at` value (ISO string or Date) to epoch milliseconds.
+ * Returns `NaN` for an unparseable value so any comparison against it is false,
+ * which makes `resolveByTimestamp` fall back to the server-authoritative record.
+ */
+function toEpochMs(value: string | Date): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
+
+/**
+ * Editorial curated row (Reqs 13.1, 13.4). Returns ONLY creations that are BOTH
+ * `featured = true` AND `is_public = true` — a non-public creation is excluded
+ * even when its featured flag is set. Ordered by `created_at desc` to match the
+ * partial index `creations_featured_idx (created_at desc) where featured = true
+ * and is_public = true`, so the query is index-covered.
+ *
+ * Reuses the same `LibraryItem` projection as `listLibrary` (author display
+ * name via `authorLabel`, a correlated like count, and `toLibraryItem`). This
+ * is a public/discovery surface, so there is no viewer context and owned likes
+ * are not marked (empty `likedIds`); `liked` therefore reflects only any
+ * stored `liked` flag, exactly as the signed-out library feed does.
+ */
+export async function listFeatured(): Promise<LibraryItem[]> {
+  const sql = await getSql();
+  const rows = await sql<LibraryRow>`
+    select c.id, c.name, c.config, c.created_at,
+      coalesce(nullif(p.display_name, ''), '') as author,
+      (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
+    from creations c
+    left join profiles p on p.user_id = c.user_id
+    where c.featured = true and c.is_public = true
+    order by c.created_at desc
+    limit 48
+  `;
+  const likedIds = new Set<string>();
+  return rows
+    .map((row) => toLibraryItem(row, likedIds))
+    .filter((row): row is LibraryItem => row !== null);
 }
