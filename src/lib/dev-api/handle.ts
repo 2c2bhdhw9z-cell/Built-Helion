@@ -50,6 +50,7 @@ export async function handleV1(request: Request): Promise<Response> {
       version: 1,
       endpoints: {
         "GET /api/v1/library": "Public community library (empty until someone publishes)",
+        "GET /api/v1/leaderboard": "Public global leaderboard of top creators (no auth)",
         "GET /api/v1/creations": "Your saved creations (Bearer)",
         "POST /api/v1/creations": "Save a scene { name, config }",
         "GET /api/v1/creations/:id": "Load a creation you own (Bearer) or a public one",
@@ -72,6 +73,15 @@ export async function handleV1(request: Request): Promise<Response> {
     const { listLibrary } = await import("@/lib/creations/server");
     const sort = url.searchParams.get("sort") === "featured" ? "featured" : "recent";
     const items = await listLibrary(sort, null);
+    return json(200, { items });
+  }
+
+  if (request.method === "GET" && path === "leaderboard") {
+    const { listLeaderboard } = await import("@/lib/leaderboard/server");
+    const raw = url.searchParams.get("limit");
+    const parsed = raw === null ? undefined : Number.parseInt(raw, 10);
+    const limit = typeof parsed === "number" && Number.isFinite(parsed) ? parsed : undefined;
+    const items = await listLeaderboard(limit);
     return json(200, { items });
   }
 
