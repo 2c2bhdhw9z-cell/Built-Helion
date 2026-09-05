@@ -11,9 +11,11 @@ import {
   type PlayProgress,
 } from "@/lib/play/progress";
 import { emptyUsage, formatDuration, readUsage, type UsageStats } from "@/lib/play/analytics";
-import { listLibraryFn } from "@/lib/creations/functions";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getUsageFn } from "@/lib/usage/functions";
+import { listLeaderboardFn } from "@/lib/leaderboard/functions";
+import type { LeaderboardEntry } from "@/lib/leaderboard/types";
+import { useAchievements, achievementLabel } from "@/lib/achievements/use-achievements";
 
 export function PlayDialog() {
   const open = useLab((s) => s.playOpen);
@@ -22,21 +24,18 @@ export function PlayDialog() {
   const [progress, setProgress] = useState<PlayProgress>(() => readProgress());
   const [usage, setUsage] = useState<UsageStats>(() => readUsage());
   const [account, setAccount] = useState<UsageStats | null>(null);
-  const [board, setBoard] = useState<{ name: string; likes: number }[]>([]);
+  const [board, setBoard] = useState<LeaderboardEntry[]>([]);
+  // Signed-in achievements; an empty set when signed out. Never blocks the sim.
+  const { achievements } = useAchievements();
 
   useEffect(() => {
     if (!open) return;
     setProgress(readProgress());
     setUsage(readUsage());
-    void listLibraryFn({ data: { sort: "featured" } })
-      .then((items) =>
-        setBoard(
-          items.slice(0, 8).map((it) => ({
-            name: it.name,
-            likes: it.likeCount ?? 0,
-          })),
-        ),
-      )
+    // Public global leaderboard — no auth required (Req 7.5). Best-effort: an
+    // error just leaves the board empty rather than surfacing to the page.
+    void listLeaderboardFn({ data: { limit: 8 } })
+      .then((rows) => setBoard(rows))
       .catch(() => setBoard([]));
     if (user) {
       void getUsageFn()
@@ -117,22 +116,42 @@ export function PlayDialog() {
               </section>
             ) : null}
             <section className="flex flex-col gap-2">
-              <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Most liked</h3>
+              <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Leaderboard</h3>
               {board.length === 0 ? (
-                <p className="text-2xs text-faint">Library is empty — publish something.</p>
+                <p className="text-2xs text-faint">
+                  No ranked creators yet — publish something to get on the board.
+                </p>
               ) : (
                 <ol className="flex flex-col gap-1 text-xs">
-                  {board.map((row, i) => (
-                    <li key={`${row.name}-${i}`} className="flex justify-between gap-2">
+                  {board.map((row) => (
+                    <li key={row.userId} className="flex justify-between gap-2">
                       <span className="truncate text-fg">
-                        {i + 1}. {row.name}
+                        {row.rank}. {row.displayName}
                       </span>
-                      <span className="font-mono text-faint">{row.likes}</span>
+                      <span className="font-mono text-faint">{row.score.toLocaleString()}</span>
                     </li>
                   ))}
                 </ol>
               )}
             </section>
+            {achievements.length > 0 ? (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Achievements</h3>
+                <ul className="flex flex-col gap-1.5">
+                  {achievements.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex items-baseline justify-between gap-2 rounded-sm bg-elevated/50 px-2 py-1.5 text-xs text-fg"
+                    >
+                      <span>{achievementLabel(a.id)}</span>
+                      <span className="font-mono text-2xs text-faint">
+                        {new Date(a.grantedAt).toLocaleDateString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </div>
         </Dialog.Content>
       </Dialog.Portal>
