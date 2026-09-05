@@ -236,3 +236,38 @@ export async function toggleLike(
   const likeCount = Number(countRows[0]?.n ?? 0) || 0;
   return { liked: !exists[0], likeCount };
 }
+
+/**
+ * Pure last-write-wins reconciliation (Req 2.2, design Property 1).
+ *
+ * Given two same-id creation records that each carry an `updated_at` value,
+ * return the one whose `updated_at` is later. This performs NO I/O — it is a
+ * pure decision function so it can be exercised directly by property tests.
+ *
+ * `updated_at` may be either an ISO `string` (as seen on the client after the
+ * server-function boundary serializes the row) or a `Date` (as the pg/PGLite
+ * drivers hand it back on the server); both are normalized to epoch millis for
+ * the comparison.
+ *
+ * Ties resolve deterministically to `remote`: the server-authoritative record
+ * wins when the timestamps are equal (or when either timestamp is unparseable,
+ * so a garbage local clock can never displace the stored row).
+ */
+export function resolveByTimestamp<T extends { updated_at: string | Date }>(
+  local: T,
+  remote: T,
+): T {
+  const localMs = toEpochMs(local.updated_at);
+  const remoteMs = toEpochMs(remote.updated_at);
+  // Strictly-later local wins; equal or unparseable falls through to remote.
+  return localMs > remoteMs ? local : remote;
+}
+
+/**
+ * Normalize an `updated_at` value (ISO string or Date) to epoch milliseconds.
+ * Returns `NaN` for an unparseable value so any comparison against it is false,
+ * which makes `resolveByTimestamp` fall back to the server-authoritative record.
+ */
+function toEpochMs(value: string | Date): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
