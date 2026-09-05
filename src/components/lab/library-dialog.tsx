@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { currentCreationConfig, useLab } from "@/store/lab-store";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
+  listFeaturedFn,
   listLibraryAuthFn,
   listLibraryFn,
   toggleLikeFn,
@@ -30,7 +31,7 @@ import {
 import type { TeamMember, TeamRow } from "@/lib/teams/types";
 import { Chip } from "./controls";
 
-type Sort = "recent" | "featured";
+type Sort = "recent" | "featured" | "curated";
 type Tab = "community" | "team";
 
 export function LibraryDialog() {
@@ -57,9 +58,17 @@ export function LibraryDialog() {
     if (!open || isPending || tab !== "community") return;
     let cancelled = false;
     setLoading(true);
-    const load = signedIn
-      ? listLibraryAuthFn({ data: { sort } })
-      : listLibraryFn({ data: { sort } });
+    // The editorial curated row (Req 13) is a distinct public surface fed by
+    // `listFeaturedFn` (featured AND public) — not the most-liked "featured"
+    // sort of the community feed. It needs no auth, so both signed-in and
+    // signed-out viewers read it the same way. The recent/featured rows keep
+    // using the library functions (auth variant for accurate heart state).
+    const load =
+      sort === "curated"
+        ? listFeaturedFn()
+        : signedIn
+          ? listLibraryAuthFn({ data: { sort } })
+          : listLibraryFn({ data: { sort } });
     void load
       .then((rows) => {
         if (!cancelled) setItems(rows);
@@ -250,6 +259,13 @@ export function LibraryDialog() {
                 </Chip>
                 <Chip active={sort === "featured"} onClick={() => setSort("featured")}>
                   Featured
+                </Chip>
+                <Chip
+                  active={sort === "curated"}
+                  onClick={() => setSort("curated")}
+                  data-testid="library-sort-curated"
+                >
+                  Curated
                 </Chip>
               </>
             ) : null}
@@ -480,10 +496,21 @@ export function LibraryDialog() {
               <p className="py-8 text-center text-2xs text-faint">Loading…</p>
             ) : items.length === 0 ? (
               <div className="flex flex-col items-center gap-1 rounded-md border border-dashed border-border py-12 text-center">
-                <p className="text-sm text-fg">Nothing published yet</p>
-                <p className="text-2xs text-faint">
-                  Save a creation and toggle Publish to appear here.
-                </p>
+                {sort === "curated" ? (
+                  <>
+                    <p className="text-sm text-fg">No curated picks yet</p>
+                    <p className="text-2xs text-faint">
+                      Hand-picked creations show up here once an editor features them.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-fg">Nothing published yet</p>
+                    <p className="text-2xs text-faint">
+                      Save a creation and toggle Publish to appear here.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <ul className="flex flex-col gap-2">

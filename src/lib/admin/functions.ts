@@ -50,6 +50,15 @@ const accountActionSchema = z.object({
   token: z.string().optional(),
 });
 
+/** Validates a set-featured request: the creation id being (un)marked, the
+ * desired featured state, plus the optional shared admin token (validated
+ * server-side, never trusted client-side). */
+const setFeaturedSchema = z.object({
+  creationId: z.string().min(1),
+  featured: z.boolean(),
+  token: z.string().optional(),
+});
+
 /**
  * List every account with aggregate creation/like counts and its suspended flag
  * (Req 5.1). ADMIN-ONLY: `assertAdmin` runs first; a non-admin caller throws
@@ -124,6 +133,30 @@ export const reinstateAccountFn = createServerFn({ method: "POST" })
     const adminId = await resolveAdminActorId();
     const { reinstateAccount } = await import("./server.ts");
     await reinstateAccount(adminId, data.targetId);
+    return { ok: true };
+  });
+
+/**
+ * Mark or unmark a public creation as featured for the editorial curated row
+ * (Reqs 13.2, 13.3). ADMIN-ONLY: `assertAdmin` runs FIRST — a non-admin caller
+ * throws ForbiddenError, which is mapped to `{ ok: false }` so no state changes
+ * and no privileged surface leaks (mirrors suspend/reinstate). On authorization
+ * the data layer sets `creations.featured` and, when setting the mark, records
+ * an audit entry attributed to the acting admin (resolved the same way as the
+ * account mutations); removing a mark clears the flag without an audit entry.
+ */
+export const setFeaturedFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => setFeaturedSchema.parse(input))
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    try {
+      const { assertAdmin } = await import("@/lib/feedback/admin-auth.server.ts");
+      await assertAdmin(data.token);
+    } catch {
+      return { ok: false };
+    }
+    const adminId = await resolveAdminActorId();
+    const { setFeatured } = await import("./server.ts");
+    await setFeatured(adminId, data.creationId, data.featured);
     return { ok: true };
   });
 
