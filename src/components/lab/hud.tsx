@@ -56,6 +56,7 @@ import { shareOrCopy } from "@/lib/platform/share";
 import type { ExportSize, RecordFps } from "@/lib/capture/composite";
 import { Chip } from "./controls";
 import { SessionHudButton } from "./session-dialog";
+import { EphemeralBadge } from "./ephemeral-badge";
 
 /**
  * Optional account affordance on the right of the HUD. Signed in -> the identity
@@ -511,6 +512,7 @@ export function Hud() {
         </div>
 
         <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-border pl-1">
+          <EphemeralBadge />
           <Button
             variant={entitled ? "outline" : "default"}
             size="sm"
