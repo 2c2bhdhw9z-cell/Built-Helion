@@ -3,6 +3,7 @@ import { resolveToken } from "./tokens";
 import { allowV1 } from "./rate-limit";
 import { writeAudit } from "@/lib/audit/server";
 import { getSql } from "@/lib/db";
+import { attachControlSocket, pushToUser } from "./socket";
 
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -41,6 +42,32 @@ export async function handleV1(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/v1\/?/, "").replace(/\/$/, "");
+
+  // WebSocket control channel (Req 11.1/11.2). A `new WebSocket()` upgrade
+  // arrives here as a GET carrying `Upgrade: websocket`. We attach the
+  // control-channel hooks (auth + peer registry live in ./socket.ts) so
+  // crossws' default resolver reads them back off the request after this
+  // handler returns and performs the 101 upgrade. Auth is enforced inside the
+  // hooks' `upgrade` step, so no bearer check is needed here.
+  //
+  // Host-capability assumption (Req 11.4): this relies on the runtime
+  // supporting a socket upgrade via crossws. On hosts without socket-upgrade
+  // support the returned 426 is inert (no peer ever connects) and clients fall
+  // back to the `api_commands` polling queue below — the queue stays the
+  // transport and remains at-most-once.
+  if (
+    path === "control/socket" &&
+    request.method === "GET" &&
+    request.headers.get("upgrade")?.toLowerCase() === "websocket"
+  ) {
+    attachControlSocket(request);
+    return new Response(null, {
+      status: 426,
+      statusText: "Upgrade Required",
+      headers: { ...CORS, upgrade: "websocket", connection: "Upgrade" },
+    });
+  }
+
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
   if (!allowV1(ip)) return json(429, { error: "Slow down" });
 
@@ -61,11 +88,12 @@ export async function handleV1(request: Request): Promise<Response> {
         "GET /api/v1/webhooks/deliveries": "Last webhook deliveries (Bearer)",
         "POST /api/v1/control": "Queue a command { type: spawn|params, ... } for a listening lab",
         "GET /api/v1/control": "Pop pending commands (Bearer)",
+        "GET /api/v1/control/socket": "WebSocket control channel; bearer token via sec-websocket-protocol (falls back to the polling queue)",
         "GET /sdk/helion.js": "JS helper",
         "GET /sdk/helion.py": "Python helper",
       },
       notes:
-        "No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Live control is a command queue. Empty lists are empty — nothing is seeded.",
+        "No FFmpeg farm, no multi-GPU, no headless GPU. A WebSocket control channel is available at /api/v1/control/socket when the host supports socket upgrades; where it does not, the polling command queue (POST/GET /api/v1/control) is the fallback transport and delivers each command at most once. Empty lists are empty — nothing is seeded.",
     });
   }
 
@@ -172,8 +200,17 @@ export async function handleV1(request: Request): Promise<Response> {
     const sql = await getSql();
     const id = crypto.randomUUID();
     await sql`insert into api_commands (id, user_id, payload) values (${id}, ${auth.userId}, ${JSON.stringify(payload)})`;
-    void writeAudit(auth.userId, "api.control", "queued");
-    return json(202, { id });
+    // Live delivery over the WebSocket control channel (Req 11.3). If at least
+    // one listening lab received the command, immediately stamp `consumed_at`
+    // so the GET polling fallback will not re-emit it — the live push and the
+    // queue never double-deliver (at-most-once, Req 11.4). If no peer is
+    // connected (returns 0), leave the row unconsumed so polling delivers it.
+    const delivered = pushToUser(auth.userId, payload);
+    if (delivered >= 1) {
+      await sql`update api_commands set consumed_at = now() where id = ${id}`;
+    }
+    void writeAudit(auth.userId, "api.control", delivered >= 1 ? "delivered" : "queued");
+    return json(202, { id, delivered });
   }
 
   if (path === "control" && request.method === "GET") {
