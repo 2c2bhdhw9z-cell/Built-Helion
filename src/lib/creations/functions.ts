@@ -16,6 +16,8 @@ export const saveCreationFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => saveCreationSchema.parse(input))
   .handler(async ({ data, context }): Promise<CreationRow> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
     const { insertCreation } = await import("./server.ts");
     return insertCreation(context.userId, data.name, data.config);
   });
@@ -40,6 +42,8 @@ export const setCreationPublicFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => setPublicSchema.parse(input))
   .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
     const { setCreationPublic } = await import("./server.ts");
     const ok = await setCreationPublic(context.userId, data.id, data.isPublic);
     return { ok };
@@ -49,6 +53,8 @@ export const toggleLikeFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => toggleLikeSchema.parse(input))
   .handler(async ({ data, context }): Promise<{ liked: boolean; likeCount: number }> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
     const { toggleLike } = await import("./server.ts");
     return toggleLike(context.userId, data.id);
   });

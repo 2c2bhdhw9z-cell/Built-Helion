@@ -13,6 +13,8 @@ export const updateProfileFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => updateProfileSchema.parse(input))
   .handler(async ({ data, context }): Promise<Profile> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
     const { upsertProfile } = await import("./server.ts");
     return upsertProfile(context.userId, data);
   });
