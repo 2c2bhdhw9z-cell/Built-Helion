@@ -268,7 +268,11 @@ export type SharedCreationInput = z.infer<typeof sharedCreationSchema>;
  * `created_at` is a `timestamptz` column: the pg/PGLite drivers parse it into a
  * JS `Date` on the server and, once serialized across the server-function
  * boundary, an ISO `string` on the client — typed `string | Date` so both
- * shapes are honest (mirrors FeedbackItem).
+ * shapes are honest (mirrors FeedbackItem). `updated_at` follows the same
+ * `timestamptz` → `string | Date` contract and is the reconciliation key for
+ * last-write-wins conflict resolution across devices (Req 2.2/2.3). `featured`
+ * is the optional editorial-curation flag (Req 13); it is absent on older rows
+ * and on backends/queries that don't project it, so it is optional.
  */
 export interface CreationRow {
   id: string;
@@ -276,7 +280,9 @@ export interface CreationRow {
   name: string;
   config: CreationConfig;
   created_at: string | Date;
+  updated_at: string | Date;
   is_public: boolean;
+  featured?: boolean;
 }
 
 /**
