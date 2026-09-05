@@ -101,15 +101,63 @@ export async function readAccountUsage(userId: string): Promise<UsageStats> {
   };
 }
 
-export async function mergeAccountUsage(userId: string, delta: UsageStats): Promise<UsageStats> {
-  const current = await readAccountUsage(userId);
-  // Delegate the arithmetic to the pure helper. Passing storedSeq=0/activitySeq=1
-  // always applies the delta, preserving the existing (non-idempotent) behavior;
-  // the seq-guarded flush is wired in a later task.
-  const { next } = mergeUsageMath(current, delta, 0, 1);
+/**
+ * Merge a usage delta into an account's totals (Req 3.2, 3.3).
+ *
+ * `activitySeq` is the client's monotonic cumulative-activity counter at flush
+ * time. The server keeps a per-account `last_activity_seq` high-water mark and
+ * applies the delta ONLY when `activitySeq` exceeds it, then advances the mark —
+ * so a replayed or stale flush (equal-or-lower seq) is a no-op at the data layer
+ * (at-most-once per distinct local activity increment).
+ *
+ * Backward compatibility: callers that omit `activitySeq` get the previous
+ * always-apply behavior. We read the stored `last_activity_seq` and pass
+ * `stored + 1` as the incoming seq, which is always strictly greater, so the
+ * delta applies and the mark simply advances by one. Existing callers therefore
+ * behave exactly as before while a seq-aware caller (wired in a later task) gets
+ * the idempotent guard.
+ */
+export async function mergeAccountUsage(
+  userId: string,
+  delta: UsageStats,
+  activitySeq?: number,
+): Promise<UsageStats> {
   const sql = await getSql();
+  const rows = await sql<{
+    seconds: unknown;
+    spawns: unknown;
+    exports: unknown;
+    peak: unknown;
+    generators: unknown;
+    last_activity_seq: unknown;
+  }>`
+    select seconds, spawns, exports, peak, generators, last_activity_seq
+    from usage_stats
+    where user_id = ${userId}
+  `;
+  const row = rows[0];
+  const current: UsageStats = row
+    ? {
+        seconds: asInt(row.seconds),
+        spawns: asInt(row.spawns),
+        exports: asInt(row.exports),
+        peak: asInt(row.peak),
+        generators: asGenerators(row.generators),
+      }
+    : emptyUsage();
+  const storedSeq = asInt(row?.last_activity_seq);
+  // When no seq is supplied, use `storedSeq + 1` so the delta always applies
+  // (preserving the legacy behavior) while still advancing the stored mark.
+  const incomingSeq = activitySeq === undefined ? storedSeq + 1 : activitySeq;
+
+  const { next, applied, seq } = mergeUsageMath(current, delta, storedSeq, incomingSeq);
+
+  // A replayed/stale flush (`!applied`) leaves totals and the high-water mark
+  // untouched — nothing to persist, so return the unchanged current totals.
+  if (!applied) return next;
+
   await sql`
-    insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+    insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, last_activity_seq, updated_at)
     values (
       ${userId},
       ${next.seconds},
@@ -117,6 +165,7 @@ export async function mergeAccountUsage(userId: string, delta: UsageStats): Prom
       ${next.exports},
       ${next.peak},
       ${JSON.stringify(next.generators)},
+      ${seq},
       now()
     )
     on conflict (user_id) do update set
@@ -125,6 +174,7 @@ export async function mergeAccountUsage(userId: string, delta: UsageStats): Prom
       exports = excluded.exports,
       peak = excluded.peak,
       generators = excluded.generators,
+      last_activity_seq = excluded.last_activity_seq,
       updated_at = now()
   `;
   return next;

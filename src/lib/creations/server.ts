@@ -13,6 +13,7 @@ type RawCreationRow = {
   name: string;
   config: unknown;
   created_at: string | Date;
+  updated_at?: string | Date;
   is_public?: boolean | number | string;
 };
 
@@ -34,6 +35,11 @@ function toCreationRow(row: RawCreationRow): CreationRow | null {
     name: row.name,
     config,
     created_at: row.created_at,
+    // `updated_at` is the last-write-wins reconciliation key (Req 2.2/2.3).
+    // A query that doesn't project it (older/narrow SELECTs) falls back to
+    // `created_at`, which is a valid lower bound (a fresh row's updated_at
+    // equals its created_at), so the field is always populated and honest.
+    updated_at: row.updated_at ?? row.created_at,
     is_public: asBool(row.is_public),
   };
 }
@@ -45,10 +51,14 @@ export async function insertCreation(
 ): Promise<CreationRow> {
   const sql = await getSql();
   const id = crypto.randomUUID();
+  // Stamp `updated_at = now()` on save so the row carries a modification
+  // timestamp for last-write-wins reconciliation (Req 2.3). A fresh row's
+  // updated_at therefore equals its created_at (the column defaults to now()
+  // too, but we set it explicitly so the contract holds regardless of default).
   const rows = await sql<RawCreationRow>`
-    insert into creations (id, user_id, name, config)
-    values (${id}, ${userId}, ${name}, ${JSON.stringify(config)})
-    returning id, user_id, name, config, created_at, is_public
+    insert into creations (id, user_id, name, config, updated_at)
+    values (${id}, ${userId}, ${name}, ${JSON.stringify(config)}, now())
+    returning id, user_id, name, config, created_at, updated_at, is_public
   `;
   try {
     const { writeAudit } = await import("@/lib/audit/server");
@@ -61,10 +71,39 @@ export async function insertCreation(
   return saved;
 }
 
+/**
+ * Edit a creation in place (owner-scoped), stamping a fresh `updated_at` so the
+ * modified row wins last-write-wins reconciliation against a stale copy on
+ * another device (Req 2.2/2.3). Returns the updated row, or null when no
+ * owner-matching row exists (nothing updated).
+ */
+export async function updateCreation(
+  userId: string,
+  id: string,
+  name: string,
+  config: CreationConfig,
+): Promise<CreationRow | null> {
+  const sql = await getSql();
+  const rows = await sql<RawCreationRow>`
+    update creations
+    set name = ${name}, config = ${JSON.stringify(config)}, updated_at = now()
+    where id = ${id} and user_id = ${userId}
+    returning id, user_id, name, config, created_at, updated_at, is_public
+  `;
+  if (rows.length === 0) return null;
+  try {
+    const { writeAudit } = await import("@/lib/audit/server");
+    void writeAudit(userId, "creation.update", name);
+  } catch {
+    /* audit is best-effort */
+  }
+  return toCreationRow(rows[0]);
+}
+
 export async function listCreations(userId: string): Promise<CreationRow[]> {
   const sql = await getSql();
   const rows = await sql<RawCreationRow>`
-    select id, user_id, name, config, created_at, is_public
+    select id, user_id, name, config, created_at, updated_at, is_public
     from creations
     where user_id = ${userId}
     order by created_at desc
