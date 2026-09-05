@@ -178,6 +178,13 @@ export function CreateDialog() {
                       </button>
                     ))}
                   </div>
+                  <p className="text-2xs text-faint">
+                    {mode === "style"
+                      ? "Style maps a described look — palette, colors, and blend — onto the current scene."
+                      : mode === "tune"
+                        ? "Tune runs a closed loop that optimizes the physics toward the effect you describe."
+                        : "Create turns a description into a brand-new scene."}
+                  </p>
                   <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value.slice(0, 400))}
