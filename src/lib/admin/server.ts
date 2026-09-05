@@ -144,3 +144,29 @@ export async function getAnalytics(): Promise<AdminAnalytics> {
     totalLikes: num(r?.total_likes),
   };
 }
+
+
+/**
+ * Mark or unmark a public creation as featured for the editorial curated row
+ * (Reqs 13.2, 13.3). Sets `creations.featured` to the given value. When setting
+ * `featured = true`, records an audit entry attributed to the acting admin
+ * (Req 13.2); removing a mark (`featured = false`) clears the flag without an
+ * audit entry (Req 13.3). Authorization (`assertAdmin`) is enforced by the
+ * server-function layer, not here.
+ */
+export async function setFeatured(
+  adminId: string,
+  creationId: string,
+  featured: boolean,
+): Promise<void> {
+  const sql = await getSql();
+  await sql`
+    update creations
+    set featured = ${featured}
+    where id = ${creationId}
+  `;
+  if (featured) {
+    const { writeAudit } = await import("@/lib/audit/server");
+    await writeAudit(adminId, "creation.feature", creationId);
+  }
+}

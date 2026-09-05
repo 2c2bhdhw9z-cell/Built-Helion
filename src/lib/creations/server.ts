@@ -310,3 +310,35 @@ export function resolveByTimestamp<T extends { updated_at: string | Date }>(
 function toEpochMs(value: string | Date): number {
   return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
+
+
+/**
+ * Editorial curated row (Reqs 13.1, 13.4). Returns ONLY creations that are BOTH
+ * `featured = true` AND `is_public = true` — a non-public creation is excluded
+ * even when its featured flag is set. Ordered by `created_at desc` to match the
+ * partial index `creations_featured_idx (created_at desc) where featured = true
+ * and is_public = true`, so the query is index-covered.
+ *
+ * Reuses the same `LibraryItem` projection as `listLibrary` (author display
+ * name via `authorLabel`, a correlated like count, and `toLibraryItem`). This
+ * is a public/discovery surface, so there is no viewer context and owned likes
+ * are not marked (empty `likedIds`); `liked` therefore reflects only any
+ * stored `liked` flag, exactly as the signed-out library feed does.
+ */
+export async function listFeatured(): Promise<LibraryItem[]> {
+  const sql = await getSql();
+  const rows = await sql<LibraryRow>`
+    select c.id, c.name, c.config, c.created_at,
+      coalesce(nullif(p.display_name, ''), '') as author,
+      (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
+    from creations c
+    left join profiles p on p.user_id = c.user_id
+    where c.featured = true and c.is_public = true
+    order by c.created_at desc
+    limit 48
+  `;
+  const likedIds = new Set<string>();
+  return rows
+    .map((row) => toLibraryItem(row, likedIds))
+    .filter((row): row is LibraryItem => row !== null);
+}
