@@ -88,7 +88,7 @@ describe("controlSocketHooks.upgrade — auth reject path (Req 11.2)", () => {
 
     let thrown: unknown;
     try {
-      await upgrade!(request as never, undefined as never);
+      await upgrade!(request as never);
       assert.fail("upgrade must reject an invalid token rather than resolve");
     } catch (err) {
       thrown = err;
@@ -111,7 +111,7 @@ describe("controlSocketHooks.upgrade — auth reject path (Req 11.2)", () => {
     });
 
     await assert.rejects(
-      () => upgrade!(request as never, undefined as never),
+      () => Promise.resolve(upgrade!(request as never)),
       (err: unknown) => err instanceof Response && err.status === 401,
       "a missing token must be rejected exactly like an invalid one",
     );
