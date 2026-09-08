@@ -301,7 +301,7 @@ function revokeBg(url: string | null) {
   }
 }
 
-let past: HistorySnap[] = [];
+const past: HistorySnap[] = [];
 let future: HistorySnap[] = [];
 
 function pushHistory(s: LabState) {
