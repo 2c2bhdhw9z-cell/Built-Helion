@@ -2,7 +2,7 @@ import { test, expect, describe } from "vitest";
 import { SpatialHash } from "./hash";
 import { ParticleSoA } from "./soa";
 import { stepPhysics } from "./physics";
-import { DEFAULT_PARAMS, IDLE_EXTRA_BRUSH } from "./types";
+import { DEFAULT_PARAMS, IDLE_EXTRA_BRUSH, type Spring } from "./types";
 
 // Testing theoretical physics functions simulating what's in WGSL/JS physics
 describe("Physics Boundaries & Restitution", () => {
@@ -119,5 +119,86 @@ describe("Extra session brush", () => {
   test("remote repel pushes away from the extra pointer", () => {
     const soa = stepN({ x: 0.8, y: 0.5, force: 0.9, radius: 0.4, mode: 2 }, 18);
     expect(soa.posX[0]!).toBeLessThan(0.5);
+  });
+});
+
+describe("Spring compaction when a bonded particle dies", () => {
+  const pointer = { x: 0, y: 0, down: false, inside: false };
+
+  // Bonded particles normally have infinite life, but boundary:"destroy" (or a
+  // NaN blow-up) can still kill one. compactDead swaps the last particle into
+  // the dead slot; the spring list must drop bonds to the dead particle and
+  // retarget bonds that referenced the moved (last) particle — never silently
+  // reattach a dead particle's bond to the unrelated particle swapped in.
+  test("dead particle's springs are dropped, moved particle's are retargeted", () => {
+    const soa = new ParticleSoA(8);
+    // 0: safely in-bounds, bonded to 1
+    // 1: will leave bounds and be destroyed
+    // 2: safely in-bounds, bonded to by 3
+    // 3: safely in-bounds (the "last" particle that swaps into dead slot 1);
+    //    its bond to 2 must be retargeted from index 3 -> index 1
+    const a = soa.spawnSlot();
+    const b = soa.spawnSlot();
+    const c = soa.spawnSlot();
+    const d = soa.spawnSlot();
+    soa.writeParticle(a, 0.5, 0.5, 0, 0, -1, 1);
+    // give particle b a large positive x velocity so it exits the right wall
+    soa.writeParticle(b, 0.9, 0.5, 100, 0, -1, 1);
+    soa.writeParticle(c, 0.3, 0.5, 0, 0, -1, 1);
+    soa.writeParticle(d, 0.7, 0.5, 0, 0, -1, 1);
+
+    const springs: Spring[] = [
+      { a, b, rest: 0.1, k: 0.5 }, // bond to the doomed particle -> must be dropped
+      { a: d, b: c, rest: 0.1, k: 0.5 }, // d is "last"; its bond must retarget to slot 1
+    ];
+
+    const params = {
+      ...DEFAULT_PARAMS,
+      gravityX: 0,
+      gravityY: 0,
+      drag: 0,
+      centralMass: 0,
+      collide: false,
+      settle: false,
+      flock: false,
+      sph: false,
+      boundary: "destroy" as const,
+    };
+    const hash = new SpatialHash();
+
+    stepPhysics(
+      soa,
+      hash,
+      params,
+      pointer,
+      "attract",
+      0.12,
+      0.85,
+      springs,
+      1,
+      1,
+      1 / 60,
+      0,
+      0,
+      0,
+      [],
+      IDLE_EXTRA_BRUSH,
+    );
+
+    // Particle b was destroyed: count drops from 4 to 3.
+    expect(soa.count).toBe(3);
+    // The bond to the destroyed particle must be gone.
+    expect(springs.some((s) => s.a === a && s.rest === 0.1 && s.k === 0.5 && (s.b === 3 || s.b === 1))).toBe(false);
+    // Exactly one spring should remain: the d<->c bond, retargeted onto the
+    // slot the moved particle now occupies. Every surviving spring must point at
+    // live, in-range slots.
+    expect(springs.length).toBe(1);
+    for (const s of springs) {
+      expect(s.a).toBeLessThan(soa.count);
+      expect(s.b).toBeLessThan(soa.count);
+      expect(s.a).toBeGreaterThanOrEqual(0);
+      expect(s.b).toBeGreaterThanOrEqual(0);
+      expect(s.a).not.toBe(s.b);
+    }
   });
 });

@@ -806,21 +806,26 @@ function compactDead(soa: ParticleSoA, springs: Spring[]): void {
   while (i < soa.count) {
     const L = life[i]!;
     if (L === 0) {
+      // `killSwap` moves the current last particle into slot `i` (or just drops
+      // `i` when it *is* the last), then decrements count. `last` is the index
+      // whose particle now lives at slot `i`.
       const last = soa.count - 1;
       soa.killSwap(i);
       if (springs.length > 0) {
         for (let s = springs.length - 1; s >= 0; s--) {
           const sp = springs[s]!;
-          if (sp.a === i || sp.b === i || sp.a === last || sp.b === last) {
-            if (sp.a === last) sp.a = i;
-            if (sp.b === last) sp.b = i;
-            if (sp.a === i || sp.b === i) {
-              /* keep if remapped from last */
-            }
-            if (sp.a === last || sp.b === last || sp.a >= soa.count || sp.b >= soa.count) {
-              springs.splice(s, 1);
-            }
+          // Any spring attached to the just-killed particle (slot `i`) is now
+          // dangling — the particle it bonded to is gone. Drop it. This must be
+          // checked *before* remapping `last` so a spring that referenced the
+          // dead particle is never silently reattached to the swapped-in one.
+          if (sp.a === i || sp.b === i) {
+            springs.splice(s, 1);
+            continue;
           }
+          // The particle formerly at `last` now lives at slot `i`; retarget any
+          // spring that referenced it so the bond follows the moved particle.
+          if (sp.a === last) sp.a = i;
+          if (sp.b === last) sp.b = i;
         }
       }
       continue;
