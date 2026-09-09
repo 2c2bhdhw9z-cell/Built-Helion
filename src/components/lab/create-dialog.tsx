@@ -9,6 +9,8 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { generateLabFn } from "@/lib/ai/functions";
 import { parseParticleCsv } from "@/lib/import/csv";
 import { parseObjVertices } from "@/lib/import/obj";
+import { parsePly } from "@/lib/import/ply";
+import { parseSvg } from "@/lib/import/svg";
 import { sampleImageFile, sampleVideoElement } from "@/lib/import/image-particles";
 import { awardBadge } from "@/lib/play/progress";
 
@@ -23,6 +25,8 @@ export function CreateDialog() {
   const imageRef = useRef<HTMLInputElement>(null);
   const csvRef = useRef<HTMLInputElement>(null);
   const objRef = useRef<HTMLInputElement>(null);
+  const plyRef = useRef<HTMLInputElement>(null);
+  const svgRef = useRef<HTMLInputElement>(null);
 
   const runAi = async () => {
     if (!prompt.trim()) return;
@@ -102,6 +106,48 @@ export function CreateDialog() {
       toast.success(`${rows.length.toLocaleString()} vertices`);
     } catch {
       toast.error("Could not read that model");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPly = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const rows = parsePly(text);
+      if (!rows.length) {
+        toast.error("No vertices in that point cloud");
+        return;
+      }
+      useLab.getState().spawnCsvRows(rows);
+      awardBadge("alchemist");
+      setOpen(false);
+      toast.success(`${rows.length.toLocaleString()} points`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not read that PLY");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSvg = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const rows = parseSvg(text);
+      if (!rows.length) {
+        toast.error("No path points in that SVG");
+        return;
+      }
+      useLab.getState().spawnCsvRows(rows);
+      awardBadge("alchemist");
+      setOpen(false);
+      toast.success(`${rows.length.toLocaleString()} points from the SVG`);
+    } catch {
+      toast.error("Could not read that SVG");
     } finally {
       setBusy(false);
     }
@@ -245,8 +291,10 @@ export function CreateDialog() {
               </Button>
             </section>
             <section className="flex flex-col gap-2">
-              <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">3D model</h3>
-              <p className="text-2xs text-faint">OBJ vertices or XYZ lines. Faces are ignored — this is a point cloud.</p>
+              <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">3D point cloud</h3>
+              <p className="text-2xs text-faint">
+                OBJ vertices, XYZ lines, or ASCII PLY. Faces are ignored — this is a point cloud.
+              </p>
               <input
                 ref={objRef}
                 type="file"
@@ -260,6 +308,40 @@ export function CreateDialog() {
               />
               <Button variant="outline" disabled={busy} onClick={() => objRef.current?.click()}>
                 Import OBJ
+              </Button>
+              <input
+                ref={plyRef}
+                type="file"
+                accept=".ply,text/plain"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  void onPly(f);
+                }}
+              />
+              <Button variant="outline" disabled={busy} onClick={() => plyRef.current?.click()}>
+                Import PLY
+              </Button>
+            </section>
+            <section className="flex flex-col gap-2">
+              <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">SVG</h3>
+              <p className="text-2xs text-faint">
+                Samples points along paths, polygons, and polylines. Lines and curves become particles.
+              </p>
+              <input
+                ref={svgRef}
+                type="file"
+                accept=".svg,image/svg+xml"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  void onSvg(f);
+                }}
+              />
+              <Button variant="outline" disabled={busy} onClick={() => svgRef.current?.click()}>
+                Import SVG
               </Button>
             </section>
           </div>
