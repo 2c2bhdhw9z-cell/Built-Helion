@@ -1,5 +1,14 @@
 export declare const DEFAULT_APP_NAME: string;
 export declare const OG_SITE_REL_PATH: string;
+
+export declare const SW_PATH: string;
+export declare const SW_CACHE_PREFIX: string;
+export declare function swCacheName(version: string | null | undefined): string;
+export declare function isPrecachableAssetPath(pathname: string | null | undefined): boolean;
+export declare function renderServiceWorker(
+  template: string,
+  options?: { version?: string; appShell?: string },
+): string;
 export declare function escapeHtml(value: unknown): string;
 export declare function appNameFromHost(hostHeader: string | null | undefined): string;
 export declare function publicAppHost(hostHeader: string | null | undefined): string;

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { adminAccessSchema } from "@/lib/feedback/types.ts";
 import { z } from "zod";
-import type { AdminAccount, AdminAnalytics } from "./types.ts";
+import type { AdminAccount, AdminAnalytics, AdminDashboardAnalytics } from "./types.ts";
 
 /**
  * TanStack Start server functions for the Admin Dashboard (Reqs 4, 5, 6).
@@ -94,6 +94,25 @@ export const getAnalyticsFn = createServerFn({ method: "POST" })
     }
     const { getAnalytics } = await import("./server.ts");
     return getAnalytics();
+  });
+
+/**
+ * Richer dashboard analytics (Req 12): active users, popular generators, and the
+ * device/particle breakdowns, all AGGREGATE (never PII). ADMIN-ONLY:
+ * `assertAdmin` runs first; a non-admin caller throws ForbiddenError, mapped to
+ * `null` so no analytics leak — exactly like `getAnalyticsFn`.
+ */
+export const getDashboardAnalyticsFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => adminAccessSchema.parse(input ?? {}))
+  .handler(async ({ data }): Promise<AdminDashboardAnalytics | null> => {
+    try {
+      const { assertAdmin } = await import("@/lib/feedback/admin-auth.server.ts");
+      await assertAdmin(data.token);
+    } catch {
+      return null;
+    }
+    const { getDashboardAnalytics } = await import("./server.ts");
+    return getDashboardAnalytics();
   });
 
 /**

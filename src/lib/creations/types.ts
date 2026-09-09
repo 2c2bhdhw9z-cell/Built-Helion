@@ -249,6 +249,71 @@ export const saveCreationSchema = z.object({
 
 export type SaveCreationInput = z.infer<typeof saveCreationSchema>;
 
+/**
+ * Validates an update-in-place request (Req 2 — save-conflict resolution).
+ * Carries the creation `id`, the new `name` + `config`, and `baseUpdatedAt`:
+ * the `updated_at` the client last loaded for this creation. The server
+ * compares that base against the CURRENTLY stored `updated_at` to detect a
+ * concurrent edit from another device — "newer wins with a warning" rather than
+ * a silent last-write-wins overwrite. `baseUpdatedAt` is optional so a client
+ * that never observed a timestamp (or an older client) still saves; a missing
+ * base is treated as "no known base" and the update proceeds (documented in
+ * `decideSaveConflict`).
+ */
+export const updateCreationSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, "Name is required").max(120),
+  config: creationConfigSchema,
+  baseUpdatedAt: z.union([z.string(), z.date()]).optional(),
+});
+
+export type UpdateCreationInput = z.infer<typeof updateCreationSchema>;
+
+/**
+ * The outcome of a conflict-checked update, returned to the client so the UI can
+ * surface a non-destructive warning (Req 2). `status`:
+ *   - "saved"    — the update was applied; `row` is the new stored row.
+ *   - "conflict" — a NEWER version exists (edited elsewhere since the client
+ *                  loaded), so the edit was REFUSED (not overwritten); `row` is
+ *                  the current stored row so the UI can show/reload it.
+ *   - "notfound" — no owner-matching creation to update.
+ */
+export type UpdateCreationResult =
+  | { status: "saved"; row: CreationRow }
+  | { status: "conflict"; row: CreationRow }
+  | { status: "notfound" };
+
+/**
+ * Pure save-conflict decision (Req 2 — "newer wins with a warning"). No I/O, so
+ * it is directly unit-testable.
+ *
+ * Given the `baseUpdatedAt` the client last loaded and the `storedUpdatedAt`
+ * currently in the database, decide whether saving would clobber a concurrent
+ * edit. Returns `"conflict"` when the stored row is STRICTLY NEWER than the
+ * client's base (someone else saved in between) — the caller must then refuse
+ * the overwrite and warn. Otherwise returns `"ok"` (the client is editing the
+ * latest version, or a tie, or has no known base) and the save proceeds.
+ *
+ * Both timestamps may be an ISO `string` (client, post-serialization) or a
+ * `Date` (server driver); both normalize to epoch millis. A missing/unparseable
+ * base is treated as "no known base" → `"ok"` (never falsely block a save); an
+ * unparseable stored value also yields `"ok"` (never block on bad server data).
+ */
+export function decideSaveConflict(
+  baseUpdatedAt: string | Date | null | undefined,
+  storedUpdatedAt: string | Date | null | undefined,
+): "ok" | "conflict" {
+  const baseMs = toMillis(baseUpdatedAt);
+  const storedMs = toMillis(storedUpdatedAt);
+  if (Number.isNaN(baseMs) || Number.isNaN(storedMs)) return "ok";
+  return storedMs > baseMs ? "conflict" : "ok";
+}
+
+function toMillis(value: string | Date | null | undefined): number {
+  if (value == null) return NaN;
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
 /** Validates a delete request (an id owned by the caller). */
 export const deleteCreationSchema = z.object({
   id: z.string().min(1),

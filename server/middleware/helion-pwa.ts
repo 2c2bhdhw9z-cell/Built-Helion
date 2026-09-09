@@ -16,6 +16,7 @@
  */
 import installPageTemplate from "../../scripts/install-page.html?raw";
 import { ogIdentity } from "virtual:helion-og-identity";
+import { serviceWorkerSource } from "virtual:helion-sw";
 import {
   acceptsHtml,
   createHeadInjector,
@@ -23,6 +24,7 @@ import {
   isInstallQuery,
   renderInstallPageHtml,
   renderWebManifest,
+  SW_PATH,
 } from "../../scripts/helion-pwa-shared.mjs";
 
 interface HelionPwaEvent {
@@ -69,6 +71,19 @@ export default async function helionPwaMiddleware(
 
   const path = event.url.pathname;
   const urlWithQuery = path + event.url.search;
+
+  if (path === SW_PATH) {
+    // Root-scoped SW (Req 9). Baked at build time via `virtual:helion-sw` since
+    // the function cannot read dist/. `no-cache` so a new deploy's SW bytes are
+    // refetched; the SW then rotates its versioned asset cache on `activate`.
+    return new Response(serviceWorkerSource, {
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "no-cache",
+        "service-worker-allowed": "/",
+      },
+    });
+  }
 
   if (path === "/__helion/manifest.webmanifest" || path === "/__helion/manifest.json") {
     return new Response(renderWebManifest(requestHost(event)), {

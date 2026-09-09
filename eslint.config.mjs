@@ -42,6 +42,15 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  // The service-worker template runs in a ServiceWorkerGlobalScope, not a
+  // window/node context — give it the right globals (self, caches, clients,
+  // fetch, ...) so `self`/`caches` are not flagged as undefined.
+  {
+    files: ["scripts/service-worker.js"],
+    languageOptions: {
+      globals: { ...globals.serviceworker },
+    },
+  },
   // Disable rules that conflict with Prettier formatting.
   prettier,
 );

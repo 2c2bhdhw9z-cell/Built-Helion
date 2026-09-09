@@ -57,6 +57,13 @@ type CreationsServer = {
     name: string,
     config: CreationConfig,
   ) => Promise<CreationRow | null>;
+  updateCreationChecked: (
+    userId: string,
+    id: string,
+    name: string,
+    config: CreationConfig,
+    baseUpdatedAt: string | Date | null | undefined,
+  ) => Promise<import("./types.ts").UpdateCreationResult>;
   listCreations: (userId: string) => Promise<CreationRow[]>;
   deleteCreation: (userId: string, id: string) => Promise<boolean>;
   getPublicCreation: (id: string) => Promise<PublicCreation | null>;
@@ -655,5 +662,138 @@ describe("resolveByTimestamp — last-write-wins reconciliation (Req 2.2, 2.3)",
       ),
       { numRuns: 100 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decideSaveConflict — the PURE "newer wins with a warning" decision (Req 2).
+// No I/O, so it is exercised directly. It decides whether saving would clobber
+// a concurrent edit: "conflict" when the stored row is STRICTLY newer than the
+// client's last-loaded base, else "ok".
+// ---------------------------------------------------------------------------
+describe("decideSaveConflict — save-conflict resolution decision (Req 2)", () => {
+  let decideSaveConflict: CreationsTypes["decideSaveConflict"];
+
+  before(async () => {
+    ({ decideSaveConflict } = await import("./types.ts"));
+  });
+
+  it("stored strictly newer than the client base → conflict (refuse the overwrite)", () => {
+    const base = "2024-01-01T00:00:00.000Z";
+    const storedNewer = "2024-01-02T00:00:00.000Z";
+    assert.equal(decideSaveConflict(base, storedNewer), "conflict");
+    // Also holds for Date instances (server driver shape).
+    assert.equal(decideSaveConflict(new Date(base), new Date(storedNewer)), "conflict");
+    // Mixed string/Date normalizes the same way.
+    assert.equal(decideSaveConflict(base, new Date(storedNewer)), "conflict");
+  });
+
+  it("stored equal-or-older than the base → ok (client is on the latest; tie saves)", () => {
+    const t = "2024-05-05T12:00:00.000Z";
+    // Exact tie: the client is editing the current version → allow the save.
+    assert.equal(decideSaveConflict(t, t), "ok");
+    // Stored older than the base (client already has a newer copy) → allow.
+    assert.equal(decideSaveConflict("2024-06-01T00:00:00.000Z", "2024-01-01T00:00:00.000Z"), "ok");
+  });
+
+  it("a missing or unparseable timestamp never falsely blocks a save (→ ok)", () => {
+    const stored = "2024-01-02T00:00:00.000Z";
+    // No known base (older client / never observed a timestamp) → allow.
+    assert.equal(decideSaveConflict(undefined, stored), "ok");
+    assert.equal(decideSaveConflict(null, stored), "ok");
+    // Unparseable base or stored value → allow rather than block on bad data.
+    assert.equal(decideSaveConflict("not-a-date", stored), "ok");
+    assert.equal(decideSaveConflict(stored, "garbage"), "ok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateCreationChecked — the conflict-checked save path against real PGLite
+// (Req 2). Proves the end-to-end policy: an edit based on the current stored
+// timestamp saves; an edit based on a STALE timestamp (a newer version landed
+// meanwhile) is REFUSED and reported as a conflict without clobbering.
+// ---------------------------------------------------------------------------
+describe("updateCreationChecked — newer-wins-with-warning save path (real PGLite, Req 2)", () => {
+  let server: CreationsServer;
+
+  before(async () => {
+    server = (await import("./server.ts")) as unknown as CreationsServer;
+  });
+
+  it("saves when the client's base matches the stored version", async () => {
+    const userId = "conflict-inline-user";
+    const inserted = await server.insertCreation(userId, "Base v1", validConfig());
+
+    const edited = validConfig();
+    edited.spawnCount = 7777;
+    const result = await server.updateCreationChecked(
+      userId,
+      inserted.id,
+      "Base v2",
+      edited,
+      inserted.updated_at, // client based its edit on the current stored row
+    );
+    assert.equal(result.status, "saved");
+    if (result.status === "saved") {
+      assert.equal(result.row.name, "Base v2");
+      assert.equal(result.row.config.spawnCount, 7777);
+    }
+  });
+
+  it("refuses (conflict) when a NEWER version exists since the client loaded", async () => {
+    const userId = "conflict-stale-user";
+    const inserted = await server.insertCreation(userId, "Doc v1", validConfig());
+    const staleBase = inserted.updated_at; // what device A loaded
+
+    // Device B saves in between, advancing updated_at.
+    const deviceBEdit = validConfig();
+    deviceBEdit.spawnCount = 1000;
+    const afterB = await server.updateCreationChecked(
+      userId,
+      inserted.id,
+      "Doc v2 (device B)",
+      deviceBEdit,
+      inserted.updated_at,
+    );
+    assert.equal(afterB.status, "saved");
+
+    // Device A now saves based on the STALE timestamp → must be refused, not
+    // silently overwrite device B's newer edit.
+    const deviceAEdit = validConfig();
+    deviceAEdit.spawnCount = 2000;
+    const afterA = await server.updateCreationChecked(
+      userId,
+      inserted.id,
+      "Doc v2 (device A)",
+      deviceAEdit,
+      staleBase,
+    );
+    assert.equal(afterA.status, "conflict", "a stale-based save must conflict, not overwrite");
+    if (afterA.status === "conflict") {
+      // The returned row is the CURRENT (device B) version, never device A's.
+      assert.equal(afterA.row.name, "Doc v2 (device B)");
+      assert.equal(afterA.row.config.spawnCount, 1000);
+    }
+
+    // And the stored row was NOT clobbered by device A.
+    const list = await server.listCreations(userId);
+    const stored = list.find((r) => r.id === inserted.id);
+    assert.ok(stored);
+    assert.equal(stored!.name, "Doc v2 (device B)");
+    assert.equal(stored!.config.spawnCount, 1000);
+  });
+
+  it("reports notfound for a non-owner (no cross-account overwrite)", async () => {
+    const owner = "conflict-owner";
+    const attacker = "conflict-attacker";
+    const inserted = await server.insertCreation(owner, "Private", validConfig());
+    const result = await server.updateCreationChecked(
+      attacker,
+      inserted.id,
+      "Hijack",
+      validConfig(),
+      inserted.updated_at,
+    );
+    assert.equal(result.status, "notfound");
   });
 });

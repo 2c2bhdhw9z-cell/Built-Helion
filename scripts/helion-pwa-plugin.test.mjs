@@ -10,11 +10,16 @@ import {
   injectHelionPwaHead,
   isDocumentPath,
   isInstallQuery,
+  isPrecachableAssetPath,
   publicAppHost,
+  renderServiceWorker,
   renderWebManifest,
   resolveOgCardAsset,
   snapshotOgIdentity,
   stripInstallParams,
+  SW_CACHE_PREFIX,
+  SW_PATH,
+  swCacheName,
 } from "./helion-pwa-shared.mjs";
 import { renderInstallPage } from "./helion-pwa-plugin.mjs";
 
@@ -500,4 +505,85 @@ test("vite plugin bakes og identity as a virtual module", () => {
   const plugin = readFileSync(join(TEMPLATE_ROOT, "scripts/helion-pwa-plugin.mjs"), "utf8");
   assert.match(plugin, /virtual:helion-og-identity/);
   assert.match(plugin, /snapshotOgIdentity/);
+});
+
+// ---------------------------------------------------------------------------
+// Service worker (Req 9 — offline/PWA). Only the PURE helpers are unit-tested
+// here: the versioned cache name, the asset-match predicate, and the template
+// renderer. The SW's actual runtime behavior (install/activate/fetch caching)
+// needs a browser service-worker runtime and cannot be exercised headlessly.
+// ---------------------------------------------------------------------------
+
+test("swCacheName is versioned and shares the sweepable prefix", () => {
+  assert.equal(swCacheName("abc123"), `${SW_CACHE_PREFIX}abc123`);
+  assert.ok(swCacheName("abc123").startsWith(SW_CACHE_PREFIX));
+  // A new version yields a distinct cache name so a deploy rotates the cache.
+  assert.notEqual(swCacheName("v1"), swCacheName("v2"));
+  // Empty/blank version falls back to a stable sentinel (never a bare prefix).
+  assert.equal(swCacheName(""), `${SW_CACHE_PREFIX}0`);
+  assert.equal(swCacheName(undefined), `${SW_CACHE_PREFIX}0`);
+});
+
+test("isPrecachableAssetPath caches hashed/static assets", () => {
+  assert.equal(isPrecachableAssetPath("/assets/index-abcd1234.js"), true);
+  assert.equal(isPrecachableAssetPath("/assets/style-abcd1234.css"), true);
+  assert.equal(isPrecachableAssetPath("/__helion/icon-180.png"), true);
+  assert.equal(isPrecachableAssetPath("/__helion/install/styles.css"), true);
+  assert.equal(isPrecachableAssetPath("/favicon.svg"), true);
+  assert.equal(isPrecachableAssetPath("/sdk/helion.js"), true);
+  assert.equal(isPrecachableAssetPath("/og.jpg"), true);
+});
+
+test("isPrecachableAssetPath never caches API, server-fn, or the manifest", () => {
+  // API + auth endpoints must always hit the network.
+  assert.equal(isPrecachableAssetPath("/api/v1/creations"), false);
+  assert.equal(isPrecachableAssetPath("/api/auth/session"), false);
+  // TanStack Start server-function transport.
+  assert.equal(isPrecachableAssetPath("/_serverFn/whatever"), false);
+  // The manifest is served no-cache (per-request app name).
+  assert.equal(isPrecachableAssetPath("/__helion/manifest.webmanifest"), false);
+  assert.equal(isPrecachableAssetPath("/__helion/manifest.json"), false);
+  // Bare navigations/documents are handled network-first, not cache-first.
+  assert.equal(isPrecachableAssetPath("/"), false);
+  assert.equal(isPrecachableAssetPath("/lab"), false);
+});
+
+test("renderServiceWorker bakes the cache name, prefix, and app shell", () => {
+  const template = readFileSync(join(TEMPLATE_ROOT, "scripts/service-worker.js"), "utf8");
+  const out = renderServiceWorker(template, { version: "deadbeef", appShell: "/" });
+  assert.ok(out.includes(swCacheName("deadbeef")), "bakes the versioned cache name");
+  assert.ok(out.includes(SW_CACHE_PREFIX), "bakes the sweepable cache prefix");
+  // No unresolved template tokens leak into the served source.
+  assert.doesNotMatch(out, /\{\{CACHE_NAME\}\}/);
+  assert.doesNotMatch(out, /\{\{CACHE_PREFIX\}\}/);
+  assert.doesNotMatch(out, /\{\{APP_SHELL\}\}/);
+  // A different version produces different bytes → the browser reinstalls.
+  const other = renderServiceWorker(template, { version: "cafef00d" });
+  assert.notEqual(out, other);
+});
+
+test("service worker is served from root scope and never caches API/manifest", () => {
+  // The SW must live at root so its scope is "/" and it controls the app.
+  assert.equal(SW_PATH, "/sw.js");
+  const template = readFileSync(join(TEMPLATE_ROOT, "scripts/service-worker.js"), "utf8");
+  // The SW's own fetch handler skips non-GET and cross-origin, and only ever
+  // cache-firsts precachable asset paths (asserted structurally here).
+  assert.match(template, /request\.method !== "GET"/);
+  assert.match(template, /isPrecachableAssetPath/);
+  assert.match(template, /skipWaiting/);
+  assert.match(template, /clients\.claim/);
+});
+
+test("vite plugin serves and bakes the service worker", () => {
+  const plugin = readFileSync(join(TEMPLATE_ROOT, "scripts/helion-pwa-plugin.mjs"), "utf8");
+  assert.match(plugin, /virtual:helion-sw/);
+  assert.match(plugin, /renderServiceWorker/);
+  assert.match(plugin, /SW_PATH/);
+  const middleware = readFileSync(
+    join(TEMPLATE_ROOT, "server/middleware/helion-pwa.ts"),
+    "utf8",
+  );
+  assert.match(middleware, /virtual:helion-sw/);
+  assert.match(middleware, /SW_PATH/);
+  assert.match(middleware, /text\/javascript/);
 });

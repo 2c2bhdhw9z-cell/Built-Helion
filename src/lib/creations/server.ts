@@ -1,10 +1,12 @@
 import { getSql } from "@/lib/db";
 import {
+  decideSaveConflict,
   normalizeCreationConfig,
   type CreationConfig,
   type CreationRow,
   type LibraryItem,
   type PublicCreation,
+  type UpdateCreationResult,
 } from "./types.ts";
 
 type RawCreationRow = {
@@ -98,6 +100,52 @@ export async function updateCreation(
     /* audit is best-effort */
   }
   return toCreationRow(rows[0]);
+}
+
+/**
+ * Conflict-checked update-in-place (Req 2 — "newer wins with a warning").
+ *
+ * Reads the currently stored row (owner-scoped), then uses the pure
+ * `decideSaveConflict` to compare the client's `baseUpdatedAt` (the timestamp it
+ * last loaded) against the stored `updated_at`. When the stored row is strictly
+ * NEWER — a concurrent edit from another device landed since the client loaded —
+ * the overwrite is REFUSED and the current stored row is returned with a
+ * "conflict" status so the UI can warn without losing anyone's work. Otherwise
+ * the update is applied and the fresh row is returned. Returns "notfound" when
+ * no owner-matching row exists.
+ *
+ * The read + decision + write are not wrapped in a transaction: a
+ * newer-wins-with-warning policy is intentionally best-effort (the ask is
+ * explicitly not a hard merge), and the narrow read→write window only risks the
+ * same last-write-wins this replaces in the rare exact-overlap case. This is
+ * documented as the accepted trade-off for keeping the change minimal.
+ */
+export async function updateCreationChecked(
+  userId: string,
+  id: string,
+  name: string,
+  config: CreationConfig,
+  baseUpdatedAt: string | Date | null | undefined,
+): Promise<UpdateCreationResult> {
+  const sql = await getSql();
+  const existing = await sql<RawCreationRow>`
+    select id, user_id, name, config, created_at, updated_at, is_public
+    from creations
+    where id = ${id} and user_id = ${userId}
+  `;
+  if (existing.length === 0) return { status: "notfound" };
+  const current = toCreationRow(existing[0]);
+  if (!current) return { status: "notfound" };
+
+  if (decideSaveConflict(baseUpdatedAt, current.updated_at) === "conflict") {
+    // A newer version exists — do NOT overwrite. Return the stored row so the
+    // UI can surface a non-destructive warning and offer to reload it.
+    return { status: "conflict", row: current };
+  }
+
+  const updated = await updateCreation(userId, id, name, config);
+  if (!updated) return { status: "notfound" };
+  return { status: "saved", row: updated };
 }
 
 export async function listCreations(userId: string): Promise<CreationRow[]> {

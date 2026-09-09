@@ -5,9 +5,10 @@ import {
   listCreationsFn,
   saveCreationFn,
   setCreationPublicFn,
+  updateCreationFn,
 } from "./functions";
 import { currentCreationConfig, useLab } from "@/store/lab-store";
-import type { CreationRow } from "./types";
+import type { CreationRow, UpdateCreationResult } from "./types";
 
 /**
  * Client-safe hook for a signed-in user's saved creations.
@@ -38,6 +39,15 @@ export type CreationsController = {
    * `isSignedIn` and shows a sign-in prompt instead.
    */
   save: (name: string) => Promise<boolean>;
+  /**
+   * Update an existing creation IN PLACE with the current sim, resolving a
+   * cross-device save conflict via "newer wins with a warning" (Req 2). Sends
+   * the row's last-loaded `updated_at` as the base; the server refuses to
+   * overwrite when a newer version exists and returns a `conflict` status the
+   * caller surfaces as a non-destructive warning. Returns `null` when signed
+   * out or on a transient failure (no state change).
+   */
+  update: (row: CreationRow) => Promise<UpdateCreationResult | null>;
   /** Delete one of the user's creations by id. Returns true on success. */
   remove: (id: string) => Promise<boolean>;
   /** Publish or unpublish a creation into the community library. */
@@ -117,6 +127,34 @@ export function useCreations(): CreationsController {
     [isSignedIn],
   );
 
+  const update = useCallback(
+    async (row: CreationRow): Promise<UpdateCreationResult | null> => {
+      if (!isSignedIn) return null;
+      const config = currentCreationConfig(useLab.getState());
+      try {
+        const result = await updateCreationFn({
+          data: {
+            id: row.id,
+            name: row.name,
+            config,
+            baseUpdatedAt: row.updated_at,
+          },
+        });
+        // On a successful save, swap the fresh row in; on a conflict, adopt the
+        // server's current row (its newer `updated_at`) so a subsequent save
+        // bases off the latest and the warning is not shown twice for the same
+        // stale base. A "notfound" leaves the list untouched.
+        if (result.status === "saved" || result.status === "conflict") {
+          setCreations((prev) => prev.map((c) => (c.id === row.id ? result.row : c)));
+        }
+        return result;
+      } catch {
+        return null;
+      }
+    },
+    [isSignedIn],
+  );
+
   const remove = useCallback(
     async (id: string): Promise<boolean> => {
       if (!isSignedIn) return false;
@@ -149,5 +187,5 @@ export function useCreations(): CreationsController {
     [isSignedIn],
   );
 
-  return { creations, isLoading, isSignedIn, refresh, save, remove, setPublic };
+  return { creations, isLoading, isSignedIn, refresh, save, update, remove, setPublic };
 }

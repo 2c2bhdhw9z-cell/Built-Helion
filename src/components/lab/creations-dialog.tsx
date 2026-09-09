@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { Link } from "@tanstack/react-router";
-import { Globe, GlobeLock, LogIn, Play, Share2, Trash2, X } from "lucide-react";
+import { Globe, GlobeLock, LogIn, Play, Save, Share2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useLab } from "@/store/lab-store";
@@ -30,12 +30,14 @@ const labelClass = "text-2xs uppercase tracking-[0.12em] text-faint";
 function CreationRowItem({
   row,
   onLoad,
+  onUpdate,
   onCopy,
   onDelete,
   onPublish,
 }: {
   row: CreationRow;
   onLoad: (row: CreationRow) => void;
+  onUpdate: (row: CreationRow) => void;
   onCopy: (row: CreationRow) => void;
   onDelete: (id: string) => void;
   onPublish: (id: string, next: boolean) => void;
@@ -45,6 +47,17 @@ function CreationRowItem({
       <span className="min-w-0 flex-1 truncate text-sm text-fg" title={row.name}>
         {row.name}
       </span>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0 px-2"
+        aria-label={`Overwrite ${row.name} with the current sim`}
+        title="Overwrite this creation with the current sim"
+        onClick={() => onUpdate(row)}
+      >
+        <Save className="size-3.5" />
+        <span className="hidden sm:inline">Update</span>
+      </Button>
       <Button
         variant={row.is_public ? "default" : "outline"}
         size="sm"
@@ -125,7 +138,7 @@ export function CreationsDialog() {
   const setOpen = useLab((s) => s.setCreationsOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
 
-  const { creations, isLoading, isSignedIn, save, remove, setPublic } = useCreations();
+  const { creations, isLoading, isSignedIn, save, update, remove, setPublic } = useCreations();
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -165,6 +178,28 @@ export function CreationsDialog() {
     applyCreationConfig(config);
     setOpen(false);
     toast.success(`Loaded "${row.name}"`);
+  };
+
+  const onUpdate = async (row: CreationRow) => {
+    const result = await update(row);
+    if (!result) {
+      toast.error("Could not update. Please try again.");
+      return;
+    }
+    if (result.status === "conflict") {
+      // Newer-wins-with-warning (Req 2): a newer version was saved elsewhere, so
+      // we did NOT overwrite it. Warn non-destructively — the row now reflects
+      // the newer stored version.
+      toast.warning("A newer version exists — not overwritten", {
+        description: "This creation was updated on another device. Load it to see the latest.",
+      });
+      return;
+    }
+    if (result.status === "notfound") {
+      toast.error("That creation no longer exists");
+      return;
+    }
+    toast.success("Creation updated");
   };
 
   const onCopy = async (row: CreationRow) => {
@@ -283,6 +318,7 @@ export function CreationsDialog() {
                         key={row.id}
                         row={row}
                         onLoad={onLoad}
+                        onUpdate={(row) => void onUpdate(row)}
                         onCopy={(row) => void onCopy(row)}
                         onDelete={(id) => void onDelete(id)}
                         onPublish={(id, next) => void onPublish(id, next)}

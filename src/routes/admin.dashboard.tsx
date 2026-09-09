@@ -2,7 +2,12 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { AdminAccount, AdminAnalytics } from "@/lib/admin/types";
+import type {
+  AdminAccount,
+  AdminAnalytics,
+  AdminBreakdownSlice,
+  AdminDashboardAnalytics,
+} from "@/lib/admin/types";
 
 /** Extract the admin token from `?token=...` (client-supplied, verified server-side). */
 type AdminSearch = { token?: string };
@@ -28,25 +33,27 @@ export const Route = createFileRoute("/admin/dashboard")({
     // 500ing every route (see the FEAT-001 login fix and admin.feedback.tsx).
     // Keep this route matching that pattern.
     try {
-      const { listAccountsFn, getAnalyticsFn } = await import(
+      const { listAccountsFn, getAnalyticsFn, getDashboardAnalyticsFn } = await import(
         "@/lib/admin/functions"
       );
-      const [accounts, analytics] = await Promise.all([
+      const [accounts, analytics, dashboard] = await Promise.all([
         listAccountsFn({ data: { token: deps.token } }),
         getAnalyticsFn({ data: { token: deps.token } }),
+        getDashboardAnalyticsFn({ data: { token: deps.token } }),
       ]);
       // The gated fns map a denial to an empty list / null analytics. Treat a
       // null analytics AND empty account list as "no admin access" so we render
       // the same access-denied panel admin.feedback.tsx shows on a 403 rather
       // than a misleading empty dashboard.
       const authorized = analytics !== null || accounts.length > 0;
-      return { accounts, analytics, authorized };
+      return { accounts, analytics, dashboard, authorized };
     } catch (err) {
       const status = (err as { status?: number })?.status;
       if (status === 403) {
         return {
           accounts: [] as AdminAccount[],
           analytics: null as AdminAnalytics | null,
+          dashboard: null as AdminDashboardAnalytics | null,
           authorized: false,
         };
       }
@@ -136,8 +143,53 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
+/**
+ * A horizontal-bar breakdown of `{ label, count }` slices (device tiers, popular
+ * generators, particle buckets). Bars are scaled to the largest slice; an empty
+ * list renders a genuine empty state — never fabricated rows. Aggregate only, no
+ * PII (Req 12).
+ */
+function Breakdown({
+  title,
+  slices,
+  empty,
+}: {
+  title: string;
+  slices: AdminBreakdownSlice[];
+  empty: string;
+}) {
+  const max = slices.reduce((m, s) => Math.max(m, s.count), 0);
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-elevated px-4 py-3">
+      <span className="text-2xs uppercase tracking-[0.12em] text-faint">{title}</span>
+      {slices.length === 0 ? (
+        <p className="py-4 text-center text-2xs text-faint">{empty}</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {slices.map((s) => (
+            <li key={s.label} className="flex flex-col gap-0.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-xs text-fg" title={s.label}>
+                  {s.label}
+                </span>
+                <span className="shrink-0 font-mono text-2xs text-faint">{s.count}</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-fg/70"
+                  style={{ width: `${max > 0 ? Math.round((s.count / max) * 100) : 0}%` }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function AdminDashboard() {
-  const { accounts, analytics, authorized } = Route.useLoaderData();
+  const { accounts, analytics, dashboard, authorized } = Route.useLoaderData();
   const { token } = Route.useSearch();
   const router = useRouter();
 
@@ -196,6 +248,35 @@ function AdminDashboard() {
             </div>
           )}
         </section>
+
+        {dashboard !== null && (
+          <section>
+            <h2 className="mb-3 text-2xs uppercase tracking-[0.12em] text-faint">
+              Usage &amp; telemetry
+            </h2>
+            <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric label="Active users (30d)" value={dashboard.activeUsers} />
+              <Metric label="Telemetry samples" value={dashboard.telemetrySamples} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Breakdown
+                title="Popular generators"
+                slices={dashboard.popularGenerators}
+                empty="No generator usage recorded yet."
+              />
+              <Breakdown
+                title="Device tiers"
+                slices={dashboard.deviceTiers}
+                empty="No telemetry samples yet."
+              />
+              <Breakdown
+                title="Particle buckets"
+                slices={dashboard.particleBuckets}
+                empty="No telemetry samples yet."
+              />
+            </div>
+          </section>
+        )}
 
         <section>
           <h2 className="mb-3 text-2xs uppercase tracking-[0.12em] text-faint">
