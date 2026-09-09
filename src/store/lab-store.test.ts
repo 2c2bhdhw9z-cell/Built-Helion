@@ -123,21 +123,33 @@ test("view-only session rejects sim edits", async () => {
   useSession.setState({ role: null });
 });
 
-test("particle cap is not a paywall", () => {
+test("particle cap is plan-gated (Item 23): free ceiling vs entitled SYSTEM_LIMIT", () => {
   const prev = {
     entitled: useLab.getState().entitled,
     plan: useLab.getState().plan,
     quality: useLab.getState().quality,
     cap: useLab.getState().cap,
+    upgradeOpen: useLab.getState().upgradeOpen,
   };
-  useLab.setState({ entitled: false, plan: "free", quality: "medium" });
+  // Free users can raise the cap freely up to the free ceiling — every quality
+  // preset stays under it, so picking "high" never trips the paywall.
+  useLab.setState({ entitled: false, plan: "free", quality: "medium", upgradeOpen: false });
   useLab.getState().setQuality("high");
   expect(useLab.getState().cap).toBe(65_536);
+  useLab.getState().setCap(90_000);
+  expect(useLab.getState().cap).toBe(90_000);
+  expect(useLab.getState().upgradeOpen).toBe(false);
+  // Asking for more than the free ceiling clamps to it AND opens the upgrade
+  // dialog so the paywall is discoverable rather than a silent truncation.
   useLab.getState().setCap(1_000_000);
-  expect(useLab.getState().cap).toBe(1_000_000);
+  expect(useLab.getState().cap).toBe(100_000);
+  expect(useLab.getState().upgradeOpen).toBe(true);
+  // Entitled (Pro / Enterprise / trial) unlocks the full SYSTEM_LIMIT.
   useLab.getState().setPlan("enterprise");
   useLab.getState().setEntitled(true);
+  useLab.getState().setCap(1_000_000);
   expect(useLab.getState().cap).toBe(1_000_000);
+  // spawnCount is not plan-gated (only the buffer cap is).
   useLab.getState().setSpawnCount(500_000);
   expect(useLab.getState().spawnCount).toBe(500_000);
   useLab.setState(prev);

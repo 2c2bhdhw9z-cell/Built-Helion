@@ -1,11 +1,14 @@
 import { getSql } from "@/lib/db";
 import {
+  canSavePrivateCreation,
   decideSaveConflict,
+  FREE_PRIVATE_CREATION_LIMIT,
   normalizeCreationConfig,
   type CreationConfig,
   type CreationRow,
   type LibraryItem,
   type PublicCreation,
+  type SaveCreationResult,
   type UpdateCreationResult,
 } from "./types.ts";
 
@@ -75,6 +78,50 @@ export async function insertCreation(
   const saved = toCreationRow(rows[0]);
   if (!saved) throw new Error("Could not save");
   return saved;
+}
+
+/**
+ * Count the caller's PRIVATE (unlisted) creations — the rows that count against
+ * the free-tier quota (Item 23). Public (published) rows are excluded because
+ * publishing is never gated. Team-shared rows (`team_id` set) are also excluded:
+ * they belong to a team shelf, not the owner's private-draft quota. A creation
+ * created via `shareToTeam` therefore never eats into a free user's cap.
+ */
+export async function countPrivateCreations(userId: string): Promise<number> {
+  const sql = await getSql();
+  const rows = await sql<{ n: string | number }>`
+    select count(*) as n
+    from creations
+    where user_id = ${userId} and is_public = false and team_id is null
+  `;
+  return Number(rows[0]?.n ?? 0) || 0;
+}
+
+/**
+ * Save a NEW creation, enforcing the free-tier private-creation quota
+ * server-side (Item 23). Entitlement is re-derived from the caller's billing —
+ * the client's `entitled` flag is NEVER trusted for a resource-protecting write.
+ *
+ * A new save starts unlisted (private), so a free user at
+ * `FREE_PRIVATE_CREATION_LIMIT` existing private creations is blocked with a
+ * `limit` status (nothing is stored) rather than a thrown error, so the UI can
+ * surface a friendly upgrade prompt. Entitled users always save.
+ */
+export async function saveCreationGuarded(
+  userId: string,
+  name: string,
+  config: CreationConfig,
+): Promise<SaveCreationResult> {
+  const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
+  const billing = await getOrCreateBilling(userId);
+  if (!billing.entitled) {
+    const count = await countPrivateCreations(userId);
+    if (!canSavePrivateCreation(count, billing.entitled)) {
+      return { status: "limit", limit: FREE_PRIVATE_CREATION_LIMIT };
+    }
+  }
+  const row = await insertCreation(userId, name, config);
+  return { status: "saved", row };
 }
 
 /**

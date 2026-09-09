@@ -6,6 +6,7 @@ import {
   DEFAULT_TELEMETRY,
   QUALITY_CAPS,
   SYSTEM_LIMIT,
+  clampCap,
   isProGenerator,
   type GeneratorKind,
   type LabParams,
@@ -548,7 +549,21 @@ export const useLab = create<LabState>((set, get) => ({
     if (rejectIfView()) return;
     set({ speed: v });
   },
-  setCap: (v) => set({ cap: Math.max(1024, Math.min(SYSTEM_LIMIT, v | 0)) }),
+  setCap: (v) => {
+    // Pro tier (Item 23): free/unsigned visitors are capped at the free ceiling;
+    // entitled (Pro / Enterprise / trial) users unlock the full SYSTEM_LIMIT.
+    // When a free user asks for more than the free ceiling allows, clamp to the
+    // ceiling AND open the upgrade dialog so the paywall is discoverable rather
+    // than a silent truncation.
+    const entitled = get().entitled;
+    const requested = Math.max(1024, Math.min(SYSTEM_LIMIT, v | 0));
+    const next = clampCap(requested, entitled);
+    if (!entitled && requested > next) {
+      set({ cap: next, upgradeOpen: true });
+      return;
+    }
+    set({ cap: next });
+  },
   setTool: (t) => {
     if (rejectIfView()) return;
     set({ tool: t });

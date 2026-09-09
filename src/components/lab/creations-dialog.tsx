@@ -136,6 +136,7 @@ function CreationRowItem({
 export function CreationsDialog() {
   const open = useLab((s) => s.creationsOpen);
   const setOpen = useLab((s) => s.setCreationsOpen);
+  const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
 
   const { creations, isLoading, isSignedIn, save, update, remove, setPublic } = useCreations();
@@ -157,10 +158,17 @@ export function CreationsDialog() {
     }
     setSaving(true);
     try {
-      const ok = await save(trimmed);
-      if (ok) {
+      const result = await save(trimmed);
+      if (result.status === "saved") {
         toast.success("Creation saved");
         setName("");
+      } else if (result.status === "limit") {
+        // Free-tier private-creation quota reached (Item 23). Nudge to Pro
+        // rather than treating the block as an error.
+        toast.error(`Free plan keeps up to ${result.limit} private creations`, {
+          description: "Publish one, or go Pro for unlimited private saves.",
+        });
+        setUpgradeOpen(true);
       } else {
         toast.error("Could not save. Please try again.");
       }

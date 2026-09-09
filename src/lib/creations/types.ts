@@ -346,6 +346,47 @@ export const creationConfigSchema = z.object({
 /** The validated, always-complete saved config. */
 export type CreationConfig = z.infer<typeof creationConfigSchema>;
 
+/**
+ * Free-tier private-creation quota (Item 23 — Pro tier). A "private" creation is
+ * an unlisted row (`is_public = false`): reachable only via its unguessable
+ * share id, never surfaced in the public library. Free/unsigned users may keep
+ * up to `FREE_PRIVATE_CREATION_LIMIT` private creations; entitled (Pro /
+ * Enterprise / active trial) users have no cap. Publishing a creation (making it
+ * public) does NOT count against the quota — only unlisted rows do — so a free
+ * user can always share widely; the paywall is specifically on hoarding private
+ * drafts, which is the Pro perk.
+ */
+export const FREE_PRIVATE_CREATION_LIMIT = 3;
+
+/**
+ * Pure decision for whether a NEW private (unlisted) save is allowed (Item 23).
+ * No I/O so it is directly unit-testable — the server supplies the caller's
+ * current private-creation count and their entitlement, and this decides.
+ *
+ * Entitled users are always allowed (`true`). A free user is allowed only while
+ * their existing private count is BELOW the free limit, so the (limit)th save
+ * succeeds and the (limit+1)th is blocked. Publishing (a public save) is never
+ * gated here — callers pass this only for the unlisted path.
+ */
+export function canSavePrivateCreation(
+  currentPrivateCount: number,
+  entitled: boolean,
+): boolean {
+  if (entitled) return true;
+  return currentPrivateCount < FREE_PRIVATE_CREATION_LIMIT;
+}
+
+/**
+ * The outcome of a save attempt that may hit the free private-creation quota
+ * (Item 23). `status`:
+ *   - "saved"        — the creation was stored; `row` is the new row.
+ *   - "limit"        — a free user is at the private-creation cap; nothing was
+ *                      stored. `limit` echoes the ceiling for the UI message.
+ */
+export type SaveCreationResult =
+  | { status: "saved"; row: CreationRow }
+  | { status: "limit"; limit: number };
+
 /** Validates a save request: a trimmed name + a (sanitized) config payload. */
 export const saveCreationSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
