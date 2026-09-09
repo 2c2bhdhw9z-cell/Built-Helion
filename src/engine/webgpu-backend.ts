@@ -5,6 +5,7 @@ import type { ParticleSoA } from "./soa";
 import { HASH_MAX_PER_CELL, IDLE_EXTRA_BRUSH, brushMode, shapeId, type ExtraBrush, type LabParams, type PointerState, type ToolKind } from "./types";
 import { trailFadeAlpha } from "./camera";
 import { particleBufferSizes } from "./webgpu-buffers";
+import { backingPointSize } from "./point-size";
 
 const UNIFORM_BYTES = 256;
 
@@ -419,6 +420,7 @@ export class WebGPUBackend {
     time: number,
     walls: Array<{x1:number, y1:number, x2:number, y2:number}> = [],
     extraBrush: ExtraBrush = IDLE_EXTRA_BRUSH,
+    dpr = 1,
   ): void {
     const s = this.staging;
     const u = this.stagingU;
@@ -449,7 +451,11 @@ export class WebGPUBackend {
       : params.nbody
         ? Math.max(params.particleRadius * 4, params.flockRadius, 0.07)
         : Math.max(params.particleRadius * 4, params.flockRadius, 0.02);
-    s[23] = params.pointSize * (params.shape === "emoji" || params.shape === "sprite" ? 1.7 : 1);
+    // Backing-pixel point size, including the device pixel ratio the engine
+    // sized the canvas with — matches the WebGL path so particles render the
+    // same on-screen size on both backends at any dpr. The WGSL vertex shader
+    // treats this value as backing pixels (canvasW/H are in backing pixels too).
+    s[23] = backingPointSize(params.pointSize, dpr, params.shape);
     const mouseOn = pointer.down || (pointer.inside && tool === "attract" && !params.sph);
     u[24] = brushMode(tool, mouseOn);
     u[25] = count;

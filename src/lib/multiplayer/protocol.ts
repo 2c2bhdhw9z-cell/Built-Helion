@@ -128,6 +128,57 @@ export function pickLiveExtraBrush(
   };
 }
 
+/**
+ * Pure decision for how a peer whose RTCPeerConnection changed state should
+ * try to recover, extracted so it is unit-testable without a live WebRTC
+ * stack (the actual teardown/renegotiation in p2p.ts is not headlessly
+ * testable). Keeps the reconnection policy in one place so the "connected →
+ * dropped" path and the stall watchdog can't drift apart.
+ *
+ * - "rebuild"     — tear down the stale pc and re-dial from scratch (dialer
+ *                   only; a new DTLS identity clears suspend/resume wedges).
+ * - "restart-ice" — keep the pc but restart ICE (cheap; lets a transient blip
+ *                   self-heal without a full renegotiation).
+ * - "wait"        — do nothing now; the peer will recover via the other side
+ *                   (receiver waits for the dialer's fresh offer) or the
+ *                   watchdog.
+ * - "none"        — give up: out of attempts (terminal) or not a drop worth
+ *                   acting on. Prevents a NAT-blocked pair from reconnect-storming.
+ */
+export type ReconnectAction = "rebuild" | "restart-ice" | "wait" | "none";
+
+export interface ReconnectContext {
+  /** The connection state the peer just moved into. */
+  state: RTCPeerConnectionState;
+  /** Whether this pair ever reached "connected" (only then is a drop a reconnect). */
+  wasConnected: boolean;
+  /** Recovery attempts already spent on this pair. */
+  recoveryAttempts: number;
+  /** Ceiling after which the pair is terminal and must not reconnect. */
+  maxAttempts: number;
+  /** True when this side is the dialer (offerer) for the pair. */
+  isDialer: boolean;
+}
+
+export function decideReconnect(ctx: ReconnectContext): ReconnectAction {
+  const { state, wasConnected, recoveryAttempts, maxAttempts, isDialer } = ctx;
+  // Only a previously-connected pair that has now dropped is a reconnect; a
+  // pair still doing its initial handshake is handled by normal negotiation
+  // and the stall watchdog.
+  if (!wasConnected) return "none";
+  if (state !== "failed" && state !== "disconnected") return "none";
+  // Respect the backoff ceiling so a genuinely NAT-blocked pair does not storm.
+  if (recoveryAttempts >= maxAttempts) return "none";
+  if (state === "disconnected") {
+    // Often a transient blip (phone sleep/wake, brief network loss). Let ICE
+    // try to recover in place before spending a rebuild attempt.
+    return "restart-ice";
+  }
+  // "failed": the transport is dead. The dialer rebuilds the pair; the
+  // receiver waits for the dialer's fresh offer to arrive via signaling.
+  return isDialer ? "rebuild" : "wait";
+}
+
 export type LiveMsg = {
   t: "live";
   x: number;

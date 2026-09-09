@@ -9,6 +9,8 @@
  * rolls back and accepts, so pairs converge without wedging.
  */
 
+import { decideReconnect } from "./protocol";
+
 export type SignalKind = "offer" | "answer" | "ice";
 
 /**
@@ -72,6 +74,8 @@ interface PeerSlot {
   terminal?: boolean;
   /** One-shot: pc was already recreated to absorb a failing remote offer. */
   recreatedForOffer?: boolean;
+  /** Whether this pair ever reached "connected" (gates connected→drop reconnect). */
+  everConnected: boolean;
   info: PeerInfo;
   pingSentAt?: number;
 }
@@ -291,6 +295,7 @@ export class P2PRoom {
       pendingCandidates: [],
       lastProgressAt: Date.now(),
       recoveryAttempts: 0,
+      everConnected: false,
       info: {
         id: peerId,
         name,
@@ -310,17 +315,39 @@ export class P2PRoom {
         slot.lastProgressAt = Date.now();
       }
       if (pc.connectionState === "connected") {
+        slot.everConnected = true;
         slot.recoveryAttempts = 0;
         slot.terminal = false;
         void this.readCandidateType(slot);
       }
       this.emitPeers();
-      if (pc.connectionState === "failed") {
-        // Refires negotiationneeded → a fresh offer through signaling, so a
-        // lost offer or dead path cannot wedge the pair (glare-safe).
-        pc.restartIce();
-      }
       if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        // A pair that was CONNECTED and just dropped (transient blip, phone
+        // sleep/wake, dead path) is reconnected here instead of only waiting
+        // for the stall watchdog, so recovery is prompt. The decision honors
+        // the same attempt ceiling / dialer-selection the watchdog uses, so a
+        // genuinely NAT-blocked pair can't reconnect-storm.
+        const action = decideReconnect({
+          state: pc.connectionState,
+          wasConnected: slot.everConnected,
+          recoveryAttempts: slot.recoveryAttempts,
+          maxAttempts: MAX_RECOVERY_ATTEMPTS,
+          isDialer: this.opts.selfId > peerId,
+        });
+        if (action === "restart-ice") {
+          // Keep the pc; let ICE try to re-nominate a path in place. Refires
+          // negotiationneeded → a fresh offer through signaling if needed.
+          try {
+            pc.restartIce();
+          } catch {
+            /* older impls may lack restartIce; watchdog still covers it */
+          }
+        } else if (action === "rebuild") {
+          this.rebuildPeer(peerId);
+        }
+        // "wait"/"none": receiver waits for the dialer's fresh offer, or the
+        // pair is out of attempts (terminal). Either way, poll fast so the
+        // dialer's offer (if any) is picked up quickly.
         this.schedulePoll(FAST_POLL_MS);
       }
     };
@@ -567,20 +594,40 @@ export class P2PRoom {
         this.emitPeers();
         continue;
       }
-      slot.recoveryAttempts += 1;
-      slot.lastProgressAt = now; // re-arm the stall window
       if (this.opts.selfId > peerId) {
         // We are the dialer: rebuild the pair from scratch.
-        const { name } = slot.info;
-        const attempts = slot.recoveryAttempts;
-        slot.pc.close();
-        this.peers.delete(peerId);
-        const fresh = this.connectTo(peerId, name, true);
-        if (fresh) fresh.recoveryAttempts = attempts;
+        this.rebuildPeer(peerId);
         this.schedulePoll(FAST_POLL_MS);
+      } else {
+        // Receiver side: count the stall window and wait for the dialer's
+        // fresh offer (onSignal absorbs it, recreating our pc if needed).
+        slot.recoveryAttempts += 1;
+        slot.lastProgressAt = now; // re-arm the stall window
       }
-      // Receiver side: count the stall window and wait for the dialer's
-      // fresh offer (onSignal absorbs it, recreating our pc if needed).
+    }
+  }
+
+  /**
+   * Dialer-side clean rebuild of a pair: close the stale RTCPeerConnection,
+   * drop the slot, and re-dial from scratch with a fresh pc (new DTLS
+   * identity, which clears suspend/resume fingerprint wedges). Carries the
+   * recovery-attempt count forward — incremented by one for this rebuild — so
+   * the backoff ceiling is respected and the pair still goes terminal after
+   * MAX_RECOVERY_ATTEMPTS instead of reconnect-storming. Shared by the stall
+   * watchdog and the connected→dropped fast path so they can't diverge.
+   */
+  private rebuildPeer(peerId: string): void {
+    const slot = this.peers.get(peerId);
+    if (!slot || this.closed) return;
+    if (this.opts.selfId <= peerId) return; // only the dialer rebuilds
+    const { name } = slot.info;
+    const attempts = slot.recoveryAttempts + 1;
+    slot.pc.close();
+    this.peers.delete(peerId);
+    const fresh = this.connectTo(peerId, name, true);
+    if (fresh) {
+      fresh.recoveryAttempts = attempts;
+      fresh.lastProgressAt = Date.now(); // re-arm the stall window
     }
   }
 

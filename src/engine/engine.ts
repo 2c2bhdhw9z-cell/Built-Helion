@@ -837,6 +837,7 @@ export class ParticleEngine {
         this.totalTime,
         this.walls,
         this.extraBrush,
+        this.dpr,
       );
       this.gpu.dispatch(this.soa.count);
       this.gpu.readStats().then(() => {
@@ -883,6 +884,7 @@ export class ParticleEngine {
           this.totalTime,
           this.walls,
           this.extraBrush,
+          this.dpr,
         );
       }
       this.gpu.render(this.soa.count, this.params);
