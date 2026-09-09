@@ -549,6 +549,14 @@ export function CanvasStage() {
     engineRef.current?.clear();
   }, [clearId]);
 
+  // The Walls tab's "Clear Walls" button dispatches this event; the engine owns
+  // the wall list, so the listener lives here next to the engine ref.
+  useEffect(() => {
+    const onClearWalls = () => engineRef.current?.clearWalls();
+    window.addEventListener("clear-walls", onClearWalls);
+    return () => window.removeEventListener("clear-walls", onClearWalls);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;

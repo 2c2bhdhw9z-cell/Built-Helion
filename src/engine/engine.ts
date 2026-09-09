@@ -436,6 +436,19 @@ export class ParticleEngine {
     }
   }
 
+  /**
+   * Drop every drawn wall segment. Walls are independent of particles (Clear
+   * wipes particles, this wipes walls), and there was previously NO way to
+   * remove them once drawn: the Walls tab's "Clear Walls" button dispatched a
+   * `clear-walls` event nothing listened for, and clear() deliberately leaves
+   * walls in place. The wall count reaches the GPU through writeParams on the
+   * next frame, so emptying the array is all that is required.
+   */
+  clearWalls(): void {
+    this.walls = [];
+    this.hasWallPaint = false;
+  }
+
   spawn(kind: GeneratorKind, replace: boolean, origin?: { x: number; y: number }, count?: number): number {
     if (replace) {
       this.soa.clear();
@@ -543,6 +556,7 @@ export class ParticleEngine {
 
     const t0 = performance.now();
     this.cpuPhysicsMs = 0;
+    let stepped = false;
     if (!paused) {
       this.acc += Math.min(dt, 0.1) * speed;
       let steps = 0;
@@ -552,10 +566,16 @@ export class ParticleEngine {
         steps++;
       }
       if (steps === MAX_SUBSTEPS) this.acc = 0;
+      stepped = steps > 0;
     }
     const t1 = performance.now();
     try {
-      this.render();
+      // `stepped` tells render() whether a substep already refreshed the GPU
+      // uniform this frame. When it did not (paused sim, or dt below the fixed
+      // step) the WebGPU render pass would otherwise keep reading last frame's
+      // uniform, freezing shape / point size / color map / trail length / palette
+      // until the sim resumed.
+      this.render(!stepped);
     } catch {
       /* keep the sim alive if a GPU present/render throws */
     }
@@ -802,11 +822,39 @@ export class ParticleEngine {
 
 
   
-  render(): void {
+  /**
+   * Draw the current state with whichever backend is live.
+   *
+   * `refreshGpuParams` forces a WebGPU uniform refresh even on the GPU-compute
+   * path. The render pipeline shares `uniformBuf` with the compute pipeline, and
+   * on the GPU-compute path only `substep()` writes it — so when no substep runs
+   * (paused sim, or a frame whose dt did not reach FIXED_DT) the vertex/fragment
+   * stages would keep reading a stale uniform and visual params (shape, point
+   * size, color map, trail length) plus the palette/glyph textures would appear
+   * frozen. Defaults to true so the ad-hoc render() in requestScreenshot() is
+   * always drawing current params.
+   */
+  render(refreshGpuParams = true): void {
     if (this.gpu) {
-      if (this.compute === "cpu" || this.springs.length > 0) {
-        this.gpu.uploadSoA(this.soa);
-        this.gpu.writeParams(this.params, this.pointer, this.tool, this.brushRadius, this.brushStrength, this.soa.count, this.worldW, this.worldH, FIXED_DT, 0, 0, this.totalTime);
+      const cpuDriven = this.compute === "cpu" || this.springs.length > 0;
+      if (cpuDriven) this.gpu.uploadSoA(this.soa);
+      if (cpuDriven || refreshGpuParams) {
+        this.gpu.writeParams(
+          this.params,
+          this.pointer,
+          this.tool,
+          this.brushRadius,
+          this.brushStrength,
+          this.soa.count,
+          this.worldW,
+          this.worldH,
+          FIXED_DT,
+          0,
+          0,
+          this.totalTime,
+          this.walls,
+          this.extraBrush,
+        );
       }
       this.gpu.render(this.soa.count, this.params);
       return;
