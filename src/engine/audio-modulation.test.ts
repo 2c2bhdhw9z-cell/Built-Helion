@@ -7,7 +7,6 @@ import {
   normalizeMappings,
   DEFAULT_AUDIO_MAPPINGS,
   type AudioSignal,
-  type AudioMapping,
 } from "./audio-modulation.ts";
 
 const silent: AudioSignal = { bass: 0, mid: 0, level: 0 };
