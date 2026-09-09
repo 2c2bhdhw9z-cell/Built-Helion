@@ -24,6 +24,11 @@ type AdminServer = {
   getAnalytics: () => Promise<AdminAnalytics>;
   suspendAccount: (adminId: string, targetId: string) => Promise<void>;
   reinstateAccount: (adminId: string, targetId: string) => Promise<void>;
+  getDashboardAnalytics: () => Promise<import("./types.ts").AdminDashboardAnalytics>;
+  aggregateGeneratorPopularity: (
+    maps: Array<Record<string, unknown> | null | undefined>,
+    limit?: number,
+  ) => import("./types.ts").AdminBreakdownSlice[];
 };
 
 type Guard = {
@@ -223,5 +228,114 @@ describe("admin authorization — non-admin caller is denied (Reqs 5.5, 6.4)", (
       { hasDatabase: true, adminToken: "the-real-secret", emails: [] },
     );
     assert.equal(allowed, true, "the correct token authorizes");
+  });
+});
+
+describe("aggregateGeneratorPopularity — pure ranking (Req 12)", () => {
+  it("sums generator counts across accounts, ranks desc, breaks ties by label", () => {
+    const slices = adminServer.aggregateGeneratorPopularity([
+      { galaxy: 3, ring: 1 },
+      { galaxy: 2, flock: 4 },
+      { ring: 1 },
+    ]);
+    // galaxy 5, flock 4, ring 2.
+    assert.deepEqual(slices, [
+      { label: "galaxy", count: 5 },
+      { label: "flock", count: 4 },
+      { label: "ring", count: 2 },
+    ]);
+  });
+
+  it("ignores garbage counts, empty labels, and non-object maps; honors the limit", () => {
+    const slices = adminServer.aggregateGeneratorPopularity(
+      [
+        { galaxy: 5, ring: -1, "": 99, bad: "nope" },
+        null,
+        undefined,
+        // @ts-expect-error exercising a non-object entry defensively
+        [1, 2, 3],
+        { flock: 2, burst: 2 },
+      ],
+      2,
+    );
+    // Only positive, real counts survive: galaxy 5, then burst/flock tie at 2 →
+    // "burst" wins the tie-break; capped to 2 slices.
+    assert.equal(slices.length, 2);
+    assert.deepEqual(slices[0], { label: "galaxy", count: 5 });
+    assert.deepEqual(slices[1], { label: "burst", count: 2 });
+  });
+
+  it("empty input yields an empty list (never fabricated rows)", () => {
+    assert.deepEqual(adminServer.aggregateGeneratorPopularity([]), []);
+  });
+});
+
+describe("getDashboardAnalytics — aggregates real usage/telemetry rows (Req 12)", () => {
+  it("computes active users, popular generators, and device/particle breakdowns", async () => {
+    const sql = await getSql();
+
+    // Baseline so we assert DELTAS (this suite shares one PGLite instance).
+    const before = await adminServer.getDashboardAnalytics();
+
+    // Two accounts with recent usage (active), generators recorded.
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('dash-u1', 10, 5, 0, 100, ${JSON.stringify({ galaxy: 4, ring: 1 })}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('dash-u2', 20, 9, 1, 200, ${JSON.stringify({ galaxy: 2, flock: 3 })}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+    // One STALE account (updated_at well outside the 30-day window) → not active.
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('dash-stale', 1, 1, 0, 1, ${JSON.stringify({ ring: 9 })}, now() - interval '90 days')
+      on conflict (user_id) do update set updated_at = now() - interval '90 days'
+    `;
+
+    // Telemetry samples across two device tiers and two particle buckets.
+    await sql`insert into telemetry_samples (id, fps_avg, frame_ms_p95, dropped_frames, particle_bucket, device_tier) values ('dash-t1', 60, 16, 0, 1000, 'high')`;
+    await sql`insert into telemetry_samples (id, fps_avg, frame_ms_p95, dropped_frames, particle_bucket, device_tier) values ('dash-t2', 55, 18, 1, 1000, 'high')`;
+    await sql`insert into telemetry_samples (id, fps_avg, frame_ms_p95, dropped_frames, particle_bucket, device_tier) values ('dash-t3', 30, 33, 5, 5000, 'low')`;
+
+    const after = await adminServer.getDashboardAnalytics();
+
+    // Active users advanced by exactly the two recent accounts (the stale one is
+    // excluded), so the delta is 2.
+    assert.equal(after.activeUsers - before.activeUsers, 2, "two recently-active accounts");
+
+    // Popular generators reflect the summed maps of the recent accounts (and any
+    // shared-instance rows). galaxy = 4 + 2 = 6 must be present and lead flock=3.
+    const galaxy = after.popularGenerators.find((s) => s.label === "galaxy");
+    const flock = after.popularGenerators.find((s) => s.label === "flock");
+    assert.ok(galaxy, "galaxy must appear among popular generators");
+    assert.ok(galaxy.count >= 6, "galaxy count includes both accounts' usage");
+    if (flock) assert.ok(galaxy.count >= flock.count, "generators are ranked by count desc");
+
+    // Device tiers: the 'high' tier gained 2 samples, 'low' gained 1.
+    const high = after.deviceTiers.find((s) => s.label === "high");
+    const low = after.deviceTiers.find((s) => s.label === "low");
+    const highBefore = before.deviceTiers.find((s) => s.label === "high")?.count ?? 0;
+    const lowBefore = before.deviceTiers.find((s) => s.label === "low")?.count ?? 0;
+    assert.ok(high, "the 'high' device tier must appear");
+    assert.ok(low, "the 'low' device tier must appear");
+    assert.equal(high.count - highBefore, 2, "two new 'high' samples");
+    assert.equal(low.count - lowBefore, 1, "one new 'low' sample");
+
+    // Total telemetry samples advanced by 3, and equals the sum of tier counts.
+    assert.equal(after.telemetrySamples - before.telemetrySamples, 3);
+    assert.equal(
+      after.telemetrySamples,
+      after.deviceTiers.reduce((acc, s) => acc + s.count, 0),
+      "telemetrySamples equals the summed tier counts",
+    );
+
+    // Particle buckets are ascending by bucket value (chart reads low → high).
+    const buckets = after.particleBuckets.map((s) => Number(s.label));
+    for (let i = 1; i < buckets.length; i++) {
+      assert.ok(buckets[i - 1] <= buckets[i], "particle buckets ascend");
+    }
   });
 });

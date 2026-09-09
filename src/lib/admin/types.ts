@@ -33,3 +33,32 @@ export interface AdminAnalytics {
   publishedCreations: number;
   totalLikes: number;
 }
+
+/** One `{ label, count }` slice of a breakdown chart (device tier, generator,
+ * particle bucket). `label` is always a non-identifying, aggregate value. */
+export interface AdminBreakdownSlice {
+  label: string;
+  count: number;
+}
+
+/**
+ * The richer dashboard analytics view (Req 12), all AGGREGATE — never PII.
+ * Sourced from the data already collected server-side:
+ *   - `activeUsers` — accounts with a usage_stats row touched within the recent
+ *     activity window (see ACTIVE_WINDOW_DAYS).
+ *   - `popularGenerators` — the most-used generator kinds, summed across every
+ *     account's `usage_stats.generators` map (descending by use count).
+ *   - `deviceTiers` — the device/GPU-tier breakdown from opt-in telemetry
+ *     (`telemetry_samples.device_tier`), descending by sample count.
+ *   - `particleBuckets` — the coarse particle-count bucket breakdown from
+ *     telemetry, ascending by bucket so the chart reads low→high.
+ *   - `telemetrySamples` — the total telemetry sample count the breakdowns were
+ *     computed from (0 when telemetry is empty).
+ */
+export interface AdminDashboardAnalytics {
+  activeUsers: number;
+  popularGenerators: AdminBreakdownSlice[];
+  deviceTiers: AdminBreakdownSlice[];
+  particleBuckets: AdminBreakdownSlice[];
+  telemetrySamples: number;
+}

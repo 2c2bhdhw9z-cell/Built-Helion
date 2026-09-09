@@ -23,3 +23,11 @@ create table if not exists api_rate_limits (
 -- Sweeping expired windows is cheap and by (window_start); an index keeps the
 -- best-effort cleanup (delete windows older than the current one) index-covered.
 create index if not exists api_rate_limits_window_idx on api_rate_limits (window_start);
+
+-- Admin dashboard analytics (Req 12). The "active users" metric filters
+-- usage_stats by recency (updated_at >= now() - window), so an index on
+-- updated_at keeps that scan cheap as the table grows. The device-tier and
+-- particle-bucket breakdowns GROUP telemetry_samples by columns that already
+-- exist (device_tier, particle_bucket); telemetry_samples is expected to stay
+-- small enough that its group-by does not need a dedicated index.
+create index if not exists usage_stats_updated_at_idx on usage_stats (updated_at);
