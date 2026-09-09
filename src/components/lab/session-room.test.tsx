@@ -66,8 +66,13 @@ describe("SessionRoom effect stability", () => {
     try {
       expect(onMessage).toHaveBeenCalledTimes(1);
       expect(onTrack).toHaveBeenCalledTimes(1);
-      // Announces itself once via the reliable channel.
-      expect(send).toHaveBeenCalledWith({ t: "hello", name: "Nova", isHost: true });
+      // Announces itself once via the reliable channel (a host is not a spectator).
+      expect(send).toHaveBeenCalledWith({
+        t: "hello",
+        name: "Nova",
+        isHost: true,
+        spectator: false,
+      });
     } finally {
       unmount();
     }

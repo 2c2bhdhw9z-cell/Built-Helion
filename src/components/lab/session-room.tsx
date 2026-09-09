@@ -22,11 +22,14 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
   const stored = useSession((s) => s.selfName);
   const name = (stored || user?.displayName || "Guest").slice(0, 32);
   const micOn = useSession((s) => s.micOn);
+  const spectator = useSession((s) => s.spectator);
+  const mutedPeers = useSession((s) => s.mutedPeers);
   const p2p = useP2PRoom({ room: code, name });
   const applying = useRef(false);
   const rolesRef = useRef<Record<string, SessionRole>>({});
   const hostIdRef = useRef<string | null>(null);
   const seenPeers = useRef(new Set<string>());
+  const audioEls = useRef(new Map<string, HTMLAudioElement>());
 
   useEffect(() => {
     useSession.getState().setMeta({
@@ -37,11 +40,15 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
     if (isHost) {
       rolesRef.current[p2p.selfId] = "host";
       hostIdRef.current = p2p.selfId;
+    } else if (spectator) {
+      // A link-spectator records its own view role locally so it never
+      // announces or requests edit privileges (Item 11).
+      rolesRef.current[p2p.selfId] = "view";
     }
     return () => {
       useSession.getState().setMeta({ wire: null });
     };
-  }, [p2p.selfId, p2p.joined, p2p.send, isHost, name]);
+  }, [p2p.selfId, p2p.joined, p2p.send, isHost, name, spectator]);
 
   useEffect(() => {
     if (p2p.peers.length >= MAX_SESSION_PEERS) {
@@ -63,7 +70,17 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
 
     const alive = new Set(p2p.peers.map((p) => p.id));
     for (const id of seenPeers.current) {
-      if (!alive.has(id)) useSession.getState().dropPeer(id);
+      if (!alive.has(id)) {
+        useSession.getState().dropPeer(id);
+        // Tear down the departed peer's voice element so it stops playing and
+        // is garbage-collected (Item 12).
+        const el = audioEls.current.get(id);
+        if (el) {
+          el.srcObject = null;
+          el.pause();
+          audioEls.current.delete(id);
+        }
+      }
     }
 
     const newcomers = p2p.peers.filter((p) => !seenPeers.current.has(p.id));
@@ -93,6 +110,8 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
       },
     };
     for (const n of newcomers) {
+      // Default a newcomer to "edit" unless a prior hello already announced it
+      // as a spectator (Item 11) — then it stays "view".
       if (!rolesRef.current[n.id]) rolesRef.current[n.id] = "edit";
       p2p.send(snap, n.id);
     }
@@ -121,6 +140,12 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
           });
           return;
         }
+        // Never apply sim-editing messages from a peer we know to be view-only
+        // (Item 11): a spectator (or anyone forced to view) can't grief the
+        // shared canvas even if their client sends edit messages. Control/social
+        // messages (role/chat/hello/kick) and the authoritative snapshot are
+        // handled separately below and are not gated here.
+        if (isEditMsg(data) && rolesRef.current[from] === "view") return;
         applying.current = true;
         try {
           withRemoteApply(() => applyRemote(p2p.selfId, data));
@@ -138,10 +163,19 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
             if (data.isHost) {
               hostIdRef.current = from;
               rolesRef.current[from] = "host";
+            } else if (data.spectator && rolesRef.current[from] !== "host") {
+              // A peer that joined via a spectator link (Item 11) is recorded as
+              // view so its edit-type messages are ignored everywhere. The host
+              // additionally broadcasts an authoritative role update so every
+              // peer agrees this id is view-only.
+              rolesRef.current[from] = "view";
+              if (isHost) p2p.send({ t: "role", peerId: from, role: "view" });
             }
             useSession.getState().setMeta({
               peers: useSession.getState().peers.map((p) =>
-                p.id === from ? { ...p, name: data.name || p.name } : p,
+                p.id === from
+                  ? { ...p, name: data.name || p.name, role: rolesRef.current[p.id] ?? p.role }
+                  : p,
               ),
             });
           } else if (data.t === "chat") {
@@ -152,6 +186,10 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
               text: data.text,
               at: data.at,
             });
+          } else if (data.t === "mic") {
+            // Voice presence (Item 12): reflect a peer's mic on/off so the
+            // roster can show a speaking indicator.
+            useSession.getState().setPeerMic(from, data.on);
           } else if (data.t === "kick") {
             if (data.peerId === p2p.selfId) {
               toast.message("You were removed from the session");
@@ -257,21 +295,28 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
   }, [p2p.send]);
 
   useEffect(() => {
-    p2p.send({ t: "hello", name, isHost });
+    p2p.send({ t: "hello", name, isHost, spectator });
     // Stable p2p members (send/joined) only; parent `p2p` identity omitted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p2p.send, name, isHost, p2p.joined]);
+  }, [p2p.send, name, isHost, spectator, p2p.joined]);
 
   useEffect(() => {
-    const els = new Map<string, HTMLAudioElement>();
+    const els = audioEls.current;
     const unsub = p2p.onTrack((from, stream) => {
+      // Actually PLAY a remote peer's voice: attach its MediaStream to a hidden
+      // <audio> element (Item 12). Reuse one element per peer across
+      // renegotiations. Respect the current per-peer mute state on (re)attach.
       let el = els.get(from);
       if (!el) {
         el = new Audio();
         el.autoplay = true;
         els.set(from, el);
       }
+      el.muted = Boolean(useSession.getState().mutedPeers[from]);
       el.srcObject = stream;
+      void el.play().catch(() => {
+        /* autoplay policy may defer until a user gesture; element stays live */
+      });
     });
     return () => {
       unsub();
@@ -279,10 +324,28 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
         el.srcObject = null;
         el.pause();
       }
+      els.clear();
     };
     // Uses the stable p2p.onTrack; parent `p2p` identity intentionally omitted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p2p.onTrack]);
+
+  // Apply per-peer mute to the live audio elements whenever the mute map
+  // changes, and drop elements for peers that have left (Item 12).
+  useEffect(() => {
+    const els = audioEls.current;
+    for (const [id, el] of els) {
+      el.muted = Boolean(mutedPeers[id]);
+    }
+  }, [mutedPeers]);
+
+  // Announce our mic on/off to peers for the voice-presence indicator (Item 12).
+  // Re-sent on join so late peers learn our current state.
+  useEffect(() => {
+    p2p.send({ t: "mic", on: micOn });
+    // Stable p2p.send only; parent `p2p` identity intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p2p.send, micOn, p2p.joined]);
 
   useEffect(() => {
     if (!micOn) {
@@ -315,6 +378,21 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
   }, [micOn, p2p.setLocalAudio]);
 
   return null;
+}
+
+const EDIT_MSG_TYPES = new Set([
+  "gen",
+  "params",
+  "clear",
+  "tool",
+  "paused",
+  "speed",
+  "streams",
+]);
+
+/** True for sim-editing messages that a view-only peer must never be able to apply. */
+function isEditMsg(msg: SessionMsg): boolean {
+  return EDIT_MSG_TYPES.has(msg.t);
 }
 
 function applyRemote(selfId: string, msg: SessionMsg): void {

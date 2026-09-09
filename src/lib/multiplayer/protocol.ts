@@ -33,6 +33,27 @@ export function readSessionFromSearch(search: string): string | null {
   return code.length >= 4 ? code : null;
 }
 
+/**
+ * Spectator link (Item 11): the same `?session=CODE` share URL plus `spectate=1`.
+ * Opening it joins the room directly in VIEW role — a lightweight receiver that
+ * consumes state over the data channel but never asks for edit privileges. Pure
+ * so it is unit-testable without a live session.
+ *
+ * A spectator link is only honored when there is actually a valid session code
+ * to spectate (otherwise there is nothing to watch).
+ */
+export function readSpectateFromSearch(search: string): boolean {
+  if (!readSessionFromSearch(search)) return false;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const flag = new URLSearchParams(raw).get("spectate");
+  return flag === "1" || flag === "true";
+}
+
+/** Build a shareable spectator (view-only) link for a room code. */
+export function spectatorUrl(code: string, origin = ""): string {
+  return `${sessionUrl(code, origin)}&spectate=1`;
+}
+
 export function writeSessionQuery(code: string | null): void {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
@@ -228,8 +249,16 @@ export type StreamsMsg = {
   smoking: boolean;
 };
 export type RoleMsg = { t: "role"; peerId: string; role: SessionRole };
+/** Voice presence (Item 12): a peer announces whether its microphone is live. */
+export type MicMsg = { t: "mic"; on: boolean };
 export type ChatMsg = { t: "chat"; text: string; name: string; at: number };
-export type HelloMsg = { t: "hello"; name: string; isHost: boolean };
+export type HelloMsg = {
+  t: "hello";
+  name: string;
+  isHost: boolean;
+  /** True when this peer joined via a spectator link — others record it as "view". */
+  spectator?: boolean;
+};
 export type KickMsg = { t: "kick"; peerId: string };
 
 export type SessionMsg =
@@ -243,6 +272,7 @@ export type SessionMsg =
   | SpeedMsg
   | StreamsMsg
   | RoleMsg
+  | MicMsg
   | ChatMsg
   | HelloMsg
   | KickMsg;

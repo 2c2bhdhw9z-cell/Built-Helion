@@ -38,11 +38,23 @@ export type SessionWire = {
   name: string;
 };
 
+/** Options for entering a session: a link-joined spectator lands in view role. */
+export type EnterOptions = {
+  /** Join view-only (spectator link). Cannot edit or grief; a lightweight receiver. */
+  spectator?: boolean;
+  /** Known durable-room name to label the session immediately, if any. */
+  roomName?: string;
+};
+
 type SessionState = {
   open: boolean;
   code: string | null;
   isHost: boolean;
   role: SessionRole | null;
+  /** True while this client joined via a spectator link (locks it to view role). */
+  spectator: boolean;
+  /** Durable-room name when the code is a known persistent room, else null. */
+  roomName: string | null;
   selfId: string | null;
   selfName: string;
   joined: boolean;
@@ -51,16 +63,27 @@ type SessionState = {
   chat: ChatLine[];
   wire: SessionWire | null;
   micOn: boolean;
+  /** Peer ids whose incoming voice this client has muted locally. */
+  mutedPeers: Record<string, boolean>;
+  /** Peer ids that have announced their microphone is live (voice presence). */
+  micPeers: Record<string, boolean>;
   setOpen: (v: boolean) => void;
-  enter: (code: string, isHost: boolean) => void;
+  enter: (code: string, isHost: boolean, opts?: EnterOptions) => void;
   leave: () => void;
   setMeta: (
-    p: Partial<Pick<SessionState, "role" | "selfId" | "selfName" | "joined" | "peers" | "isHost" | "wire">>,
+    p: Partial<
+      Pick<
+        SessionState,
+        "role" | "selfId" | "selfName" | "joined" | "peers" | "isHost" | "wire" | "roomName"
+      >
+    >,
   ) => void;
   setCursor: (c: RemoteCursor) => void;
   dropPeer: (id: string) => void;
   pushChat: (line: ChatLine) => void;
   setMicOn: (v: boolean) => void;
+  togglePeerMuted: (id: string) => void;
+  setPeerMic: (id: string, on: boolean) => void;
 };
 
 export const useSession = create<SessionState>((set) => ({
@@ -68,6 +91,8 @@ export const useSession = create<SessionState>((set) => ({
   code: null,
   isHost: false,
   role: null,
+  spectator: false,
+  roomName: null,
   selfId: null,
   selfName: "",
   joined: false,
@@ -76,12 +101,17 @@ export const useSession = create<SessionState>((set) => ({
   chat: [],
   wire: null,
   micOn: false,
+  mutedPeers: {},
+  micPeers: {},
   setOpen: (v) => set({ open: v }),
-  enter: (code, isHost) =>
+  enter: (code, isHost, opts) =>
     set({
       code,
       isHost,
-      role: isHost ? "host" : "edit",
+      // A spectator link joins directly in view role; a host is "host"; else "edit".
+      role: opts?.spectator ? "view" : isHost ? "host" : "edit",
+      spectator: Boolean(opts?.spectator),
+      roomName: opts?.roomName ?? null,
       open: true,
       peers: [],
       cursors: {},
@@ -91,12 +121,16 @@ export const useSession = create<SessionState>((set) => ({
       selfName: ensureGuestName(),
       wire: null,
       micOn: false,
+      mutedPeers: {},
+      micPeers: {},
     }),
   leave: () =>
     set({
       code: null,
       isHost: false,
       role: null,
+      spectator: false,
+      roomName: null,
       selfId: null,
       selfName: "",
       joined: false,
@@ -106,14 +140,21 @@ export const useSession = create<SessionState>((set) => ({
       open: false,
       wire: null,
       micOn: false,
+      mutedPeers: {},
+      micPeers: {},
     }),
   setMeta: (p) => set(p),
   setCursor: (c) => set((s) => ({ cursors: { ...s.cursors, [c.id]: c } })),
   dropPeer: (id) =>
     set((s) => {
       const { [id]: _drop, ...cursors } = s.cursors;
-      return { cursors, peers: s.peers.filter((p) => p.id !== id) };
+      const { [id]: _mute, ...mutedPeers } = s.mutedPeers;
+      const { [id]: _mic, ...micPeers } = s.micPeers;
+      return { cursors, mutedPeers, micPeers, peers: s.peers.filter((p) => p.id !== id) };
     }),
   pushChat: (line) => set((s) => ({ chat: [...s.chat.slice(-80), line] })),
   setMicOn: (v) => set({ micOn: v }),
+  togglePeerMuted: (id) =>
+    set((s) => ({ mutedPeers: { ...s.mutedPeers, [id]: !s.mutedPeers[id] } })),
+  setPeerMic: (id, on) => set((s) => ({ micPeers: { ...s.micPeers, [id]: on } })),
 }));
