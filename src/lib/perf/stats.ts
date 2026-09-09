@@ -121,8 +121,11 @@ export function summarize(samples: PerfSample[]): PerfSummary {
   const frameMs: number[] = [];
   let fpsSum = 0;
   let frameSum = 0;
-  let fpsMin = Infinity;
-  let fpsMax = -Infinity;
+  // Honest frame-time extremes over the whole window: the best frame is the
+  // smallest per-sample window-min; the worst is the largest per-sample
+  // window-max. These come from the engine's per-FRAME extents (it sees every
+  // frame), so they reflect the true best/worst frame — not a min/max of the
+  // sparse ~7Hz poll snapshots, which used to strobe the readout.
   let frameMin = Infinity;
   let frameMax = -Infinity;
   let dropped = 0;
@@ -132,19 +135,20 @@ export function summarize(samples: PerfSample[]): PerfSummary {
     frameMs.push(s.frameMs);
     fpsSum += s.fps;
     frameSum += s.frameMs;
-    if (s.fps < fpsMin) fpsMin = s.fps;
-    if (s.fps > fpsMax) fpsMax = s.fps;
-    if (s.frameMs < frameMin) frameMin = s.frameMs;
-    if (s.frameMs > frameMax) frameMax = s.frameMs;
+    if (s.frameMsMinWindow < frameMin) frameMin = s.frameMsMinWindow;
+    if (s.frameMsMaxWindow > frameMax) frameMax = s.frameMsMaxWindow;
     if (s.frameMs > DROPPED_FRAME_MS) dropped += 1;
   }
 
   const n = samples.length;
+  // Derive fps min/max from the honest frame-time extremes so they agree with
+  // the ms readouts (worst frame == lowest fps, best frame == highest fps).
+  const fpsFromMs = (ms: number) => (ms > 0 ? 1000 / ms : 0);
   return {
     fpsCur: samples[n - 1].fps,
     fpsAvg: fpsSum / n,
-    fpsMin,
-    fpsMax,
+    fpsMin: fpsFromMs(frameMax),
+    fpsMax: fpsFromMs(frameMin),
     frameMsCur: samples[n - 1].frameMs,
     frameMsAvg: frameSum / n,
     frameMsMin: frameMin,

@@ -17,6 +17,8 @@ function mkSample(over: Partial<PerfSample>): PerfSample {
     t: 0,
     fps: 60,
     frameMs: 16.7,
+    frameMsMinWindow: 16.7,
+    frameMsMaxWindow: 16.7,
     computeMs: 5,
     renderMs: 5,
     other: 6.7,
@@ -84,20 +86,26 @@ test("summarize on empty returns zeros not NaN", () => {
 });
 
 test("summarize computes cur/avg/min/max and dropped frames", () => {
+  // Each sample carries the engine's true per-frame window extremes. Here they
+  // mirror the sample's own frameMs so the window min/max == the frame's ms.
   const samples = [
-    mkSample({ fps: 60, frameMs: 16 }),
-    mkSample({ fps: 30, frameMs: 33 }), // dropped (>20ms)
-    mkSample({ fps: 120, frameMs: 8 }),
+    mkSample({ fps: 60, frameMs: 16, frameMsMinWindow: 16, frameMsMaxWindow: 16 }),
+    mkSample({ fps: 30, frameMs: 33, frameMsMinWindow: 33, frameMsMaxWindow: 33 }), // dropped (>20ms)
+    mkSample({ fps: 120, frameMs: 8, frameMsMinWindow: 8, frameMsMaxWindow: 8 }),
   ];
   const s = summarize(samples);
-  expect(s.fpsCur).toBe(120); // last sample
-  expect(s.fpsMin).toBe(30);
-  expect(s.fpsMax).toBe(120);
+  expect(s.fpsCur).toBe(120); // last sample (engine-smoothed value, copied through)
   expect(s.fpsAvg).toBeCloseTo((60 + 30 + 120) / 3, 5);
+  // Frame-time extremes come from the honest per-frame window fields: best
+  // frame 8ms, worst 33ms.
   expect(s.frameMsCur).toBe(8);
   expect(s.frameMsMin).toBe(8);
   expect(s.frameMsMax).toBe(33);
   expect(s.longestFrameMs).toBe(33);
+  // fps min/max are derived from those ms extremes so they always agree:
+  // worst frame (33ms) -> lowest fps, best frame (8ms) -> highest fps.
+  expect(s.fpsMin).toBeCloseTo(1000 / 33, 5);
+  expect(s.fpsMax).toBeCloseTo(1000 / 8, 5);
   expect(s.droppedFrames).toBe(1);
 });
 

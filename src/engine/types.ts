@@ -289,8 +289,23 @@ export type SubsystemCost = {
 };
 
 export type Telemetry = {
+  /**
+   * Smoothed current framerate (derived from an EMA of frame time), so the
+   * headline reading is stable and always consistent with `frameMs` — 16ms
+   * reads as ~62fps, never a single-frame 100+ spike.
+   */
   fps: number;
+  /** Raw wall-clock time of the LAST frame (ms). Intentionally unsmoothed so
+   * the frame-breakdown/histogram charts show genuine per-frame jitter. */
   frameMs: number;
+  /**
+   * True min/max frame time (ms) observed over every frame since the perf hub
+   * last read telemetry — NOT a sparse per-poll snapshot. Lets the HUD show the
+   * real best/worst frame over the window instead of an aliased outlier that
+   * strobed the min/max readouts. Both equal `frameMs` until enough frames run.
+   */
+  frameMsMinWindow: number;
+  frameMsMaxWindow: number;
   computeMs: number;
   renderMs: number;
   live: number;
@@ -393,6 +408,8 @@ export const DEFAULT_PARAMS: LabParams = {
 export const DEFAULT_TELEMETRY: Telemetry = {
   fps: 0,
   frameMs: 0,
+  frameMsMinWindow: 0,
+  frameMsMaxWindow: 0,
   computeMs: 0,
   renderMs: 0,
   live: 0,
