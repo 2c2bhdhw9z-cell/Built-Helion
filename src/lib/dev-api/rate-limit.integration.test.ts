@@ -15,6 +15,11 @@ register("../feedback/pglite-glob-loader.mjs", import.meta.url);
 
 type RateLimit = {
   allowV1: (key: string, now?: number) => Promise<boolean>;
+  readV1Quota: (
+    key: string,
+    now?: number,
+  ) => Promise<{ used: number; limit: number; windowMs: number; resetMs: number }>;
+  userRateLimitKey: (userId: string) => string;
   isWithinLimit: (countIncludingThis: number, limit?: number) => boolean;
   windowStart: (now: number, windowMs?: number) => number;
   V1_LIMIT: number;
@@ -136,6 +141,38 @@ describe("allowV1 durable counter over real PGLite (Req 11)", () => {
       where key = 'v1:busy-different-key' and window_start = ${base}
     `;
     assert.equal(Number(live[0]?.count), 1, "the live current-window counter is retained");
+  });
+
+  // Finding 1 (BLOCKING): the developer usage/quota widget must show the SAME
+  // counter that actually throttles the account. `handleV1` enforces the limit
+  // for an authenticated request against `userRateLimitKey(userId)`, and
+  // `getUsageViewFn` reads the widget's `used` via `readV1Quota` of that SAME
+  // key. This test pins both to a shared window and asserts the read equals the
+  // number of enforced requests — the assertion whose absence let the bug
+  // through (read was `v1:<userId>`, enforcement was `v1:<ip>`).
+  it("readV1Quota reports exactly the count allowV1 enforced for the same principal key", async () => {
+    const base = 5_000 * rl.V1_WINDOW_MS;
+    const now = base + 1;
+    const userId = "quota-match-user";
+    const key = rl.userRateLimitKey(userId);
+
+    // Before any traffic the widget shows 0 used.
+    const start = await rl.readV1Quota(key, now);
+    assert.equal(start.used, 0, "an untouched principal shows 0 used");
+    assert.equal(start.limit, rl.V1_LIMIT, "the reported limit is the policy limit");
+
+    // Enforce N requests against the SAME key the widget reads.
+    const N = 5;
+    for (let i = 0; i < N; i++) {
+      await rl.allowV1(key, now);
+    }
+
+    // The widget's `used` equals the enforced count — read and enforcement
+    // share one bucket. (Read-only peek must NOT increment.)
+    const afterN = await rl.readV1Quota(key, now);
+    assert.equal(afterN.used, N, "readV1Quota reflects the enforced request count");
+    const peekAgain = await rl.readV1Quota(key, now);
+    assert.equal(peekAgain.used, N, "reading the quota does not itself increment the counter");
   });
 
   it("is shared/durable: a second call in the same window sees the first call's count", async () => {

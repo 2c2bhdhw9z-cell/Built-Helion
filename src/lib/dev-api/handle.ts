@@ -1,6 +1,6 @@
 import { saveCreationSchema } from "@/lib/creations/types";
 import { resolveToken } from "./tokens.ts";
-import { allowV1 } from "./rate-limit.ts";
+import { allowV1, userRateLimitKey } from "./rate-limit.ts";
 import { writeAudit } from "@/lib/audit/server";
 import { getSql } from "@/lib/db";
 import { attachControlSocket, pushToUser } from "./socket.ts";
@@ -97,8 +97,28 @@ export async function handleV1(request: Request): Promise<Response> {
     });
   }
 
+  // Rate-limit key = single source of truth for both enforcement AND the
+  // developer usage/quota widget. For an AUTHENTICATED request we resolve the
+  // bearer token FIRST and key the limiter by the account (`user:<userId>`), so
+  // the per-account throttle is what the developer page reads back via
+  // `readV1Quota(userId)` — the number shown equals the counter that actually
+  // throttles that developer, not a per-NAT IP bucket. Unauthed / pre-auth
+  // endpoints (meta, library, leaderboard, and any request without a valid
+  // token) fall back to the client IP so anonymous traffic is still limited.
+  //
+  // NOTE on ordering: resolving the token before the limit check means an
+  // authenticated caller's usage rollup bump (`bumpApiUsageDaily`, inside
+  // `requireToken`) runs even for a request that is about to be 429'd. That is
+  // acceptable — the daily rollup counts attempted authenticated requests — and
+  // the per-endpoint handlers below reuse the already-resolved `auth` instead of
+  // resolving the token a second time.
+  let auth: Awaited<ReturnType<typeof requireToken>> = null;
+  if (bearer(request)) {
+    auth = await requireToken(request);
+  }
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
-  if (!(await allowV1(ip))) return json(429, { error: "Slow down" });
+  const rateLimitKey = auth ? userRateLimitKey(auth.userId) : ip;
+  if (!(await allowV1(rateLimitKey))) return json(429, { error: "Slow down" });
 
   if (request.method === "GET" && (path === "" || path === "meta")) {
     return json(200, {
@@ -143,7 +163,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "creations" && request.method === "GET") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const { listCreations } = await import("@/lib/creations/server");
     const items = await listCreations(auth.userId);
@@ -151,7 +170,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "creations" && request.method === "POST") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const suspended = await suspendedWriteGuard(auth.userId);
     if (suspended) return suspended;
@@ -172,7 +190,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "history" && request.method === "GET") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const sql = await getSql();
     const rows = await sql<{ id: string; name: string; created_at: string | Date }>`
@@ -187,7 +204,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "teams" && request.method === "GET") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const { listMyTeams } = await import("@/lib/teams/server");
     const items = await listMyTeams(auth.userId);
@@ -195,7 +211,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "usage" && request.method === "GET") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     try {
       const { readAccountUsage } = await import("@/lib/usage/server");
@@ -207,7 +222,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "webhooks/deliveries" && request.method === "GET") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     try {
       const { listDeliveries } = await import("./tokens.ts");
@@ -219,7 +233,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "control" && request.method === "POST") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const suspended = await suspendedWriteGuard(auth.userId);
     if (suspended) return suspended;
@@ -247,7 +260,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (path === "control" && request.method === "GET") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const sql = await getSql();
     const rows = await sql<{ id: string; payload: unknown }>`
@@ -268,7 +280,6 @@ export async function handleV1(request: Request): Promise<Response> {
   const creationMatch = /^creations\/([a-zA-Z0-9_-]+)$/.exec(path);
   if (creationMatch && request.method === "GET") {
     const id = creationMatch[1]!;
-    const auth = await requireToken(request);
     if (auth) {
       const { getOwnedCreation } = await import("@/lib/creations/server");
       const owned = await getOwnedCreation(auth.userId, id);
@@ -281,7 +292,6 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   if (creationMatch && request.method === "DELETE") {
-    const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     const { deleteCreation } = await import("@/lib/creations/server");
     const deleted = await deleteCreation(auth.userId, creationMatch[1]!);

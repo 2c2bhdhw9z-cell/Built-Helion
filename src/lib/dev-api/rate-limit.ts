@@ -28,6 +28,18 @@ export const V1_LIMIT = 60;
 export const V1_WINDOW_MS = 60_000;
 
 /**
+ * The rate-limit key for an AUTHENTICATED principal. Both the enforcement path
+ * (`handleV1` → `allowV1`) and the read-only quota peek the developer page shows
+ * (`getUsageViewFn` → `readV1Quota`) MUST derive the key the same way, or the
+ * number on the page would track a different bucket than the one that throttles
+ * the account (the bug this centralization fixes). Unauthenticated requests are
+ * still keyed by client IP (there is no user), handled at the call site.
+ */
+export function userRateLimitKey(userId: string): string {
+  return `user:${userId}`;
+}
+
+/**
  * The last window bucket for which this process issued a GLOBAL stale-window
  * sweep. Throttles the global cleanup (below) to at most once per window per
  * instance so a hot path never fires a table-wide delete on every request. Held

@@ -56,6 +56,10 @@ export const addWebhookFn = createServerFn({ method: "POST" })
     return insertWebhook(context.userId, data.url);
   });
 
+// Re-export so the developer page (and validators) can share the exact same
+// SSRF predicate the server enforces, rather than duplicating the rule.
+export { isAllowedWebhookUrl } from "./webhook-url.ts";
+
 export const deleteWebhookFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => z.object({ id: z.string().min(1) }).parse(input))
@@ -105,9 +109,13 @@ export const getUsageViewFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<UsageView> => {
     const { readApiUsageDaily } = await import("./tokens.ts");
-    const { readV1Quota } = await import("./rate-limit.ts");
+    const { readV1Quota, userRateLimitKey } = await import("./rate-limit.ts");
     const [quota, daily] = await Promise.all([
-      readV1Quota(context.userId).catch(() => ({
+      // Read the SAME bucket `handleV1` enforces for an authenticated request:
+      // the per-account key `user:<userId>` (see `userRateLimitKey`). This makes
+      // the "used / limit" number on the developer page equal to the counter
+      // that actually throttles that developer's API calls.
+      readV1Quota(userRateLimitKey(context.userId)).catch(() => ({
         used: 0,
         limit: 60,
         windowMs: 60_000,

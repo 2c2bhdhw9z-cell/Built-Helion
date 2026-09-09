@@ -1,5 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql } from "@/lib/db";
+import { isAllowedWebhookUrl } from "./webhook-url.ts";
+
+/** Thrown by `insertWebhook` when a URL fails the SSRF allowlist. */
+export class WebhookUrlError extends Error {
+  constructor(message = "Webhook URL must be a public https:// address") {
+    super(message);
+    this.name = "WebhookUrlError";
+  }
+}
 
 export type TokenRow = {
   id: string;
@@ -96,6 +105,10 @@ export async function listWebhookUrls(userId: string): Promise<{ id: string; url
 }
 
 export async function insertWebhook(userId: string, url: string): Promise<{ id: string; url: string }> {
+  // Reject internal/link-local/non-https targets at registration (Finding 5) so
+  // an SSRF target never even lands in the table. Best-effort, string-level
+  // guard — see `isAllowedWebhookUrl` for the documented scope limits.
+  if (!isAllowedWebhookUrl(url)) throw new WebhookUrlError();
   const sql = await getSql();
   const id = crypto.randomUUID();
   await sql`insert into webhooks (id, user_id, url) values (${id}, ${userId}, ${url})`;
@@ -148,6 +161,14 @@ export async function listDeliveries(userId: string): Promise<DeliveryRow[]> {
   }));
 }
 
+/**
+ * Insert one delivery row and RETURN the id it was inserted under. Callers that
+ * surface the delivery (e.g. `testWebhook`) must return this SAME id so the
+ * object handed back matches the persisted row — generating a fresh id at the
+ * return site would diverge from what is stored. Best-effort: the table may not
+ * exist on an un-migrated deploy, so on error the (still valid, still returned)
+ * id simply has no row behind it rather than throwing.
+ */
 async function recordDelivery(
   userId: string,
   webhookId: string,
@@ -155,13 +176,14 @@ async function recordDelivery(
   ok: boolean,
   status: number | null,
   attempts: number,
-): Promise<void> {
+): Promise<string> {
+  const id = crypto.randomUUID();
   try {
     const sql = await getSql();
     await sql`
       insert into webhook_deliveries (id, webhook_id, user_id, event, ok, status, attempts)
       values (
-        ${crypto.randomUUID()},
+        ${id},
         ${webhookId},
         ${userId},
         ${event.slice(0, 80)},
@@ -173,6 +195,7 @@ async function recordDelivery(
   } catch {
     /* table may not exist yet */
   }
+  return id;
 }
 
 /**
@@ -181,6 +204,26 @@ async function recordDelivery(
  * backends). Aggregate count only — no request bodies, no PII.
  */
 export type ApiUsageDay = { day: string; count: number };
+
+/**
+ * Retention window for the per-day API usage rollup. Rows older than this are
+ * best-effort pruned so `api_usage_daily` does not grow without bound (unlike
+ * `api_rate_limits`, which already has a sweep). 90 days is aligned with the
+ * ≤90-day cap `readApiUsageDaily` enforces on its read window, so nothing the
+ * chart can ever request is pruned out from under it.
+ */
+export const API_USAGE_RETENTION_DAYS = 90;
+
+/**
+ * The last UTC calendar day for which this process issued a usage-retention
+ * sweep. Throttles the prune (below) to at most once per day per instance so a
+ * hot path never fires a table-wide delete on every request. Held on
+ * `globalThis` so dev HMR module reloads don't reset it. Mirrors the
+ * last-swept-window guard the durable rate limiter uses.
+ */
+const usageSweep = globalThis as typeof globalThis & {
+  __apiUsageDailySweptDay__?: string;
+};
 
 /**
  * Increment the caller's per-day API request counter (Item 19). Called once per
@@ -199,6 +242,19 @@ export async function bumpApiUsageDaily(userId: string, at: Date = new Date()): 
       on conflict (user_id, day)
       do update set count = api_usage_daily.count + 1
     `;
+    // Best-effort retention sweep so the table stays bounded. THROTTLED to at
+    // most once per UTC day per process (guarded by the last-swept day) so the
+    // hot path never issues a table-wide delete on every request, and
+    // fire-and-forget so it can never delay or fail the request — exactly the
+    // pattern the durable rate limiter's global sweep uses. Deletes every row
+    // older than the retention window regardless of user.
+    if (usageSweep.__apiUsageDailySweptDay__ !== day) {
+      usageSweep.__apiUsageDailySweptDay__ = day;
+      const cutoff = new Date(at.getTime() - API_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      void sql`delete from api_usage_daily where day < ${cutoff}`.catch(() => undefined);
+    }
   } catch {
     /* table may not exist yet, or DB blip — never fail the request */
   }
@@ -251,7 +307,16 @@ async function deliverWebhook(
   hook: { id: string; url: string },
   event: string,
   body: string,
-): Promise<{ ok: boolean; status: number | null; attempts: number }> {
+): Promise<{ id: string; ok: boolean; status: number | null; attempts: number }> {
+  // Defense in depth (Finding 5): even though `insertWebhook` now validates at
+  // registration, refuse to fire at a disallowed target here too — this covers
+  // any legacy row registered before the guard existed. We record a failed
+  // delivery (ok=false, no request made) so it still shows in the deliveries log
+  // rather than silently vanishing.
+  if (!isAllowedWebhookUrl(hook.url)) {
+    const id = await recordDelivery(userId, hook.id, event, false, null, 1);
+    return { id, ok: false, status: null, attempts: 1 };
+  }
   const send = () =>
     fetch(hook.url, {
       method: "POST",
@@ -279,8 +344,8 @@ async function deliverWebhook(
       ok = false;
     }
   }
-  await recordDelivery(userId, hook.id, event, ok, status, attempts);
-  return { ok, status, attempts };
+  const id = await recordDelivery(userId, hook.id, event, ok, status, attempts);
+  return { id, ok, status, attempts };
 }
 
 export async function fireWebhooks(
@@ -323,7 +388,9 @@ export async function testWebhook(
   });
   const result = await deliverWebhook(userId, hook, event, body);
   return {
-    id: crypto.randomUUID(),
+    // The id `recordDelivery` actually inserted (see `deliverWebhook`), so the
+    // returned row matches the persisted one rather than a fabricated id.
+    id: result.id,
     webhookId: hook.id,
     event,
     ok: result.ok,
