@@ -8,6 +8,7 @@ import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackBoard } from "./feedback-board";
 import { CreationsDialog } from "./creations-dialog";
 import { LibraryDialog } from "./library-dialog";
+import { DailyChallengeDialog } from "./daily-dialog";
 import { ProfileDialog } from "./profile-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
 import { HistoryDialog } from "./history-dialog";
@@ -201,6 +202,7 @@ export function LabApp() {
       <FeedbackBoard />
       <CreationsDialog />
       <LibraryDialog />
+      <DailyChallengeDialog />
       <ProfileDialog />
       <UpgradeDialog />
       <HistoryDialog />
