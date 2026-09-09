@@ -39,6 +39,7 @@ type Tab = "community" | "team";
 export function LibraryDialog() {
   const open = useLab((s) => s.libraryOpen);
   const setOpen = useLab((s) => s.setLibraryOpen);
+  const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
   const { user, isPending } = useCurrentUserState();
   const signedIn = Boolean(user);
@@ -186,7 +187,16 @@ export function LibraryDialog() {
 
   const createTeam = async () => {
     try {
-      const row = await createTeamFn({ data: { name: teamName } });
+      const result = await createTeamFn({ data: { name: teamName } });
+      if (result.status === "plan") {
+        // Team workspaces are a paid feature (Item 24). Nudge to upgrade.
+        toast.error("Team workspaces need a Pro or Enterprise plan", {
+          description: "Upgrade to create a shared workspace with seats.",
+        });
+        setUpgradeOpen(true);
+        return;
+      }
+      const row = result.team;
       setTeams((prev) => [row, ...prev]);
       setTeamId(row.id);
       setTeamName("");
@@ -200,11 +210,18 @@ export function LibraryDialog() {
 
   const joinTeam = async () => {
     try {
-      const row = await joinTeamFn({ data: { code: joinCode } });
-      if (!row) {
+      const result = await joinTeamFn({ data: { code: joinCode } });
+      if (result.status === "notfound") {
         toast.error("No team with that code");
         return;
       }
+      if (result.status === "full") {
+        toast.error(`That team is full (${result.limit} seats)`, {
+          description: "The owner can upgrade to Enterprise for more seats.",
+        });
+        return;
+      }
+      const row = result.team;
       setTeams((prev) => (prev.some((t) => t.id === row.id) ? prev : [row, ...prev]));
       setTeamId(row.id);
       setJoinCode("");
@@ -345,7 +362,17 @@ export function LibraryDialog() {
                   ) : null}
                   {activeTeam ? (
                     <div className="flex flex-col gap-1.5">
-                      <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">Members</h3>
+                      <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">
+                        Members
+                        {members.length > 0 ? (
+                          <span
+                            className="ml-1.5 font-mono text-faint"
+                            data-testid="team-seat-count"
+                          >
+                            · {members.length} seat{members.length === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                      </h3>
                       {members.length === 0 ? (
                         <p className="text-2xs text-faint">No members returned.</p>
                       ) : (

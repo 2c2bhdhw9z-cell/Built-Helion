@@ -1,6 +1,15 @@
 import { getSql } from "@/lib/db";
 import { normalizeCreationConfig, type CreationConfig, type LibraryItem } from "@/lib/creations/types";
-import type { TeamMember, TeamRole, TeamRow } from "./types";
+import {
+  canAddSeat,
+  canCreateTeam,
+  seatLimit,
+  type CreateTeamResult,
+  type JoinTeamResult,
+  type TeamMember,
+  type TeamRole,
+  type TeamRow,
+} from "./types.ts";
 
 const ALPH = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -42,7 +51,27 @@ function toTeam(row: RawTeam): TeamRow {
   };
 }
 
-export async function createTeam(userId: string, name: string): Promise<TeamRow> {
+async function seatCount(teamId: string): Promise<number> {
+  const sql = await getSql();
+  const rows = await sql<{ n: string | number }>`
+    select count(*) as n from team_members where team_id = ${teamId}
+  `;
+  return Number(rows[0]?.n ?? 0) || 0;
+}
+
+/**
+ * Create a team (Item 24). Shared team workspaces are a paid feature: the
+ * owner must be ENTITLED (Pro / Enterprise / active trial). Entitlement is
+ * re-derived from the owner's server-side billing — the client `entitled` flag
+ * is never trusted for this write. An unentitled caller is rejected with a
+ * `plan` status (nothing is created) so the UI can nudge them to upgrade.
+ */
+export async function createTeam(userId: string, name: string): Promise<CreateTeamResult> {
+  const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
+  const billing = await getOrCreateBilling(userId);
+  if (!canCreateTeam(billing.plan, billing.entitled)) {
+    return { status: "plan" };
+  }
   const sql = await getSql();
   const id = crypto.randomUUID();
   const joinCode = randomJoinCode();
@@ -55,35 +84,59 @@ export async function createTeam(userId: string, name: string): Promise<TeamRow>
     values (${id}, ${userId}, ${"owner"})
   `;
   return {
-    id,
-    name,
-    joinCode,
-    ownerId: userId,
-    role: "owner",
-    createdAt: new Date().toISOString(),
+    status: "created",
+    team: {
+      id,
+      name,
+      joinCode,
+      ownerId: userId,
+      role: "owner",
+      createdAt: new Date().toISOString(),
+    },
   };
 }
 
-export async function joinTeam(userId: string, code: string): Promise<TeamRow | null> {
+/**
+ * Join a team by its code (Item 24). Enforces the team's seat limit, which is
+ * derived from the OWNER's plan (re-read from billing, not trusted from the
+ * client): a Pro-owned team is a small studio, an Enterprise-owned team is a
+ * large org. Already-members re-joining are idempotent (they don't consume a
+ * new seat). A full team is rejected with a `full` status.
+ */
+export async function joinTeam(userId: string, code: string): Promise<JoinTeamResult> {
   const sql = await getSql();
   const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const rows = await sql<{ id: string; name: string; join_code: string; owner_id: string; created_at: string | Date }>`
     select id, name, join_code, owner_id, created_at from teams where join_code = ${normalized}
   `;
   const team = rows[0];
-  if (!team) return null;
+  if (!team) return { status: "notfound" };
+
+  const alreadyMember = await isTeamMember(userId, team.id);
+  if (!alreadyMember) {
+    const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
+    const ownerBilling = await getOrCreateBilling(team.owner_id);
+    const seats = await seatCount(team.id);
+    if (!canAddSeat(seats, ownerBilling.plan, ownerBilling.entitled)) {
+      return { status: "full", limit: seatLimit(ownerBilling.plan, ownerBilling.entitled) };
+    }
+  }
+
   await sql`
     insert into team_members (team_id, user_id, role)
     values (${team.id}, ${userId}, ${"edit"})
     on conflict (team_id, user_id) do nothing
   `;
   return {
-    id: team.id,
-    name: team.name,
-    joinCode: team.join_code,
-    ownerId: team.owner_id,
-    role: team.owner_id === userId ? "owner" : "edit",
-    createdAt: team.created_at,
+    status: "joined",
+    team: {
+      id: team.id,
+      name: team.name,
+      joinCode: team.join_code,
+      ownerId: team.owner_id,
+      role: team.owner_id === userId ? "owner" : "edit",
+      createdAt: team.created_at,
+    },
   };
 }
 
