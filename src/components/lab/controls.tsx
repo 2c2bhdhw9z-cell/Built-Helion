@@ -38,6 +38,7 @@ export function SliderRow({
   max,
   step,
   format,
+  hint,
   onChange,
 }: {
   label: string;
@@ -46,14 +47,21 @@ export function SliderRow({
   max: number;
   step: number;
   format?: (n: number) => string;
+  /**
+   * Optional secondary readout shown under the target value, e.g. the LIVE
+   * particle count next to the target Count. Lets the user see the actual
+   * amount, not just what the slider is asking for.
+   */
+  hint?: string;
   onChange: (n: number) => void;
 }) {
   const safeVal = typeof value === "number" && !isNaN(value) ? value : (min ?? 0);
   return (
     <label className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
       <span className="text-xs text-muted">{label}</span>
-      <span className="font-mono text-2xs tabular-nums text-fg">
+      <span className="text-right font-mono text-2xs tabular-nums text-fg">
         {format ? format(safeVal) : safeVal.toFixed(2)}
+        {hint ? <span className="ml-1.5 text-muted">{hint}</span> : null}
       </span>
       <input
         type="range"
