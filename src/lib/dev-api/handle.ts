@@ -90,7 +90,7 @@ export async function handleV1(request: Request): Promise<Response> {
   }
 
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anon";
-  if (!allowV1(ip)) return json(429, { error: "Slow down" });
+  if (!(await allowV1(ip))) return json(429, { error: "Slow down" });
 
   if (request.method === "GET" && (path === "" || path === "meta")) {
     return json(200, {
