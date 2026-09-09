@@ -7,6 +7,7 @@ import {
   type GeneratorKind,
   type LabParams,
 } from "@/engine/types";
+import { FIELD_MAX_RES } from "@/engine/force-field";
 
 /**
  * Client-safe creations model + zod schemas. This file MUST stay free of any
@@ -43,6 +44,23 @@ export const SPAWN_COUNT_MAX = SYSTEM_LIMIT;
  */
 export const CAP_MIN = 1024;
 export const CAP_MAX = SYSTEM_LIMIT;
+
+/**
+ * Length caps for the optional persisted arrays. These configs are UNTRUSTED
+ * (they round-trip through saved creations, the public share link, and the
+ * public library), so an un-capped array would let a crafted blob drive
+ * unbounded per-frame and storage work. Each cap is sized to the real UI limit;
+ * an oversized array is TRUNCATED to the cap (graceful degradation) rather than
+ * rejecting the whole creation, matching the schema's coerce-with-default style.
+ */
+/** Max keyframes on the timeline. */
+export const TIMELINE_KEYS_MAX = 256;
+/** Max force-field cells: FIELD_MAX_RES² grid × 2 (vx,vy) per cell. */
+export const FIELD_DATA_MAX = FIELD_MAX_RES * FIELD_MAX_RES * 2;
+/** Max audio source→target mappings. */
+export const AUDIO_MAPPINGS_MAX = 32;
+/** Max custom-palette stops. */
+export const PALETTE_STOPS_MAX = 64;
 
 /**
  * A number field that falls back to `fallback` on anything non-finite/missing.
@@ -170,6 +188,22 @@ export const labParamsSchema: z.ZodType<LabParams> = z
       .regex(/^#[0-9a-fA-F]{6}$/)
       .catch(DEFAULT_PARAMS.colorB)
       .default(DEFAULT_PARAMS.colorB),
+    // Optional custom multi-stop palette (Item 5). Each stop is a #rrggbb color
+    // at a 0..1 position. Absent when the creation uses a built-in palette or
+    // the two-stop colorA/colorB gradient. Malformed stops are dropped so an
+    // untrusted blob is coerced to a usable (possibly empty) list.
+    paletteStops: z
+      .array(
+        z.object({
+          pos: z.number().finite(),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+        }),
+      )
+      // Truncate an oversized list to the cap so a too-long array still loads
+      // (bounded) instead of rejecting the whole creation.
+      .transform((stops) => stops.slice(0, PALETTE_STOPS_MAX))
+      .optional()
+      .catch(undefined),
   })
   .catch({ ...DEFAULT_PARAMS }) as z.ZodType<LabParams>;
 
@@ -236,6 +270,77 @@ export const creationConfigSchema = z.object({
     .transform((n) => Math.max(CAP_MIN, Math.min(CAP_MAX, Math.round(n))))
     .catch(DEFAULT_CAP)
     .default(DEFAULT_CAP),
+  // Optional painted vector force field (Item 4). Stored as a small resolution +
+  // flat number[] so a saved creation replays the field particles follow. An
+  // untrusted/garbage value is dropped by the engine's deserializeField guard,
+  // so we only validate shape loosely here (res number + numeric data array).
+  // Absent on older rows and on creations with no painted field.
+  field: z
+    .object({
+      res: z.number().finite(),
+      // Truncate to FIELD_DATA_MAX (= FIELD_MAX_RES² × 2) so an oversized blob
+      // can't allocate/scan an unbounded grid; deserializeField re-validates
+      // length against the clamped resolution and zero-fills the rest.
+      data: z
+        .array(z.number().finite())
+        .transform((data) => data.slice(0, FIELD_DATA_MAX)),
+    })
+    .optional(),
+  // Optional audio-reactive mappings (Item 2). Each maps an audio source to a
+  // sim target with a 0..2 amount. Unknown sources/targets are handled by the
+  // engine's normalizeMappings; here we only validate loose shape and drop the
+  // field on total garbage. Absent when the creation isn't audio-reactive.
+  audioMappings: z
+    .array(
+      z.object({
+        source: z.enum(["bass", "mid", "level"]),
+        target: z.enum(["size", "spawn", "force", "gravity", "palette"]),
+        amount: z.number().finite(),
+      }),
+    )
+    // Truncate to the cap; the load path runs the result through
+    // normalizeMappings (single source of truth for the 0..2 amount clamp).
+    .transform((mappings) => mappings.slice(0, AUDIO_MAPPINGS_MAX))
+    .optional()
+    .catch(undefined),
+  // Optional keyframe timeline (Item 1). Loosely validated here (keys with a
+  // numeric t + a params object); the engine's normalizeTrack does the strict
+  // per-key coercion. Absent when the creation has no animation.
+  timeline: z
+    .object({
+      keys: z
+        .array(
+        z.object({
+          t: z.number().finite(),
+          // The animatable subset (all optional). Strict keys keep CreationConfig
+          // fully JSON-serializable (no `unknown`) so the server functions'
+          // return types stay concrete; the engine's normalizeTrack does the
+          // final coercion/clamping of untrusted values.
+          params: z
+            .object({
+              gravityX: z.number().finite().optional(),
+              gravityY: z.number().finite().optional(),
+              drag: z.number().finite().optional(),
+              pointSize: z.number().finite().optional(),
+              forceStrength: z.number().finite().optional(),
+              trailLength: z.number().finite().optional(),
+              flowStrength: z.number().finite().optional(),
+              bloomStrength: z.number().finite().optional(),
+              nbodyG: z.number().finite().optional(),
+              centralMass: z.number().finite().optional(),
+              palette: z.string().optional(),
+              shape: z.string().optional(),
+            })
+            .catch({}),
+        }),
+      )
+        // Truncate to the cap so an oversized timeline still loads with a
+        // bounded key list; normalizeTrack does the strict per-key coercion.
+        .transform((keys) => keys.slice(0, TIMELINE_KEYS_MAX)),
+      loop: z.boolean().optional(),
+    })
+    .optional()
+    .catch(undefined),
 });
 
 /** The validated, always-complete saved config. */
@@ -329,6 +434,16 @@ export const sharedCreationSchema = z.object({
 export type SharedCreationInput = z.infer<typeof sharedCreationSchema>;
 
 /**
+ * Validates a fork/remix request (Item 3): the id of the PUBLIC source creation
+ * to copy into a new creation owned by the caller.
+ */
+export const forkCreationSchema = z.object({
+  sourceId: z.string().min(1),
+});
+
+export type ForkCreationInput = z.infer<typeof forkCreationSchema>;
+
+/**
  * A creation row as stored in and returned from Postgres (owner-scoped).
  * `created_at` is a `timestamptz` column: the pg/PGLite drivers parse it into a
  * JS `Date` on the server and, once serialized across the server-function
@@ -348,6 +463,17 @@ export interface CreationRow {
   updated_at: string | Date;
   is_public: boolean;
   featured?: boolean;
+  /**
+   * Lineage pointer (Item 3): the id of the creation this one was remixed from,
+   * or null/undefined for an original. Absent on older rows / narrow SELECTs.
+   */
+  parent_id?: string | null;
+  /**
+   * The source creation's display name, filled only when the parent is still
+   * PUBLIC, so the UI can show "Remixed from …". Never set for a private/deleted
+   * parent (no PII / no leaking a private name).
+   */
+  parent_name?: string | null;
 }
 
 /**
@@ -364,6 +490,10 @@ export interface LibraryItem {
   likeCount: number;
   liked: boolean;
   ownerId?: string;
+  /** Lineage (Item 3): the source creation id, when this card is a remix. */
+  parentId?: string | null;
+  /** The source creation's name, only when the parent is still public. */
+  parentName?: string | null;
 }
 
 export const setPublicSchema = z.object({

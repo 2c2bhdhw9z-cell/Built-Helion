@@ -1,6 +1,9 @@
 import { audioManager } from "./audio";
 import { forceRuntime } from "./force-expr";
 import { emitAlongStroke, emitContinuous, spawnGenerator } from "./emitters";
+import { createField, paintField, type ForceField } from "./force-field";
+import { applyAudioModulation, DEFAULT_AUDIO_MAPPINGS, type AudioMapping } from "./audio-modulation";
+import { advanceTimeline, sampleTimeline, type Track } from "./timeline";
 import { SpatialHash } from "./hash";
 import { stepPhysics } from "./physics";
 import { ParticleSoA } from "./soa";
@@ -47,6 +50,11 @@ export type EngineSync = {
   smoking: boolean;
   quality: QualityMode;
   extraBrush?: ExtraBrush;
+  audioMappings?: AudioMapping[];
+  timeline?: Track | null;
+  timelinePlaying?: boolean;
+  /** Store playhead — used while paused (scrubbing); ignored while playing. */
+  timelinePlayhead?: number;
 };
 
 function pickDefaultCap(): number {
@@ -90,6 +98,33 @@ export class ParticleEngine {
   lastWallX = 0;
   lastWallY = 0;
   walls: Array<{x1:number, y1:number, x2:number, y2:number}> = [];
+  /**
+   * Painted vector force field particles follow (CPU physics path). Null until
+   * the user paints with the Field tool or a creation config restores one. GPU
+   * compute does not read the field, so painting gates the engine to the CPU
+   * physics step (see stepFrame's cpuDriven check).
+   */
+  field: ForceField | null = null;
+  lastFieldX = 0;
+  lastFieldY = 0;
+  hasFieldPaint = false;
+  /** Active audio-reactive source->target mappings (Item 2). */
+  audioMappings: AudioMapping[] = [...DEFAULT_AUDIO_MAPPINGS];
+  /** Accumulated palette-cycle phase driven by the "palette" audio target. */
+  audioPalettePhase = 0;
+  private lastAudioSpawn = 0;
+  /** Keyframe timeline (Item 1) synced from the store. */
+  timeline: Track | null = null;
+  timelinePlaying = false;
+  /** Live playhead (seconds). Advanced here when playing; set on scrub. */
+  timelinePlayhead = 0;
+  /**
+   * The params actually driving the last frame after timeline sampling (and,
+   * when audio-reactive, audio modulation). render() reads this so animated
+   * VISUAL params (palette / shape / point size) reach the renderer, not just
+   * the physics step. Falls back to `this.params` when no timeline is active.
+   */
+  private livePaletteParams: LabParams | null = null;
   gpu: WebGPUBackend | null = null;
   gl: WebGLRenderer | null = null;
   canvas2d: Canvas2DRenderer | null = null;
@@ -407,6 +442,18 @@ export class ParticleEngine {
     this.brushRadius = s.brushRadius;
     this.brushStrength = s.brushStrength;
     this.extraBrush = s.extraBrush ?? IDLE_EXTRA_BRUSH;
+    if (s.audioMappings) this.audioMappings = s.audioMappings;
+    this.timeline = s.timeline ?? null;
+    // When the store isn't playing, follow its (possibly scrubbed) playhead so
+    // the sim reflects the scrub bar. While playing, the engine owns the
+    // playhead and advances it itself (below, in stepFrame).
+    if (s.timelinePlaying !== undefined && !s.timelinePlaying && this.timelinePlaying) {
+      // Just paused — adopt whatever the store shows.
+      this.timelinePlayhead = s.timelinePlayhead ?? this.timelinePlayhead;
+    } else if (!s.timelinePlaying) {
+      this.timelinePlayhead = s.timelinePlayhead ?? this.timelinePlayhead;
+    }
+    this.timelinePlaying = s.timelinePlaying ?? false;
     if (s.cap !== this.soa.capacity) this.setCap(s.cap);
     if (s.quality !== this.quality) {
       this.quality = s.quality;
@@ -468,6 +515,22 @@ export class ParticleEngine {
   clearWalls(): void {
     this.walls = [];
     this.hasWallPaint = false;
+  }
+
+  /**
+   * Drop the painted force field. Independent of particles and walls, like
+   * clearWalls(). Setting it to null lets the engine fall back to its native
+   * compute path on the next frame.
+   */
+  clearForceField(): void {
+    this.field = null;
+    this.hasFieldPaint = false;
+  }
+
+  /** Restore a force field from a (deserialized) config. Null clears it. */
+  setForceField(field: ForceField | null): void {
+    this.field = field;
+    this.hasFieldPaint = false;
   }
 
   spawn(kind: GeneratorKind, replace: boolean, origin?: { x: number; y: number }, count?: number): number {
@@ -574,6 +637,18 @@ export class ParticleEngine {
     }
     forceRuntime.t = this.totalTime;
     forceRuntime.bass = audioManager.active ? audioManager.bass : 0;
+
+    // Advance the keyframe timeline once per frame (real dt, not the fixed
+    // substep) when playing. Scrubbing (paused) sets the playhead via sync().
+    if (this.timeline && this.timelinePlaying && !paused) {
+      const next = advanceTimeline(
+        { playing: true, playhead: this.timelinePlayhead },
+        this.timeline,
+        dt * speed,
+      );
+      this.timelinePlaying = next.playing;
+      this.timelinePlayhead = next.playhead;
+    }
 
     const t0 = performance.now();
     this.cpuPhysicsMs = 0;
@@ -724,6 +799,27 @@ export class ParticleEngine {
       this.hasWallPaint = false;
     }
 
+    if (this.tool === "field" && this.pointer.down) {
+      if (!this.field) this.field = createField();
+      if (this.hasFieldPaint) {
+        const dx = this.pointer.x - this.lastFieldX;
+        const dy = this.pointer.y - this.lastFieldY;
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-4) {
+          // Drag direction sets the painted vector; normalize to a unit dir so
+          // stroke speed doesn't change field magnitude.
+          const nx = this.pointer.x / Math.max(this.worldW, 1e-6);
+          const ny = this.pointer.y / Math.max(this.worldH, 1e-6);
+          paintField(this.field, nx, ny, dx / len, dy / len, this.brushRadius, this.brushStrength);
+        }
+      }
+      this.lastFieldX = this.pointer.x;
+      this.lastFieldY = this.pointer.y;
+      this.hasFieldPaint = true;
+    } else {
+      this.hasFieldPaint = false;
+    }
+
     for (const e of this.emitters) {
       e.acc += e.rate * dt;
       const n = Math.floor(e.acc);
@@ -780,24 +876,50 @@ export class ParticleEngine {
       this.gpu.uploadSlice(this.soa, oldCount, this.soa.count);
     }
     
-    let effectiveParams = this.params;
-    if (this.params.audioReactive && audioManager.active) {
-      effectiveParams = { ...this.params };
-      const pulse = audioManager.bass * (this.params.audioSensitivity ?? 1.0);
-      const mid = audioManager.mid * (this.params.audioSensitivity ?? 1.0);
-      if (effectiveParams.centralMass > 0) {
-         effectiveParams.centralMass += pulse * 2.0;
-      } else if (effectiveParams.flow) {
-         effectiveParams.flowStrength += pulse * 5.0;
-      } else {
-         effectiveParams.centralMass = pulse * 1.5;
-         effectiveParams.centralX = 0.5;
-         effectiveParams.centralY = 0.5;
+    // Timeline overrides: sample the animatable params at the current playhead
+    // and layer them onto the base params. Applied first so audio modulation
+    // and the physics step see the animated values.
+    let baseParams = this.params;
+    if (this.timeline && this.timeline.keys.length > 0) {
+      const sampled = sampleTimeline(this.timeline, this.timelinePlayhead);
+      if (Object.keys(sampled).length > 0) {
+        baseParams = { ...this.params, ...sampled };
       }
-      effectiveParams.pointSize = Math.min(24, this.params.pointSize * (1 + mid * 0.8));
+    }
+
+    // Expose the timeline-sampled params to render() so animated visual params
+    // (palette / shape / point size) are drawn. Null when no timeline overrides.
+    this.livePaletteParams = baseParams === this.params ? null : baseParams;
+
+    let effectiveParams = baseParams;
+    if (baseParams.audioReactive && audioManager.active) {
+      const signal = {
+        bass: audioManager.bass,
+        mid: audioManager.mid,
+        level: audioManager.energy,
+      };
+      const { params: modParams, outputs } = applyAudioModulation(
+        baseParams,
+        signal,
+        this.audioMappings,
+        baseParams.audioSensitivity ?? 1.0,
+      );
+      effectiveParams = modParams;
+      // Accumulate a palette-cycle phase so the "palette" target visibly shifts
+      // color over time; exposed for renderers/telemetry consumers.
+      this.audioPalettePhase = (this.audioPalettePhase + outputs.palettePulse * dt * 2) % 1;
+      // Spawn bursts from a loud transient (the "spawn" target). Rate-limited so
+      // a sustained loud signal can't runaway-fill the buffer.
+      if (outputs.spawnBurst > 0.35 && this.totalTime - this.lastAudioSpawn > 0.12 && this.lastGenerator) {
+        this.lastAudioSpawn = this.totalTime;
+        const count = Math.round(outputs.spawnBurst * 400);
+        if (count > 0) this.spawn(this.lastGenerator, false, undefined, count);
+      }
     }
     
-    if (this.compute === "cpu" || this.springs.length > 0) {
+    // A painted force field is only read by the CPU physics step, so force the
+    // CPU path whenever a field exists (mirrors the springs override).
+    if (this.compute === "cpu" || this.springs.length > 0 || this.field !== null) {
       const pt0 = performance.now();
       const st = stepPhysics(
         this.soa,
@@ -816,6 +938,7 @@ export class ParticleEngine {
         this.totalTime,
         this.walls,
         this.extraBrush,
+        this.field,
       );
       this.cpuPhysicsMs += performance.now() - pt0;
       this.telemetry.nanCount += st.nan;
@@ -865,12 +988,15 @@ export class ParticleEngine {
    * always drawing current params.
    */
   render(refreshGpuParams = true): void {
+    // Use the timeline-sampled params (visual fields animated) when a timeline
+    // is driving the frame; otherwise the plain base params.
+    const rp = this.livePaletteParams ?? this.params;
     if (this.gpu) {
-      const cpuDriven = this.compute === "cpu" || this.springs.length > 0;
+      const cpuDriven = this.compute === "cpu" || this.springs.length > 0 || this.field !== null;
       if (cpuDriven) this.gpu.uploadSoA(this.soa);
       if (cpuDriven || refreshGpuParams) {
         this.gpu.writeParams(
-          this.params,
+          rp,
           this.pointer,
           this.tool,
           this.brushRadius,
@@ -887,15 +1013,15 @@ export class ParticleEngine {
           this.dpr,
         );
       }
-      this.gpu.render(this.soa.count, this.params);
+      this.gpu.render(this.soa.count, rp);
       return;
     }
 
     if (this.gl) {
-      this.gl.render(this.soa, this.params, this.worldW, this.worldH, this.cssW, this.cssH, this.dpr);
+      this.gl.render(this.soa, rp, this.worldW, this.worldH, this.cssW, this.cssH, this.dpr);
       return;
     }
-    this.canvas2d?.render(this.soa, this.params, this.worldW, this.worldH, this.cssW, this.cssH, this.dpr);
+    this.canvas2d?.render(this.soa, rp, this.worldW, this.worldH, this.cssW, this.cssH, this.dpr);
   }
 
   dispose(): void {

@@ -16,6 +16,7 @@ import { CreateDialog } from "./create-dialog";
 import { PlayDialog } from "./play-dialog";
 import { BillingSync } from "./theme-sync";
 import { PerfHub } from "./perf-hub/perf-hub";
+import { TimelinePanel } from "./timeline-panel";
 import { SessionDialog } from "./session-dialog";
 import { SessionRoom } from "./session-room";
 import { isEmbedSearch, readPresetFromSearch } from "@/lib/share/codec";
@@ -207,6 +208,7 @@ export function LabApp() {
       <CreateDialog />
       <PlayDialog />
       <PerfHub />
+      <TimelinePanel />
       <SessionDialog />
       {sessionCode ? <SessionRoom key={sessionCode} code={sessionCode} isHost={sessionIsHost} /> : null}
 

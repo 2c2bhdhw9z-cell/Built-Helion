@@ -6,6 +6,7 @@ import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screensh
 import { compositeTargetSize, exportMaxDim, exportTargetSize } from "@/lib/capture/composite";
 import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
+import { videoFilenameForMime } from "@/lib/capture/mime";
 import { downloadBlobObject } from "@/lib/perf/export";
 import { GifRecorder } from "@/lib/capture/gif";
 import { knockoutVoid } from "@/lib/capture/alpha";
@@ -15,6 +16,7 @@ import { SCENES } from "@/engine/scenes";
 import { SessionCursors } from "./session-cursors";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale, degToRad, unprojectOrbit } from "@/engine/camera";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
+import { deserializeField, serializeField } from "@/engine/force-field";
 import { pickLiveExtraBrush } from "@/lib/multiplayer/protocol";
 import { useSession } from "@/lib/multiplayer/session-store";
 import { awardBadge } from "@/lib/play/progress";
@@ -181,6 +183,10 @@ export function CanvasStage() {
         smoking: s.smoking,
         quality: s.quality,
         extraBrush,
+        audioMappings: s.audioMappings,
+        timeline: s.timelineTrack,
+        timelinePlaying: s.timelinePlaying,
+        timelinePlayhead: s.timelinePlayhead,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
       // While recording, keep the live compositing canvas in sync with the
@@ -198,6 +204,21 @@ export function CanvasStage() {
           } catch {
             /* never throw into the render loop */
           }
+        }
+      }
+      // Mirror a freshly painted force field back into the store so it is
+      // captured by save / undo / session snapshots. Only runs when the user is
+      // actively painting with the Field tool (cheap check), throttled to the
+      // HUD cadence so it never taxes the hot loop.
+      if (now - hudAt > 120) {
+        if (engine.tool === "field" && engine.field && engine.hasFieldPaint) {
+          s.setFieldData(serializeField(engine.field));
+        }
+        // Mirror the engine playhead back for the scrub UI while playing, and
+        // reflect a natural (non-loop) end back into the store's playing flag.
+        if (s.timelinePlaying) {
+          s.setTimelinePlayhead(engine.timelinePlayhead);
+          if (!engine.timelinePlaying) s.setTimelinePlaying(false);
         }
       }
       if (now - hudAt > 120) {
@@ -425,13 +446,9 @@ export function CanvasStage() {
     }
     if (!blob) return;
     // webm for webm mimes (the common path); mp4 only if that was the picked
-    // codec. captureFilename only knows 'webm' extension, so build the mp4 name
-    // inline to keep the pure helper's kind union tight.
-    const filename =
-      mime && mime.startsWith("video/mp4")
-        ? captureFilename("webm").replace(/\.webm$/, ".mp4")
-        : captureFilename("webm");
-    downloadBlobObject(filename, blob);
+    // codec (Safari). videoFilenameForMime swaps only the extension on the
+    // timestamped base name.
+    downloadBlobObject(videoFilenameForMime(captureFilename("webm"), mime), blob);
   };
 
   const ensureCompositeCanvas = () => {
@@ -559,6 +576,29 @@ export function CanvasStage() {
     const onClearWalls = () => engineRef.current?.clearWalls();
     window.addEventListener("clear-walls", onClearWalls);
     return () => window.removeEventListener("clear-walls", onClearWalls);
+  }, []);
+
+  // Push a force field into the engine whenever it changes from a source other
+  // than the engine's own paint loop (config load, remix, remote, or a Clear
+  // Field). fieldApplyId is bumped by the store on those paths.
+  const fieldApplyId = useLab((s) => s.fieldApplyId);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const data = useLab.getState().fieldData;
+    engine.setForceField(data ? deserializeField(data) : null);
+  }, [fieldApplyId]);
+
+  // The Physics tab's "Clear Field" button dispatches this event; the engine
+  // owns the live field, so the listener lives next to the engine ref and also
+  // clears the store's persisted copy.
+  useEffect(() => {
+    const onClearField = () => {
+      engineRef.current?.clearForceField();
+      useLab.getState().setFieldData(null);
+    };
+    window.addEventListener("clear-field", onClearField);
+    return () => window.removeEventListener("clear-field", onClearField);
   }, []);
 
   useEffect(() => {

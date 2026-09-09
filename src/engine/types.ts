@@ -91,7 +91,8 @@ export type ToolKind =
   | "repulsor"
   | "vortex"
   | "paint"
-  | "freeze";
+  | "freeze"
+  | "field";
 
 export type BlendMode = "additive" | "alpha";
 export type ParticleShape =
@@ -235,6 +236,12 @@ export type LabParams = {
   forceExprY: string;
   colorA: string;
   colorB: string;
+  /**
+   * Optional custom multi-stop palette (Item 5). When it holds 2+ valid stops
+   * the renderers bake it into the palette LUT instead of the named palette /
+   * two-stop colorA-colorB gradient. Empty/absent = use the built-in palette.
+   */
+  paletteStops?: { pos: number; color: string }[];
 };
 
 export type PointerState = {

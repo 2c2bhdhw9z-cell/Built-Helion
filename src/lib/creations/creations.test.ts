@@ -27,6 +27,10 @@ let SPAWN_COUNT_MIN: number;
 let SPAWN_COUNT_MAX: number;
 let CAP_MIN: number;
 let CAP_MAX: number;
+let TIMELINE_KEYS_MAX: number;
+let FIELD_DATA_MAX: number;
+let AUDIO_MAPPINGS_MAX: number;
+let PALETTE_STOPS_MAX: number;
 let DEFAULT_PARAMS: LabParams;
 let DEFAULT_CAP: number;
 let defaultKeys: string[];
@@ -39,6 +43,10 @@ before(async () => {
   SPAWN_COUNT_MAX = types.SPAWN_COUNT_MAX;
   CAP_MIN = types.CAP_MIN;
   CAP_MAX = types.CAP_MAX;
+  TIMELINE_KEYS_MAX = types.TIMELINE_KEYS_MAX;
+  FIELD_DATA_MAX = types.FIELD_DATA_MAX;
+  AUDIO_MAPPINGS_MAX = types.AUDIO_MAPPINGS_MAX;
+  PALETTE_STOPS_MAX = types.PALETTE_STOPS_MAX;
   const engineTypes = await import("../../engine/types.ts");
   DEFAULT_PARAMS = engineTypes.DEFAULT_PARAMS;
   DEFAULT_CAP = engineTypes.DEFAULT_CAP;
@@ -250,6 +258,96 @@ describe("creationConfigSchema / normalizeCreationConfig", () => {
     assert.equal(parsed.spawnKind, "galaxy");
     assert.equal(parsed.speed, 1);
     assert.equal(parsed.cap, DEFAULT_CAP);
+  });
+
+  // --- Untrusted array length caps (security: a huge/crafted saved or public
+  // creation must not drive unbounded per-frame + storage work). Each oversized
+  // array is TRUNCATED to its cap on the schema-parse (load) path rather than
+  // rejecting the whole creation, so the creation still loads with a bounded
+  // array. -------------------------------------------------------------------
+
+  it("truncates an oversized timeline.keys to TIMELINE_KEYS_MAX on load", () => {
+    const keys = Array.from({ length: TIMELINE_KEYS_MAX + 50 }, (_, i) => ({
+      t: i,
+      params: { gravityX: 0.1 },
+    }));
+    const parsed = normalizeCreationConfig({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      timeline: { keys, loop: false },
+    });
+    assert.ok(parsed);
+    assert.ok(parsed.timeline, "timeline survives (bounded), not dropped");
+    assert.equal(parsed.timeline!.keys.length, TIMELINE_KEYS_MAX);
+    // The kept keys are the FIRST cap entries (a stable truncation).
+    assert.equal(parsed.timeline!.keys[0].t, 0);
+  });
+
+  it("truncates an oversized field.data to FIELD_DATA_MAX on load", () => {
+    const data = new Array(FIELD_DATA_MAX + 500).fill(0.5);
+    const parsed = normalizeCreationConfig({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      field: { res: 64, data },
+    });
+    assert.ok(parsed);
+    assert.ok(parsed.field, "field survives (bounded), not dropped");
+    assert.equal(parsed.field!.data.length, FIELD_DATA_MAX);
+  });
+
+  it("truncates an oversized audioMappings to AUDIO_MAPPINGS_MAX on load", () => {
+    const mappings = Array.from({ length: AUDIO_MAPPINGS_MAX + 20 }, () => ({
+      source: "bass" as const,
+      target: "size" as const,
+      amount: 1,
+    }));
+    const parsed = normalizeCreationConfig({
+      params: { ...DEFAULT_PARAMS },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      audioMappings: mappings,
+    });
+    assert.ok(parsed);
+    assert.ok(parsed.audioMappings, "audioMappings survives (bounded), not dropped");
+    assert.equal(parsed.audioMappings!.length, AUDIO_MAPPINGS_MAX);
+  });
+
+  it("truncates an oversized paletteStops to PALETTE_STOPS_MAX on load", () => {
+    const stops = Array.from({ length: PALETTE_STOPS_MAX + 30 }, (_, i) => ({
+      pos: (i % 100) / 100,
+      color: "#abcdef",
+    }));
+    const parsed = normalizeCreationConfig({
+      params: { ...DEFAULT_PARAMS, paletteStops: stops },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+    });
+    assert.ok(parsed);
+    assert.ok(parsed.params.paletteStops, "paletteStops survives (bounded), not dropped");
+    assert.equal(parsed.params.paletteStops!.length, PALETTE_STOPS_MAX);
+  });
+
+  it("keeps an in-bounds array unchanged (caps only truncate the oversized)", () => {
+    const stops = [
+      { pos: 0, color: "#000000" },
+      { pos: 1, color: "#ffffff" },
+    ];
+    const parsed = normalizeCreationConfig({
+      params: { ...DEFAULT_PARAMS, paletteStops: stops },
+      spawnKind: "galaxy",
+      spawnCount: 5000,
+      speed: 1,
+      audioMappings: [{ source: "bass", target: "size", amount: 1 }],
+    });
+    assert.ok(parsed);
+    assert.deepEqual(parsed.params.paletteStops, stops);
+    assert.equal(parsed.audioMappings!.length, 1);
   });
 });
 

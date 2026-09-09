@@ -2,6 +2,7 @@ import {
   Camera,
   Check,
   CircleHelp,
+  Clapperboard,
   Code2,
   FileCode,
   Gauge,
@@ -106,6 +107,8 @@ export function Hud() {
   const setCreateOpen = useLab((s) => s.setCreateOpen);
   const setPlayOpen = useLab((s) => s.setPlayOpen);
   const setPerfHubOpen = useLab((s) => s.setPerfHubOpen);
+  const timelineOpen = useLab((s) => s.timelineOpen);
+  const setTimelineOpen = useLab((s) => s.setTimelineOpen);
   const entitled = useLab((s) => s.entitled);
   const plan = useLab((s) => s.plan);
   const exportSize = useLab((s) => s.exportSize);
@@ -447,7 +450,13 @@ export function Hud() {
                 : "shrink-0"
             }
             aria-label={recording ? "Stop recording" : "Record"}
-            title={recording ? "Stop recording" : "Record"}
+            title={
+              !canRecord
+                ? "Video recording isn't supported in this browser — try GIF export"
+                : recording
+                  ? "Stop recording"
+                  : `Record ${exportSize === "1080" ? "1080" : exportSize === "4k" ? "4K" : "8K"} at ${recordFps} fps`
+            }
             disabled={!canRecord || (recording ? !stopRecording : !startRecording)}
             onClick={() => (recording ? stopRecording?.() : startRecording?.())}
           >
@@ -488,6 +497,16 @@ export function Hud() {
             onClick={() => setPerfHubOpen(true)}
           >
             <Gauge className="size-3.5" />
+          </Button>
+          <Button
+            variant={timelineOpen ? "default" : "outline"}
+            size="icon"
+            className="shrink-0"
+            aria-label="Timeline"
+            title="Keyframe timeline"
+            onClick={() => setTimelineOpen(!timelineOpen)}
+          >
+            <Clapperboard className="size-3.5" />
           </Button>
           <Button
             variant="outline"

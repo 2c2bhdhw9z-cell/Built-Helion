@@ -19,6 +19,18 @@ import { GENERATOR_PRESETS } from "@/engine/generator-presets";
 import { SCENES, type SceneId } from "@/engine/scenes";
 import { clampViewPitch, clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
+import type { SerializedField } from "@/engine/force-field";
+import type { PaletteStop } from "@/engine/palette-stops";
+import { DEFAULT_AUDIO_MAPPINGS, normalizeMappings, type AudioMapping } from "@/engine/audio-modulation";
+import {
+  addKeyframe as addKf,
+  createTrack,
+  normalizeTrack,
+  removeKeyframe as removeKf,
+  trackDuration,
+  type AnimatableParams,
+  type Track,
+} from "@/engine/timeline";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
 import type { PlanId } from "@/lib/billing/types";
@@ -86,6 +98,8 @@ type LabState = {
   perfHubOpen: boolean;
   perfCompact: boolean;
   helpOpen: boolean;
+  /** Whether the keyframe timeline panel is open (Item 1). */
+  timelineOpen: boolean;
   viewZoom: number;
   viewPanX: number;
   viewPanY: number;
@@ -153,6 +167,41 @@ type LabState = {
   clearId: number;
   /** Id of the most recently applied scene, or null. Purely informational for the picker. */
   activeSceneId: SceneId | null;
+  /**
+   * Serialized painted force field (Item 4). Null when no field is painted. The
+   * store is authoritative for persistence: CanvasStage mirrors the engine's
+   * live painted field back into here (via setFieldData) so save/undo/session
+   * snapshots capture it, and applyCreationConfig pushes it back to the engine.
+   */
+  fieldData: SerializedField | null;
+  /**
+   * A monotonically increasing token bumped whenever fieldData changes from a
+   * SOURCE OTHER than the engine's own paint loop (config load, clear, remote).
+   * CanvasStage watches this to push the field into the engine, without echoing
+   * the engine's own paint back at it.
+   */
+  fieldApplyId: number;
+  /**
+   * Custom multi-stop palette (Item 5). Empty when using a built-in palette or
+   * the two-stop colorA/colorB gradient. Persisted in the creation config.
+   */
+  paletteStops: PaletteStop[];
+  /**
+   * Audio-reactive source->target mappings (Item 2). Drives point size / spawn
+   * / force / gravity / palette from the mic or a music file. Persisted in the
+   * creation config so a saved audio-reactive scene replays its mapping.
+   */
+  audioMappings: AudioMapping[];
+  /**
+   * Keyframe timeline (Item 1). A sorted list of keyframes over an animatable
+   * subset of params, plus playback state. The engine advances the playhead
+   * each frame while `timelinePlaying` and applies the sampled params; the store
+   * is authoritative for the track + playing flag and mirrors the live playhead
+   * back for the scrub UI. Persisted in the creation config.
+   */
+  timelineTrack: Track;
+  timelinePlaying: boolean;
+  timelinePlayhead: number;
   setParam: <K extends keyof LabParams>(key: K, value: LabParams[K]) => void;
   patchParams: (p: Partial<LabParams>) => void;
   setTelemetry: (t: Telemetry) => void;
@@ -191,6 +240,7 @@ type LabState = {
   setRecordFps: (v: RecordFps) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
+  setTimelineOpen: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setCaptureScreenshot: (fn: ((kind?: "png" | "jpg") => void) | null) => void;
   setStartRecording: (fn: (() => void) | null) => void;
@@ -214,6 +264,24 @@ type LabState = {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  /** Mirror the engine's live painted field into the store (no re-apply). */
+  setFieldData: (field: SerializedField | null) => void;
+  /** Replace the field AND signal CanvasStage to push it into the engine. */
+  applyFieldData: (field: SerializedField | null) => void;
+  /** Set the custom multi-stop palette. */
+  setPaletteStops: (stops: PaletteStop[]) => void;
+  /** Replace the audio-reactive mappings. */
+  setAudioMappings: (mappings: AudioMapping[]) => void;
+  /** Capture the current animatable params as a keyframe at the given time. */
+  addTimelineKeyframe: (t: number) => void;
+  /** Remove the keyframe at index i. */
+  removeTimelineKeyframe: (i: number) => void;
+  /** Replace the whole track (e.g. toggle loop, clear). */
+  setTimelineTrack: (track: Track) => void;
+  /** Start/stop playback. */
+  setTimelinePlaying: (v: boolean) => void;
+  /** Set the playhead (scrub or engine mirror). */
+  setTimelinePlayhead: (t: number) => void;
 };
 
 /**
@@ -223,9 +291,21 @@ type LabState = {
  * existing fallbacks in addParticles/runGenerator.
  */
 export function currentCreationConfig(
-  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed" | "cap">,
+  state: Pick<
+    LabState,
+    | "params"
+    | "spawnKind"
+    | "spawnCount"
+    | "speed"
+    | "cap"
+    | "fieldData"
+    | "audioMappings"
+    | "timelineTrack"
+  >,
 ): CreationConfig {
   return {
+    // params carries the custom palette stops (params.paletteStops), so it is
+    // persisted for free here.
     params: { ...state.params },
     spawnKind: state.spawnKind ?? "galaxy",
     spawnCount: state.spawnCount,
@@ -233,6 +313,16 @@ export function currentCreationConfig(
     // Capture the buffer cap so a high-count creation reproduces at full
     // particle count on load (mirrors how applyScene persists scene.cap).
     cap: state.cap,
+    // Persist the painted force field so a saved creation reproduces it.
+    // Omitted (undefined) when unset so older/clean configs stay minimal.
+    ...(state.fieldData ? { field: state.fieldData } : {}),
+    // Persist audio-reactive mappings only when the scene actually uses them.
+    ...(state.params.audioReactive && state.audioMappings.length
+      ? { audioMappings: state.audioMappings }
+      : {}),
+    // Persist the keyframe timeline only when it has keyframes so a saved
+    // animated creation replays.
+    ...(state.timelineTrack.keys.length ? { timeline: state.timelineTrack } : {}),
   };
 }
 
@@ -377,6 +467,7 @@ export const useLab = create<LabState>((set, get) => ({
   perfHubOpen: false,
   perfCompact: false,
   helpOpen: false,
+  timelineOpen: false,
   viewZoom: 1,
   viewPanX: 0,
   viewPanY: 0,
@@ -400,6 +491,13 @@ export const useLab = create<LabState>((set, get) => ({
   spawnKind: "galaxy",
   clearId: 0,
   activeSceneId: null,
+  fieldData: null,
+  fieldApplyId: 0,
+  paletteStops: [],
+  audioMappings: [...DEFAULT_AUDIO_MAPPINGS],
+  timelineTrack: createTrack(true),
+  timelinePlaying: false,
+  timelinePlayhead: 0,
   canUndo: false,
   canRedo: false,
   setParam: (key, value) => {
@@ -506,6 +604,7 @@ export const useLab = create<LabState>((set, get) => ({
   setRecordFps: (v) => set({ recordFps: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
+  setTimelineOpen: (v) => set({ timelineOpen: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
@@ -615,6 +714,22 @@ export const useLab = create<LabState>((set, get) => ({
       spawnKind: config.spawnKind as GeneratorKind,
       spawnId: s.spawnId + 1,
       activeSceneId: null,
+      // Restore the painted field from the config, and bump fieldApplyId so
+      // CanvasStage pushes it into the engine. The custom palette rides along
+      // inside params (params.paletteStops); mirror it into the editor copy.
+      fieldData: config.field ?? null,
+      fieldApplyId: s.fieldApplyId + 1,
+      paletteStops: nextParams.paletteStops ?? [],
+      // normalizeMappings is the single source of truth for the 0..2 amount
+      // clamp (and drops unknown source/target); the zod schema only checks
+      // finiteness, so apply it here on the load path (loads + forks all flow
+      // through applyCreationConfig) before the mappings reach the engine.
+      audioMappings: config.audioMappings
+        ? normalizeMappings(config.audioMappings)
+        : [...DEFAULT_AUDIO_MAPPINGS],
+      timelineTrack: (config.timeline ? normalizeTrack(config.timeline) : null) ?? createTrack(true),
+      timelinePlaying: false,
+      timelinePlayhead: 0,
       canUndo: past.length > 0,
       canRedo: false,
     }));
@@ -631,6 +746,64 @@ export const useLab = create<LabState>((set, get) => ({
       activeSceneId: null,
       canUndo: past.length > 0,
       canRedo: false,
+    }));
+  },
+  setFieldData: (field) => set({ fieldData: field }),
+  applyFieldData: (field) => {
+    if (rejectIfView()) return;
+    set((s) => ({ fieldData: field, fieldApplyId: s.fieldApplyId + 1 }));
+  },
+  setAudioMappings: (mappings) => {
+    if (rejectIfView()) return;
+    set({ audioMappings: mappings, activeSceneId: null });
+  },
+  addTimelineKeyframe: (t) => {
+    if (rejectIfView()) return;
+    const p = get().params;
+    const snap: Partial<AnimatableParams> = {
+      gravityX: p.gravityX,
+      gravityY: p.gravityY,
+      drag: p.drag,
+      pointSize: p.pointSize,
+      forceStrength: p.forceStrength,
+      trailLength: p.trailLength,
+      flowStrength: p.flowStrength,
+      bloomStrength: p.bloomStrength,
+      nbodyG: p.nbodyG,
+      centralMass: p.centralMass,
+      palette: p.palette,
+      shape: p.shape,
+    };
+    set((s) => ({ timelineTrack: addKf(s.timelineTrack, t, snap) }));
+  },
+  removeTimelineKeyframe: (i) => {
+    if (rejectIfView()) return;
+    set((s) => {
+      const track = removeKf(s.timelineTrack, i);
+      return {
+        timelineTrack: track,
+        timelinePlayhead: Math.min(s.timelinePlayhead, trackDuration(track)),
+      };
+    });
+  },
+  setTimelineTrack: (track) => {
+    if (rejectIfView()) return;
+    set((s) => ({ timelineTrack: track, timelinePlayhead: Math.min(s.timelinePlayhead, trackDuration(track)) }));
+  },
+  setTimelinePlaying: (v) => {
+    if (rejectIfView()) return;
+    set({ timelinePlaying: v });
+  },
+  setTimelinePlayhead: (t) => set({ timelinePlayhead: t }),
+  setPaletteStops: (stops) => {
+    if (rejectIfView()) return;
+    // Route custom stops into params so the renderers (which only see params)
+    // pick them up; drop the field entirely when cleared so the built-in
+    // palette path resumes.
+    set((s) => ({
+      params: { ...s.params, paletteStops: stops.length ? stops : undefined },
+      paletteStops: stops,
+      activeSceneId: null,
     }));
   },
   undo: () => {

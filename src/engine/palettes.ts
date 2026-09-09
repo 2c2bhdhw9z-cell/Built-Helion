@@ -1,4 +1,11 @@
 import type { PaletteId } from "./types";
+import {
+  bakeStopsN,
+  normalizeStops,
+  sampleStopsN,
+  usesStops,
+  type PaletteStop,
+} from "./palette-stops.ts";
 
 type Stop = [number, number, number];
 
@@ -120,3 +127,47 @@ export function sampleStops(colorA: string, colorB: string, t: number): [number,
 }
 
 export const PALETTE_IDS: PaletteId[] = ["rainbow", "ember", "ice", "aurora", "solar", "mono", "plasma"];
+
+/** Minimal palette-relevant params shape shared by the three renderers. */
+export type PaletteParams = {
+  palette: PaletteId;
+  colorA: string;
+  colorB: string;
+  tint: string;
+  paletteStops?: { pos: number; color: string }[];
+};
+
+/**
+ * Bake the 256x1 RGBA palette LUT for the given params, honoring (in priority
+ * order): a custom multi-stop palette, then the two-stop colorA/colorB
+ * gradient, then the named built-in palette. Centralizes the selection so all
+ * three renderers stay in sync. Imported lazily inside via a dynamic-free
+ * static import of the N-stop baker.
+ */
+export function bakeParamsPalette(p: PaletteParams): Uint8Array {
+  if (usesStopsParam(p.paletteStops)) {
+    return bakeStopsN(p.paletteStops!, p.tint);
+  }
+  if (usesCustomStops(p.colorA, p.colorB)) {
+    return bakeStops(p.colorA, p.colorB, p.tint);
+  }
+  return bakePalette(p.palette, p.tint);
+}
+
+/** Sample the params palette at t (0..1) for the CPU canvas renderer. */
+export function sampleParamsPalette(
+  p: PaletteParams,
+  t: number,
+): [number, number, number] {
+  if (usesStopsParam(p.paletteStops)) {
+    return sampleStopsN(normalizeStops(p.paletteStops!), t);
+  }
+  if (usesCustomStops(p.colorA, p.colorB)) {
+    return sampleStops(p.colorA, p.colorB, t);
+  }
+  return samplePalette(p.palette, t);
+}
+
+function usesStopsParam(stops: { pos: number; color: string }[] | undefined): boolean {
+  return usesStops(stops as PaletteStop[] | undefined);
+}

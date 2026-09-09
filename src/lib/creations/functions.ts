@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import {
   deleteCreationSchema,
+  forkCreationSchema,
   libraryQuerySchema,
   saveCreationSchema,
   setPublicSchema,
@@ -45,6 +46,23 @@ export const updateCreationFn = createServerFn({ method: "POST" })
       data.config,
       data.baseUpdatedAt,
     );
+  });
+
+/**
+ * Fork/remix a PUBLIC creation into a NEW creation owned by the caller (Item 3).
+ * authMiddleware ensures a signed-in owner; the suspended-write guard blocks
+ * suspended accounts (matching saveCreationFn/updateCreationFn). The source must
+ * be public — forking a private creation you don't own returns { ok: false }.
+ */
+export const forkCreationFn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => forkCreationSchema.parse(input))
+  .handler(async ({ data, context }): Promise<{ ok: boolean; row: CreationRow | null }> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
+    const { forkCreation } = await import("./server.ts");
+    const row = await forkCreation(context.userId, data.sourceId);
+    return { ok: row !== null, row };
   });
 
 export const listCreationsFn = createServerFn({ method: "GET" })
