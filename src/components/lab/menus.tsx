@@ -40,8 +40,8 @@ import { useLab } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
 import { Chip, Segmented, SliderRow, ToggleRow } from "./controls";
 import { PaletteEditor } from "./palette-editor";
+import { AudioPanel } from "./audio-panel";
 import { cn } from "@/lib/utils";
-import { audioManager } from "@/engine/audio";
 import { forceExprOk } from "@/engine/force-expr";
 
 const GENERATORS: { id: GeneratorKind; label: string; icon: typeof Orbit }[] = [
@@ -1100,55 +1100,7 @@ export function ParamDock() {
                 />
               </div>
             )}
-            {tab === "audio" && (
-              <div className="grid grid-cols-2 gap-x-5 gap-y-2 md:grid-cols-4">
-                <ToggleRow
-                  label="React to audio"
-                  checked={params.audioReactive}
-                  onChange={(v) => setParam("audioReactive", v)}
-                />
-                <SliderRow
-                  label="Sensitivity"
-                  value={params.audioSensitivity}
-                  min={0}
-                  max={5}
-                  step={0.1}
-                  onChange={(n) => setParam("audioSensitivity", n)}
-                />
-                <div className="col-span-2 flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => {
-                      useLab.getState().setParam("audioReactive", true);
-                      void audioManager.startMic();
-                    }}
-                  >
-                    Microphone
-                  </Button>
-                  <label className="inline-flex h-8 cursor-pointer items-center rounded-md border border-border px-2.5 text-2xs uppercase tracking-[0.1em] text-muted hover:text-fg">
-                    Music file
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        useLab.getState().setParam("audioReactive", true);
-                        void audioManager.startFile(file);
-                      }}
-                    />
-                  </label>
-                  {audioManager.trackName ? (
-                    <span className="text-2xs text-faint">{audioManager.trackName}</span>
-                  ) : (
-                    <span className="text-2xs text-faint">Mic or a track. Bass pulses mass; mids scale size.</span>
-                  )}
-                </div>
-              </div>
-            )}
+            {tab === "audio" && <AudioPanel />}
             {tab === "walls" && (
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 md:grid-cols-4">
                  <div className="col-span-2 text-xs text-faint flex items-center h-full">Use the Wall tool (above) to draw collision lines.</div>

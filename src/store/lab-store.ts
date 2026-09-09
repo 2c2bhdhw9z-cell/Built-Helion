@@ -21,6 +21,7 @@ import { clampViewPitch, clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import type { SerializedField } from "@/engine/force-field";
 import type { PaletteStop } from "@/engine/palette-stops";
+import { DEFAULT_AUDIO_MAPPINGS, type AudioMapping } from "@/engine/audio-modulation";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
 import type { PlanId } from "@/lib/billing/types";
@@ -174,6 +175,12 @@ type LabState = {
    * the two-stop colorA/colorB gradient. Persisted in the creation config.
    */
   paletteStops: PaletteStop[];
+  /**
+   * Audio-reactive source->target mappings (Item 2). Drives point size / spawn
+   * / force / gravity / palette from the mic or a music file. Persisted in the
+   * creation config so a saved audio-reactive scene replays its mapping.
+   */
+  audioMappings: AudioMapping[];
   setParam: <K extends keyof LabParams>(key: K, value: LabParams[K]) => void;
   patchParams: (p: Partial<LabParams>) => void;
   setTelemetry: (t: Telemetry) => void;
@@ -241,6 +248,8 @@ type LabState = {
   applyFieldData: (field: SerializedField | null) => void;
   /** Set the custom multi-stop palette. */
   setPaletteStops: (stops: PaletteStop[]) => void;
+  /** Replace the audio-reactive mappings. */
+  setAudioMappings: (mappings: AudioMapping[]) => void;
 };
 
 /**
@@ -250,7 +259,10 @@ type LabState = {
  * existing fallbacks in addParticles/runGenerator.
  */
 export function currentCreationConfig(
-  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed" | "cap" | "fieldData">,
+  state: Pick<
+    LabState,
+    "params" | "spawnKind" | "spawnCount" | "speed" | "cap" | "fieldData" | "audioMappings"
+  >,
 ): CreationConfig {
   return {
     // params carries the custom palette stops (params.paletteStops), so it is
@@ -265,6 +277,10 @@ export function currentCreationConfig(
     // Persist the painted force field so a saved creation reproduces it.
     // Omitted (undefined) when unset so older/clean configs stay minimal.
     ...(state.fieldData ? { field: state.fieldData } : {}),
+    // Persist audio-reactive mappings only when the scene actually uses them.
+    ...(state.params.audioReactive && state.audioMappings.length
+      ? { audioMappings: state.audioMappings }
+      : {}),
   };
 }
 
@@ -435,6 +451,7 @@ export const useLab = create<LabState>((set, get) => ({
   fieldData: null,
   fieldApplyId: 0,
   paletteStops: [],
+  audioMappings: [...DEFAULT_AUDIO_MAPPINGS],
   canUndo: false,
   canRedo: false,
   setParam: (key, value) => {
@@ -656,6 +673,7 @@ export const useLab = create<LabState>((set, get) => ({
       fieldData: config.field ?? null,
       fieldApplyId: s.fieldApplyId + 1,
       paletteStops: nextParams.paletteStops ?? [],
+      audioMappings: config.audioMappings ?? [...DEFAULT_AUDIO_MAPPINGS],
       canUndo: past.length > 0,
       canRedo: false,
     }));
@@ -678,6 +696,10 @@ export const useLab = create<LabState>((set, get) => ({
   applyFieldData: (field) => {
     if (rejectIfView()) return;
     set((s) => ({ fieldData: field, fieldApplyId: s.fieldApplyId + 1 }));
+  },
+  setAudioMappings: (mappings) => {
+    if (rejectIfView()) return;
+    set({ audioMappings: mappings, activeSceneId: null });
   },
   setPaletteStops: (stops) => {
     if (rejectIfView()) return;

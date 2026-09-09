@@ -2,6 +2,7 @@ import { audioManager } from "./audio";
 import { forceRuntime } from "./force-expr";
 import { emitAlongStroke, emitContinuous, spawnGenerator } from "./emitters";
 import { createField, paintField, type ForceField } from "./force-field";
+import { applyAudioModulation, DEFAULT_AUDIO_MAPPINGS, type AudioMapping } from "./audio-modulation";
 import { SpatialHash } from "./hash";
 import { stepPhysics } from "./physics";
 import { ParticleSoA } from "./soa";
@@ -48,6 +49,7 @@ export type EngineSync = {
   smoking: boolean;
   quality: QualityMode;
   extraBrush?: ExtraBrush;
+  audioMappings?: AudioMapping[];
 };
 
 function pickDefaultCap(): number {
@@ -101,6 +103,11 @@ export class ParticleEngine {
   lastFieldX = 0;
   lastFieldY = 0;
   hasFieldPaint = false;
+  /** Active audio-reactive source->target mappings (Item 2). */
+  audioMappings: AudioMapping[] = [...DEFAULT_AUDIO_MAPPINGS];
+  /** Accumulated palette-cycle phase driven by the "palette" audio target. */
+  audioPalettePhase = 0;
+  private lastAudioSpawn = 0;
   gpu: WebGPUBackend | null = null;
   gl: WebGLRenderer | null = null;
   canvas2d: Canvas2DRenderer | null = null;
@@ -418,6 +425,7 @@ export class ParticleEngine {
     this.brushRadius = s.brushRadius;
     this.brushStrength = s.brushStrength;
     this.extraBrush = s.extraBrush ?? IDLE_EXTRA_BRUSH;
+    if (s.audioMappings) this.audioMappings = s.audioMappings;
     if (s.cap !== this.soa.capacity) this.setCap(s.cap);
     if (s.quality !== this.quality) {
       this.quality = s.quality;
@@ -830,19 +838,28 @@ export class ParticleEngine {
     
     let effectiveParams = this.params;
     if (this.params.audioReactive && audioManager.active) {
-      effectiveParams = { ...this.params };
-      const pulse = audioManager.bass * (this.params.audioSensitivity ?? 1.0);
-      const mid = audioManager.mid * (this.params.audioSensitivity ?? 1.0);
-      if (effectiveParams.centralMass > 0) {
-         effectiveParams.centralMass += pulse * 2.0;
-      } else if (effectiveParams.flow) {
-         effectiveParams.flowStrength += pulse * 5.0;
-      } else {
-         effectiveParams.centralMass = pulse * 1.5;
-         effectiveParams.centralX = 0.5;
-         effectiveParams.centralY = 0.5;
+      const signal = {
+        bass: audioManager.bass,
+        mid: audioManager.mid,
+        level: audioManager.energy,
+      };
+      const { params: modParams, outputs } = applyAudioModulation(
+        this.params,
+        signal,
+        this.audioMappings,
+        this.params.audioSensitivity ?? 1.0,
+      );
+      effectiveParams = modParams;
+      // Accumulate a palette-cycle phase so the "palette" target visibly shifts
+      // color over time; exposed for renderers/telemetry consumers.
+      this.audioPalettePhase = (this.audioPalettePhase + outputs.palettePulse * dt * 2) % 1;
+      // Spawn bursts from a loud transient (the "spawn" target). Rate-limited so
+      // a sustained loud signal can't runaway-fill the buffer.
+      if (outputs.spawnBurst > 0.35 && this.totalTime - this.lastAudioSpawn > 0.12 && this.lastGenerator) {
+        this.lastAudioSpawn = this.totalTime;
+        const count = Math.round(outputs.spawnBurst * 400);
+        if (count > 0) this.spawn(this.lastGenerator, false, undefined, count);
       }
-      effectiveParams.pointSize = Math.min(24, this.params.pointSize * (1 + mid * 0.8));
     }
     
     // A painted force field is only read by the CPU physics step, so force the

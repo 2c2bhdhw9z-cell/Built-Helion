@@ -260,6 +260,20 @@ export const creationConfigSchema = z.object({
       data: z.array(z.number().finite()),
     })
     .optional(),
+  // Optional audio-reactive mappings (Item 2). Each maps an audio source to a
+  // sim target with a 0..2 amount. Unknown sources/targets are handled by the
+  // engine's normalizeMappings; here we only validate loose shape and drop the
+  // field on total garbage. Absent when the creation isn't audio-reactive.
+  audioMappings: z
+    .array(
+      z.object({
+        source: z.enum(["bass", "mid", "level"]),
+        target: z.enum(["size", "spawn", "force", "gravity", "palette"]),
+        amount: z.number().finite(),
+      }),
+    )
+    .optional()
+    .catch(undefined),
 });
 
 /** The validated, always-complete saved config. */

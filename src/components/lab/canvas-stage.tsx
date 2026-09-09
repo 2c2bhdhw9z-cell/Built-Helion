@@ -182,6 +182,7 @@ export function CanvasStage() {
         smoking: s.smoking,
         quality: s.quality,
         extraBrush,
+        audioMappings: s.audioMappings,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
       // While recording, keep the live compositing canvas in sync with the
