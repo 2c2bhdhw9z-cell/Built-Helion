@@ -21,7 +21,7 @@ import { clampViewPitch, clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
 import type { SerializedField } from "@/engine/force-field";
 import type { PaletteStop } from "@/engine/palette-stops";
-import { DEFAULT_AUDIO_MAPPINGS, type AudioMapping } from "@/engine/audio-modulation";
+import { DEFAULT_AUDIO_MAPPINGS, normalizeMappings, type AudioMapping } from "@/engine/audio-modulation";
 import {
   addKeyframe as addKf,
   createTrack,
@@ -720,7 +720,13 @@ export const useLab = create<LabState>((set, get) => ({
       fieldData: config.field ?? null,
       fieldApplyId: s.fieldApplyId + 1,
       paletteStops: nextParams.paletteStops ?? [],
-      audioMappings: config.audioMappings ?? [...DEFAULT_AUDIO_MAPPINGS],
+      // normalizeMappings is the single source of truth for the 0..2 amount
+      // clamp (and drops unknown source/target); the zod schema only checks
+      // finiteness, so apply it here on the load path (loads + forks all flow
+      // through applyCreationConfig) before the mappings reach the engine.
+      audioMappings: config.audioMappings
+        ? normalizeMappings(config.audioMappings)
+        : [...DEFAULT_AUDIO_MAPPINGS],
       timelineTrack: (config.timeline ? normalizeTrack(config.timeline) : null) ?? createTrack(true),
       timelinePlaying: false,
       timelinePlayhead: 0,

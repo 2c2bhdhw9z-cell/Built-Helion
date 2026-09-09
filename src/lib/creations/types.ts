@@ -7,6 +7,7 @@ import {
   type GeneratorKind,
   type LabParams,
 } from "@/engine/types";
+import { FIELD_MAX_RES } from "@/engine/force-field";
 
 /**
  * Client-safe creations model + zod schemas. This file MUST stay free of any
@@ -43,6 +44,23 @@ export const SPAWN_COUNT_MAX = SYSTEM_LIMIT;
  */
 export const CAP_MIN = 1024;
 export const CAP_MAX = SYSTEM_LIMIT;
+
+/**
+ * Length caps for the optional persisted arrays. These configs are UNTRUSTED
+ * (they round-trip through saved creations, the public share link, and the
+ * public library), so an un-capped array would let a crafted blob drive
+ * unbounded per-frame and storage work. Each cap is sized to the real UI limit;
+ * an oversized array is TRUNCATED to the cap (graceful degradation) rather than
+ * rejecting the whole creation, matching the schema's coerce-with-default style.
+ */
+/** Max keyframes on the timeline. */
+export const TIMELINE_KEYS_MAX = 256;
+/** Max force-field cells: FIELD_MAX_RES² grid × 2 (vx,vy) per cell. */
+export const FIELD_DATA_MAX = FIELD_MAX_RES * FIELD_MAX_RES * 2;
+/** Max audio source→target mappings. */
+export const AUDIO_MAPPINGS_MAX = 32;
+/** Max custom-palette stops. */
+export const PALETTE_STOPS_MAX = 64;
 
 /**
  * A number field that falls back to `fallback` on anything non-finite/missing.
@@ -181,6 +199,9 @@ export const labParamsSchema: z.ZodType<LabParams> = z
           color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
         }),
       )
+      // Truncate an oversized list to the cap so a too-long array still loads
+      // (bounded) instead of rejecting the whole creation.
+      .transform((stops) => stops.slice(0, PALETTE_STOPS_MAX))
       .optional()
       .catch(undefined),
   })
@@ -257,7 +278,12 @@ export const creationConfigSchema = z.object({
   field: z
     .object({
       res: z.number().finite(),
-      data: z.array(z.number().finite()),
+      // Truncate to FIELD_DATA_MAX (= FIELD_MAX_RES² × 2) so an oversized blob
+      // can't allocate/scan an unbounded grid; deserializeField re-validates
+      // length against the clamped resolution and zero-fills the rest.
+      data: z
+        .array(z.number().finite())
+        .transform((data) => data.slice(0, FIELD_DATA_MAX)),
     })
     .optional(),
   // Optional audio-reactive mappings (Item 2). Each maps an audio source to a
@@ -272,6 +298,9 @@ export const creationConfigSchema = z.object({
         amount: z.number().finite(),
       }),
     )
+    // Truncate to the cap; the load path runs the result through
+    // normalizeMappings (single source of truth for the 0..2 amount clamp).
+    .transform((mappings) => mappings.slice(0, AUDIO_MAPPINGS_MAX))
     .optional()
     .catch(undefined),
   // Optional keyframe timeline (Item 1). Loosely validated here (keys with a
@@ -279,7 +308,8 @@ export const creationConfigSchema = z.object({
   // per-key coercion. Absent when the creation has no animation.
   timeline: z
     .object({
-      keys: z.array(
+      keys: z
+        .array(
         z.object({
           t: z.number().finite(),
           // The animatable subset (all optional). Strict keys keep CreationConfig
@@ -303,7 +333,10 @@ export const creationConfigSchema = z.object({
             })
             .catch({}),
         }),
-      ),
+      )
+        // Truncate to the cap so an oversized timeline still loads with a
+        // bounded key list; normalizeTrack does the strict per-key coercion.
+        .transform((keys) => keys.slice(0, TIMELINE_KEYS_MAX)),
       loop: z.boolean().optional(),
     })
     .optional()

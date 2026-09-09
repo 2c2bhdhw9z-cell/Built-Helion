@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { useLab } from "./lab-store.ts";
 import { DEFAULT_PARAMS } from "@/engine/types.ts";
+import { normalizeCreationConfig } from "@/lib/creations/types.ts";
 
 test("lab-store initializes with default state", () => {
   const state = useLab.getState();
@@ -140,4 +141,31 @@ test("particle cap is not a paywall", () => {
   useLab.getState().setSpawnCount(500_000);
   expect(useLab.getState().spawnCount).toBe(500_000);
   useLab.setState(prev);
+});
+
+test("applyCreationConfig clamps a stored audio-mapping amount to 0..2 on load", () => {
+  // A crafted/stored config whose amount is far outside the 0..2 range. The
+  // schema only checks finiteness, so the 0..2 clamp must be enforced on the
+  // load boundary (via normalizeMappings in applyCreationConfig) before the
+  // mappings reach the engine.
+  const config = normalizeCreationConfig({
+    params: { ...DEFAULT_PARAMS },
+    spawnKind: "galaxy",
+    spawnCount: 5000,
+    speed: 1,
+    audioMappings: [
+      { source: "bass", target: "size", amount: 1000 },
+      { source: "level", target: "force", amount: -5 },
+    ],
+  });
+  expect(config).not.toBeNull();
+  // amount: 1000 survived the finiteness-only schema.
+  expect(config!.audioMappings![0].amount).toBe(1000);
+
+  useLab.getState().applyCreationConfig(config!);
+  const mappings = useLab.getState().audioMappings;
+  // Amounts clamped into 0..2 on the load path.
+  expect(mappings.length).toBe(2);
+  expect(mappings[0]).toEqual({ source: "bass", target: "size", amount: 2 });
+  expect(mappings[1]).toEqual({ source: "level", target: "force", amount: 0 });
 });
