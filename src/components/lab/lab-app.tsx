@@ -21,7 +21,11 @@ import { TimelinePanel } from "./timeline-panel";
 import { SessionDialog } from "./session-dialog";
 import { SessionRoom } from "./session-room";
 import { isEmbedSearch, readPresetFromSearch } from "@/lib/share/codec";
-import { readSessionFromSearch, writeSessionQuery } from "@/lib/multiplayer/protocol";
+import {
+  readSessionFromSearch,
+  readSpectateFromSearch,
+  writeSessionQuery,
+} from "@/lib/multiplayer/protocol";
 import { useSession } from "@/lib/multiplayer/session-store";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -73,8 +77,21 @@ export function LabApp() {
     setEmbedFromSearch(isEmbedSearch(search));
     const session = readSessionFromSearch(search);
     if (session) {
+      // A `spectate=1` link (Item 11) joins view-only: a lightweight receiver
+      // that lands in "view" role (rejectIfView blocks all edits) with no
+      // edit-privilege request. A plain session link joins as an editor.
+      const spectate = readSpectateFromSearch(search);
       writeSessionQuery(session);
-      useSession.getState().enter(session, false);
+      useSession.getState().enter(session, false, { spectator: spectate });
+      // If this is a known persistent room, label it with its name (best-effort,
+      // never blocks the join). Dynamic import keeps the server fn off the SSR
+      // chunk (createSsrRpc caveat) and out of the initial client bundle.
+      void import("@/lib/multiplayer/rooms-functions")
+        .then(({ getRoomFn }) => getRoomFn({ data: { code: session } }))
+        .then((room) => {
+          if (room.found && room.name) useSession.getState().setMeta({ roomName: room.name });
+        })
+        .catch(() => {});
       return;
     }
     const preset = readPresetFromSearch(search);

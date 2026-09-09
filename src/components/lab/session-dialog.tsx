@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Copy, Link2, Mic, MicOff, Radio, Users, X } from "lucide-react";
+import { Copy, Eye, Link2, Mic, MicOff, Radio, Users, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,9 +11,11 @@ import {
   normalizeRoomCode,
   randomRoomCode,
   sessionUrl,
+  spectatorUrl,
   writeGuestName,
   writeSessionQuery,
 } from "@/lib/multiplayer/protocol";
+import type { MyRoom } from "@/lib/multiplayer/rooms-types";
 import { copyText } from "@/lib/platform/clipboard";
 
 function copyOut(text: string, ok: string) {
@@ -36,12 +38,37 @@ export function SessionDialog() {
   const selfId = useSession((s) => s.selfId);
   const micOn = useSession((s) => s.micOn);
   const setMicOn = useSession((s) => s.setMicOn);
+  const roomName = useSession((s) => s.roomName);
+  const mutedPeers = useSession((s) => s.mutedPeers);
+  const micPeers = useSession((s) => s.micPeers);
+  const togglePeerMuted = useSession((s) => s.togglePeerMuted);
   const [joinCode, setJoinCode] = useState("");
   const [draft, setDraft] = useState("");
   const [guestName, setGuestName] = useState(() => ensureGuestName());
+  const [roomTitle, setRoomTitle] = useState("");
+  const [myRooms, setMyRooms] = useState<MyRoom[]>([]);
 
   const inSession = Boolean(code);
   const count = (code ? 1 : 0) + peers.length;
+
+  // Load the caller's durable rooms so they can drop back in (Item 13). Best
+  // effort — unauthenticated callers simply get an empty list. Dynamic import
+  // keeps the server fn out of the initial bundle.
+  useEffect(() => {
+    if (!open || inSession) return;
+    let live = true;
+    void import("@/lib/multiplayer/rooms-functions")
+      .then(({ listMyRoomsFn }) => listMyRoomsFn())
+      .then((rooms) => {
+        if (live) setMyRooms(rooms);
+      })
+      .catch(() => {
+        if (live) setMyRooms([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [open, inSession]);
 
   const commitName = (raw = guestName) => {
     const next = writeGuestName(raw) || ensureGuestName();
@@ -52,22 +79,53 @@ export function SessionDialog() {
 
   const create = () => {
     commitName();
+    const title = roomTitle.trim().slice(0, 40);
+    // Optionally NAME the room (Item 13): a named room is persisted server-side
+    // via createRoomFn (authed) and re-enterable later; the server mints the
+    // durable code. An unnamed/anonymous room stays ephemeral with a local code.
+    if (title) {
+      void import("@/lib/multiplayer/rooms-functions")
+        .then(({ createRoomFn }) => createRoomFn({ data: { name: title } }))
+        .then((room) => {
+          writeSessionQuery(room.code);
+          useSession.getState().enter(room.code, true, { roomName: room.name });
+          copyOut(sessionUrl(room.code), "Session link copied");
+        })
+        .catch(() => {
+          // Not signed in / server unavailable — fall back to an ephemeral room.
+          const next = randomRoomCode();
+          writeSessionQuery(next);
+          useSession.getState().enter(next, true);
+          toast.message("Started an unnamed session (sign in to save named rooms)");
+          copyOut(sessionUrl(next), "Session link copied");
+        });
+      return;
+    }
     const next = randomRoomCode();
     writeSessionQuery(next);
     useSession.getState().enter(next, true);
     copyOut(sessionUrl(next), "Session link copied");
   };
 
-  const join = () => {
-    const next = normalizeRoomCode(joinCode);
+  const enterCode = (raw: string, isHost: boolean) => {
+    const next = normalizeRoomCode(raw);
     if (next.length < 4) {
       toast.error("Need a 6-character session code");
       return;
     }
     commitName();
     writeSessionQuery(next);
-    useSession.getState().enter(next, false);
+    useSession.getState().enter(next, isHost);
+    // Label the session if this is a known persistent room (Item 13).
+    void import("@/lib/multiplayer/rooms-functions")
+      .then(({ getRoomFn }) => getRoomFn({ data: { code: next } }))
+      .then((room) => {
+        if (room.found && room.name) useSession.getState().setMeta({ roomName: room.name });
+      })
+      .catch(() => {});
   };
+
+  const join = () => enterCode(joinCode, false);
 
   const leave = () => {
     writeSessionQuery(null);
@@ -148,10 +206,45 @@ export function SessionDialog() {
             </label>
             {!inSession ? (
               <>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-2xs uppercase tracking-[0.12em] text-faint">
+                    Room name (optional)
+                  </span>
+                  <input
+                    value={roomTitle}
+                    onChange={(e) => setRoomTitle(e.target.value.slice(0, 40))}
+                    placeholder="Name it to save & re-enter later"
+                    maxLength={40}
+                    aria-label="Room name"
+                    data-testid="session-room-name"
+                    className="h-10 rounded-md border border-border bg-bg px-3 text-sm text-fg"
+                  />
+                </label>
                 <Button variant="default" className="h-10 w-full" data-testid="session-start" onClick={create}>
                   <Radio className="size-3.5" />
                   Start a session
                 </Button>
+                {myRooms.length > 0 ? (
+                  <div className="flex flex-col gap-1.5" data-testid="session-my-rooms">
+                    <span className="text-2xs uppercase tracking-[0.12em] text-faint">Your rooms</span>
+                    <ul className="flex flex-col gap-1">
+                      {myRooms.map((r) => (
+                        <li key={r.code}>
+                          <button
+                            type="button"
+                            className="flex w-full items-center justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-left text-xs hover:bg-elevated/60"
+                            onClick={() => enterCode(r.code, true)}
+                          >
+                            <span className="truncate text-fg">{r.name || "Untitled room"}</span>
+                            <span className="shrink-0 font-mono text-2xs tracking-[0.14em] text-faint">
+                              {r.code}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <div className="flex gap-2">
                   <input
                     value={joinCode}
@@ -176,26 +269,35 @@ export function SessionDialog() {
             ) : (
               <>
                 <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-elevated/40 px-3 py-2">
-                  <div>
+                  <div className="min-w-0">
+                    {roomName ? (
+                      <div className="truncate text-sm font-medium text-fg" data-testid="session-room-title">
+                        {roomName}
+                      </div>
+                    ) : null}
                     <div className="font-mono text-sm tracking-[0.18em]" data-testid="session-code">
                       {code}
                     </div>
                     <div className="text-2xs text-faint">
                       {joined ? `${count} in room` : "Connecting…"}
-                      {role === "view" ? " · view only" : null}
+                      {role === "view" ? (
+                        <span data-testid="session-spectating"> · spectating</span>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button
-                      variant={micOn ? "default" : "outline"}
-                      size="icon"
-                      aria-label={micOn ? "Mute microphone" : "Share microphone"}
-                      title={micOn ? "Mute" : "Voice"}
-                      data-testid="session-mic"
-                      onClick={() => setMicOn(!micOn)}
-                    >
-                      {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5" />}
-                    </Button>
+                    {role !== "view" ? (
+                      <Button
+                        variant={micOn ? "default" : "outline"}
+                        size="icon"
+                        aria-label={micOn ? "Mute microphone" : "Share microphone"}
+                        title={micOn ? "Mute" : "Voice"}
+                        data-testid="session-mic"
+                        onClick={() => setMicOn(!micOn)}
+                      >
+                        {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5" />}
+                      </Button>
+                    ) : null}
                     <Button
                       variant="outline"
                       size="icon"
@@ -212,6 +314,16 @@ export function SessionDialog() {
                     >
                       <Link2 className="size-3.5" />
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Copy spectator link"
+                      title="Copy view-only link"
+                      data-testid="session-spectator-link"
+                      onClick={() => code && copyOut(spectatorUrl(code), "Spectator link copied")}
+                    >
+                      <Eye className="size-3.5" />
+                    </Button>
                   </div>
                 </div>
 
@@ -227,17 +339,42 @@ export function SessionDialog() {
                       key={p.id}
                       className="flex items-center justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-xs"
                     >
-                      <div className="min-w-0">
-                        <div className="truncate text-fg">{p.name}</div>
-                        <div className="text-2xs text-faint">
-                          {p.connectionState === "connected"
-                            ? p.rttMs != null
-                              ? `${p.rttMs}ms`
-                              : "linked"
-                            : p.connectionState === "failed"
-                              ? "can't connect"
-                              : p.connectionState}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {micPeers[p.id] ? (
+                          <Mic
+                            className="size-3 shrink-0 text-accent"
+                            aria-label={`${p.name} microphone on`}
+                            data-testid="peer-mic-on"
+                          />
+                        ) : null}
+                        <div className="min-w-0">
+                          <div className="truncate text-fg">{p.name}</div>
+                          <div className="text-2xs text-faint">
+                            {p.connectionState === "connected"
+                              ? p.rttMs != null
+                                ? `${p.rttMs}ms`
+                                : "linked"
+                              : p.connectionState === "failed"
+                                ? "can't connect"
+                                : p.connectionState}
+                          </div>
                         </div>
+                        {micPeers[p.id] ? (
+                          <button
+                            type="button"
+                            className="shrink-0 text-faint hover:text-fg"
+                            aria-label={mutedPeers[p.id] ? `Unmute ${p.name}` : `Mute ${p.name}`}
+                            title={mutedPeers[p.id] ? "Unmute" : "Mute"}
+                            data-testid="peer-mute"
+                            onClick={() => togglePeerMuted(p.id)}
+                          >
+                            {mutedPeers[p.id] ? (
+                              <VolumeX className="size-3.5" />
+                            ) : (
+                              <Volume2 className="size-3.5" />
+                            )}
+                          </button>
+                        ) : null}
                       </div>
                       {(isHost || role === "admin") && p.id !== selfId ? (
                         <div className="flex shrink-0 items-center gap-1.5">

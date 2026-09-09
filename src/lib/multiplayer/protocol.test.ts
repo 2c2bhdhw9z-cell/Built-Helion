@@ -10,6 +10,8 @@ import {
   randomRoomCode,
   readGuestName,
   readSessionFromSearch,
+  readSpectateFromSearch,
+  spectatorUrl,
   writeGuestName,
   type ReconnectContext,
 } from "./protocol";
@@ -29,6 +31,26 @@ test("readSessionFromSearch pulls a valid code", () => {
   expect(readSessionFromSearch("?session=ABC12X&embed=1")).toBe("ABC12X");
   expect(readSessionFromSearch("session=no")).toBe(null);
   expect(readSessionFromSearch("")).toBe(null);
+});
+
+test("readSpectateFromSearch only trips with a valid code AND the flag", () => {
+  // View-only spectator entry (Item 11): flag alone with no session code is
+  // nothing to watch, and a code without the flag is a normal edit join.
+  expect(readSpectateFromSearch("?session=ABC12X&spectate=1")).toBe(true);
+  expect(readSpectateFromSearch("?session=ABC12X&spectate=true")).toBe(true);
+  expect(readSpectateFromSearch("?session=ABC12X")).toBe(false);
+  expect(readSpectateFromSearch("?session=ABC12X&spectate=0")).toBe(false);
+  expect(readSpectateFromSearch("?spectate=1")).toBe(false);
+  expect(readSpectateFromSearch("")).toBe(false);
+});
+
+test("spectatorUrl appends the spectate flag to the session link", () => {
+  const url = spectatorUrl("ABC12X", "https://helion.test");
+  expect(url).toBe("https://helion.test/?session=ABC12X&spectate=1");
+  // Round-trips: opening the built link is recognized as a spectator join.
+  const search = url.slice(url.indexOf("?"));
+  expect(readSpectateFromSearch(search)).toBe(true);
+  expect(readSessionFromSearch(search)).toBe("ABC12X");
 });
 
 test("guest names persist and stay short", () => {
