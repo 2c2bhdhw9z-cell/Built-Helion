@@ -1,7 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { adminAccessSchema } from "@/lib/feedback/types.ts";
 import { z } from "zod";
-import type { AdminAccount, AdminAnalytics, AdminDashboardAnalytics } from "./types.ts";
+import type {
+  AdminAccount,
+  AdminAnalytics,
+  AdminDashboardAnalytics,
+  AdminTrend,
+} from "./types.ts";
 
 /**
  * TanStack Start server functions for the Admin Dashboard (Reqs 4, 5, 6).
@@ -113,6 +118,26 @@ export const getDashboardAnalyticsFn = createServerFn({ method: "POST" })
     }
     const { getDashboardAnalytics } = await import("./server.ts");
     return getDashboardAnalytics();
+  });
+
+/**
+ * DAU/WAU time-series trend for the dashboard (Item 21), all AGGREGATE (never
+ * PII). ADMIN-ONLY: `assertAdmin` runs first; a non-admin caller throws
+ * ForbiddenError, mapped to `null` so no analytics leak — exactly like the other
+ * dashboard reads. Rolls up the recent window lazily-on-view (there is no cron
+ * runner) before returning the trend.
+ */
+export const getAnalyticsTrendFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => adminAccessSchema.parse(input ?? {}))
+  .handler(async ({ data }): Promise<AdminTrend | null> => {
+    try {
+      const { assertAdmin } = await import("@/lib/feedback/admin-auth.server.ts");
+      await assertAdmin(data.token);
+    } catch {
+      return null;
+    }
+    const { getAnalyticsTrend } = await import("./server.ts");
+    return getAnalyticsTrend();
   });
 
 /**

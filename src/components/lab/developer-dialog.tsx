@@ -10,12 +10,15 @@ import {
   addWebhookFn,
   createTokenFn,
   deleteWebhookFn,
+  getUsageViewFn,
   listDeliveriesFn,
   listTokensFn,
   listWebhooksFn,
   revokeTokenFn,
+  testWebhookFn,
   type DeliveryRow,
   type TokenRow,
+  type UsageView,
 } from "@/lib/dev-api/functions";
 import { copyText } from "@/lib/platform/clipboard";
 
@@ -24,6 +27,45 @@ function copyOut(text: string, ok: string) {
     if (copied) toast.success(ok);
     else toast.error("Could not copy");
   });
+}
+
+/** A short relative label for a token's last-used timestamp. */
+function formatWhen(value: string | Date): string {
+  const t = typeof value === "string" ? Date.parse(value) : value.getTime();
+  if (!Number.isFinite(t)) return "recently";
+  const secs = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return `${days}d ago`;
+}
+
+/** A tiny per-day API request bar chart for the usage/quota view (Item 19).
+ * Reuses the admin `Breakdown` bar idiom — no chart library. */
+function UsageBars({ daily }: { daily: { day: string; count: number }[] }) {
+  const max = daily.reduce((m, d) => Math.max(m, d.count), 0);
+  const total = daily.reduce((s, d) => s + d.count, 0);
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="dev-usage-chart">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-2xs text-faint">API requests · last {daily.length} days</span>
+        <span className="font-mono text-2xs text-faint">{total} total</span>
+      </div>
+      <div className="flex h-16 items-end gap-0.5">
+        {daily.map((d) => (
+          <div
+            key={d.day}
+            title={`${d.day}: ${d.count}`}
+            className="min-w-0 flex-1 rounded-sm bg-fg/60"
+            style={{ height: `${max > 0 ? Math.max(2, Math.round((d.count / max) * 100)) : 2}%` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function DeveloperDialog() {
@@ -39,6 +81,8 @@ export function DeveloperDialog() {
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   const [hookUrl, setHookUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [usage, setUsage] = useState<UsageView | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
@@ -46,18 +90,20 @@ export function DeveloperDialog() {
     if (!open || !signedIn || isPending) return;
     let cancelled = false;
     setLoading(true);
-    void Promise.all([listTokensFn(), listWebhooksFn(), listDeliveriesFn()])
-      .then(([t, w, d]) => {
+    void Promise.all([listTokensFn(), listWebhooksFn(), listDeliveriesFn(), getUsageViewFn()])
+      .then(([t, w, d, u]) => {
         if (cancelled) return;
         setTokens(t);
         setHooks(w);
         setDeliveries(d);
+        setUsage(u);
       })
       .catch(() => {
         if (!cancelled) {
           setTokens([]);
           setHooks([]);
           setDeliveries([]);
+          setUsage(null);
         }
       })
       .finally(() => {
@@ -105,6 +151,35 @@ export function DeveloperDialog() {
       setHooks((prev) => prev.filter((h) => h.id !== id));
     } catch {
       toast.error("Could not remove webhook");
+    }
+  };
+
+  const testHook = async (id: string) => {
+    setTesting(id);
+    try {
+      const res = await testWebhookFn({ data: { id } });
+      if (!res.ok || !res.delivery) {
+        toast.error("Could not deliver test event");
+      } else if (res.delivery.ok) {
+        toast.success(
+          `Test delivered${res.delivery.status != null ? ` (${res.delivery.status})` : ""}`,
+        );
+      } else {
+        toast.error(
+          `Test failed${res.delivery.status != null ? ` (${res.delivery.status})` : ""}`,
+        );
+      }
+      // Refresh the deliveries list so the test delivery shows up alongside real
+      // ones (it is recorded in webhook_deliveries exactly like an event).
+      try {
+        setDeliveries(await listDeliveriesFn());
+      } catch {
+        if (res.delivery) setDeliveries((prev) => [res.delivery!, ...prev]);
+      }
+    } catch {
+      toast.error("Could not deliver test event");
+    } finally {
+      setTesting(null);
     }
   };
 
@@ -203,9 +278,12 @@ req = urllib.request.Request(
                           key={t.id}
                           className="flex items-center justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-xs"
                         >
-                          <span className="truncate">
+                          <span className="min-w-0 truncate">
                             {t.name}{" "}
                             <span className="font-mono text-faint">{t.prefix}…</span>
+                            <span className="ml-1 text-2xs text-faint">
+                              · {t.lastUsedAt ? `used ${formatWhen(t.lastUsedAt)}` : "never used"}
+                            </span>
                           </span>
                           <Button
                             variant="ghost"
@@ -219,6 +297,37 @@ req = urllib.request.Request(
                         </li>
                       ))}
                     </ul>
+                  )}
+                </section>
+
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-2xs uppercase tracking-[0.12em] text-faint">
+                    Usage &amp; quota
+                  </h3>
+                  {usage ? (
+                    <>
+                      <div className="flex flex-col gap-1 rounded-md border border-border bg-elevated/30 px-3 py-2">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-2xs text-faint">
+                            Rate limit (this {Math.round(usage.quota.windowMs / 1000)}s window)
+                          </span>
+                          <span className="font-mono text-2xs text-fg" data-testid="dev-quota">
+                            {usage.quota.used} / {usage.quota.limit}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                          <div
+                            className="h-full rounded-full bg-fg/70"
+                            style={{
+                              width: `${Math.min(100, Math.round((usage.quota.used / Math.max(1, usage.quota.limit)) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <UsageBars daily={usage.daily} />
+                    </>
+                  ) : (
+                    <p className="text-2xs text-faint">No usage recorded yet.</p>
                   )}
                 </section>
 
@@ -246,11 +355,21 @@ req = urllib.request.Request(
                         key={h.id}
                         className="flex items-center justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-xs"
                       >
-                        <span className="truncate">{h.url}</span>
+                        <span className="min-w-0 flex-1 truncate">{h.url}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          data-testid="dev-hook-test"
+                          disabled={testing === h.id}
+                          onClick={() => void testHook(h.id)}
+                        >
+                          {testing === h.id ? "Testing…" : "Test"}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8"
+                          className="size-8 shrink-0"
                           aria-label={`Remove ${h.url}`}
                           onClick={() => void dropHook(h.id)}
                         >
@@ -262,14 +381,26 @@ req = urllib.request.Request(
                   {deliveries.length === 0 ? (
                     <p className="text-2xs text-faint">No deliveries yet.</p>
                   ) : (
-                    <ul className="flex flex-col gap-1.5">
+                    <ul className="flex flex-col gap-1.5" data-testid="dev-deliveries">
                       {deliveries.map((d) => (
-                        <li key={d.id} className="flex justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-2xs">
-                          <span className="truncate text-fg">
-                            {d.event} · {d.ok ? "ok" : "failed"}
-                            {d.status != null ? ` ${d.status}` : ""}
+                        <li
+                          key={d.id}
+                          className="flex items-center justify-between gap-2 rounded-sm bg-elevated/30 px-2 py-1.5 text-2xs"
+                        >
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span
+                              className={`inline-block size-1.5 shrink-0 rounded-full ${d.ok ? "bg-emerald-500" : "bg-red-500"}`}
+                              aria-hidden
+                            />
+                            <span className="truncate text-fg">{d.event}</span>
+                            <span className={d.ok ? "text-faint" : "text-red-400"}>
+                              {d.ok ? "ok" : "failed"}
+                              {d.status != null ? ` ${d.status}` : ""}
+                            </span>
                           </span>
-                          <span className="font-mono text-faint">{d.attempts}×</span>
+                          <span className="shrink-0 font-mono text-faint">
+                            {d.attempts}× · {formatWhen(d.at)}
+                          </span>
                         </li>
                       ))}
                     </ul>

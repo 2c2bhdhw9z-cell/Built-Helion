@@ -62,3 +62,30 @@ export interface AdminDashboardAnalytics {
   particleBuckets: AdminBreakdownSlice[];
   telemetrySamples: number;
 }
+
+/**
+ * One day's point on the DAU/WAU time-series trend (Item 21), all AGGREGATE —
+ * never PII. `day` is a 'YYYY-MM-DD' string.
+ *   - `dau`     — daily active users: distinct accounts whose usage_stats
+ *     `updated_at` fell on that calendar day.
+ *   - `wau`     — weekly active users: distinct accounts active over the
+ *     trailing 7-day window ending on that day.
+ *   - `samples` — telemetry samples created on that day.
+ */
+export interface AdminTrendPoint {
+  day: string;
+  dau: number;
+  wau: number;
+  samples: number;
+}
+
+/**
+ * The DAU/WAU trend view (Item 21): a rolled-up point per day over the trailing
+ * window. Rollup rows (`analytics_daily`) are computed lazily-on-view — there is
+ * no cron runner — via `rollupDay`, which is idempotent (upsert on the day PK).
+ * WAU is derived on read from the raw activity so it is always exact for the
+ * window even before older days have been rolled up.
+ */
+export interface AdminTrend {
+  points: AdminTrendPoint[];
+}

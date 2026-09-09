@@ -28,6 +28,18 @@ export const V1_LIMIT = 60;
 export const V1_WINDOW_MS = 60_000;
 
 /**
+ * The rate-limit key for an AUTHENTICATED principal. Both the enforcement path
+ * (`handleV1` → `allowV1`) and the read-only quota peek the developer page shows
+ * (`getUsageViewFn` → `readV1Quota`) MUST derive the key the same way, or the
+ * number on the page would track a different bucket than the one that throttles
+ * the account (the bug this centralization fixes). Unauthenticated requests are
+ * still keyed by client IP (there is no user), handled at the call site.
+ */
+export function userRateLimitKey(userId: string): string {
+  return `user:${userId}`;
+}
+
+/**
  * The last window bucket for which this process issued a GLOBAL stale-window
  * sweep. Throttles the global cleanup (below) to at most once per window per
  * instance so a hot path never fires a table-wide delete on every request. Held
@@ -52,6 +64,32 @@ export function windowStart(now: number, windowMs: number = V1_WINDOW_MS): numbe
  */
 export function isWithinLimit(countIncludingThis: number, limit: number = V1_LIMIT): boolean {
   return countIncludingThis <= limit;
+}
+
+/**
+ * The caller's CURRENT rate-limit window state for the usage/quota view (Item
+ * 19) — a read-only peek that never increments the counter. Returns the request
+ * count already recorded in the active window for `v1:<key>`, the policy limit,
+ * and how many ms remain in the window. Best-effort: on a DB error (or an
+ * un-migrated deploy) it reports an empty window rather than throwing.
+ */
+export async function readV1Quota(
+  key: string,
+  now: number = Date.now(),
+): Promise<{ used: number; limit: number; windowMs: number; resetMs: number }> {
+  const bucket = windowStart(now);
+  const fullKey = `v1:${key}`;
+  let used = 0;
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ count: number | string }>`
+      select count from api_rate_limits where key = ${fullKey} and window_start = ${bucket}
+    `;
+    used = Number(rows[0]?.count ?? 0);
+  } catch {
+    used = 0;
+  }
+  return { used, limit: V1_LIMIT, windowMs: V1_WINDOW_MS, resetMs: bucket + V1_WINDOW_MS - now };
 }
 
 /**
