@@ -17,6 +17,7 @@ import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
 import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
 import { Route as ApiRtcRouteImport } from './routes/api/rtc'
 import { Route as SIdRouteImport } from './routes/s.$id'
+import { Route as UIdRouteImport } from './routes/u.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1.$'
 
@@ -60,6 +61,11 @@ const SIdRoute = SIdRouteImport.update({
   path: '/s/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UIdRoute = UIdRouteImport.update({
+  id: '/u/$id',
+  path: '/u/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
   '/s/$id': typeof SIdRoute
+  '/u/$id': typeof UIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
 }
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
   '/s/$id': typeof SIdRoute
+  '/u/$id': typeof UIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
 }
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
   '/s/$id': typeof SIdRoute
+  '/u/$id': typeof UIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
 }
@@ -119,6 +128,7 @@ export interface FileRouteTypes {
     | '/admin/feedback'
     | '/api/rtc'
     | '/s/$id'
+    | '/u/$id'
     | '/api/auth/$'
     | '/api/v1/$'
   fileRoutesByTo: FileRoutesByTo
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/admin/feedback'
     | '/api/rtc'
     | '/s/$id'
+    | '/u/$id'
     | '/api/auth/$'
     | '/api/v1/$'
   id:
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/admin/feedback'
     | '/api/rtc'
     | '/s/$id'
+    | '/u/$id'
     | '/api/auth/$'
     | '/api/v1/$'
   fileRoutesById: FileRoutesById
@@ -156,6 +168,7 @@ export interface RootRouteChildren {
   AdminFeedbackRoute: typeof AdminFeedbackRoute
   ApiRtcRoute: typeof ApiRtcRoute
   SIdRoute: typeof SIdRoute
+  UIdRoute: typeof UIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
 }
@@ -218,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/u/$id': {
+      id: '/u/$id'
+      path: '/u/$id'
+      fullPath: '/u/$id'
+      preLoaderRoute: typeof UIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -244,6 +264,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminFeedbackRoute: AdminFeedbackRoute,
   ApiRtcRoute: ApiRtcRoute,
   SIdRoute: SIdRoute,
+  UIdRoute: UIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
 }

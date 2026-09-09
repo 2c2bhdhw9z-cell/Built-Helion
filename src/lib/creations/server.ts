@@ -280,6 +280,7 @@ type LibraryRow = {
   config: unknown;
   created_at: string | Date;
   author: string | null;
+  author_id?: string | null;
   like_count: string | number;
   liked: boolean | number | string | null;
   parent_id?: string | null;
@@ -296,6 +297,7 @@ function toLibraryItem(row: LibraryRow, likedIds: Set<string>): LibraryItem | nu
     config,
     created_at: row.created_at,
     author: authorLabel(row.author),
+    authorId: row.author_id ?? undefined,
     likeCount,
     liked: likedIds.has(row.id) || asBool(row.liked),
     parentId: row.parent_id ?? null,
@@ -315,7 +317,7 @@ export async function listLibrary(
   const rows =
     sort === "featured"
       ? await sql<LibraryRow>`
-          select c.id, c.name, c.config, c.created_at,
+          select c.id, c.name, c.config, c.created_at, c.user_id as author_id,
             coalesce(nullif(p.display_name, ''), '') as author,
             (select count(*) from creation_likes l where l.creation_id = c.id) as like_count,
             c.parent_id,
@@ -327,7 +329,7 @@ export async function listLibrary(
           limit 48
         `
       : await sql<LibraryRow>`
-          select c.id, c.name, c.config, c.created_at,
+          select c.id, c.name, c.config, c.created_at, c.user_id as author_id,
             coalesce(nullif(p.display_name, ''), '') as author,
             (select count(*) from creation_likes l where l.creation_id = c.id) as like_count,
             c.parent_id,
@@ -434,7 +436,7 @@ function toEpochMs(value: string | Date): number {
 export async function listFeatured(): Promise<LibraryItem[]> {
   const sql = await getSql();
   const rows = await sql<LibraryRow>`
-    select c.id, c.name, c.config, c.created_at,
+    select c.id, c.name, c.config, c.created_at, c.user_id as author_id,
       coalesce(nullif(p.display_name, ''), '') as author,
       (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
     from creations c

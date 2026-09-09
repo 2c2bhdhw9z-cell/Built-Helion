@@ -487,6 +487,12 @@ export interface LibraryItem {
   config: CreationConfig;
   created_at: string | Date;
   author: string;
+  /**
+   * The author's user id, so a card can link to their public profile (Item 8).
+   * Optional because narrow/older projections (e.g. team shelves) don't select
+   * it. Never PII — it is the opaque account id, not an email.
+   */
+  authorId?: string;
   likeCount: number;
   liked: boolean;
   ownerId?: string;
