@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ParticleEngine } from "@/engine/engine";
 import { useLab } from "@/store/lab-store";
-import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
+import { compositeCanvases, captureScreenshotBlob, captureThumbnailDataUrl } from "@/lib/capture/screenshot";
+import { thumbSize, THUMB_QUALITY } from "@/lib/history/thumbnails";
 import { compositeTargetSize, exportMaxDim, exportTargetSize } from "@/lib/capture/composite";
 import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
@@ -12,8 +13,11 @@ import { GifRecorder } from "@/lib/capture/gif";
 import { knockoutVoid } from "@/lib/capture/alpha";
 import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
-import { SCENES } from "@/engine/scenes";
 import { SessionCursors } from "./session-cursors";
+import { buildCommands, commandForBinding } from "@/lib/commands/registry";
+import { eventToBinding } from "@/lib/commands/keys";
+import { LONG_PRESS_MS, LONG_PRESS_MOVE_TOLERANCE } from "@/lib/gestures/touch";
+import { ToolSwitcher } from "./tool-switcher";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale, degToRad, unprojectOrbit } from "@/engine/camera";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import { deserializeField, serializeField } from "@/engine/force-field";
@@ -107,7 +111,22 @@ export function CanvasStage() {
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
+  // Long-press (Item 17): on a single touch held in place we open a tool
+  // switcher at the press point. The timer is armed on pointerdown and cancelled
+  // by movement past the tolerance, a second finger, or pointerup — see
+  // isLongPress() for the pure policy this mirrors.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const [toolMenu, setToolMenu] = useState<{ x: number; y: number } | null>(null);
   const [viewportH, setViewportH] = useState(400);
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressOriginRef.current = null;
+  };
 
   const brush = useLab((s) => s.brushRadius);
   const pointer = useLab((s) => s.pointer);
@@ -130,6 +149,16 @@ export function CanvasStage() {
     // composites them, and downloads a PNG. See captureScreenshot() below.
     useLab.getState().setCaptureScreenshot((kind) => {
       void captureScreenshot(kind);
+    });
+    // Expose a cheap synchronous thumbnail generator (Item 15) so the History
+    // dialog can attach a downscaled preview when a checkpoint is saved. Reads
+    // the current engine + walls canvases; never throws (returns null on any
+    // failure so the timeline just shows a placeholder).
+    useLab.getState().setCaptureThumbnail(() => {
+      const eng = engineRef.current;
+      if (!eng) return null;
+      const dims = thumbSize({ width: eng.canvas.width, height: eng.canvas.height });
+      return captureThumbnailDataUrl(eng.canvas, wallsCanvasRef.current, dims, THUMB_QUALITY);
     });
     // Expose record start/stop to the store (any user, no login). Both no-op
     // safely until an engine frame exists; the HUD only shows these when the
@@ -285,6 +314,10 @@ export function CanvasStage() {
       dead = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
       // Tear down any in-progress recording so navigating away never leaks a
       // MediaRecorder or an active capture stream (dispose stops both).
       recordingRef.current = false;
@@ -299,6 +332,7 @@ export function CanvasStage() {
       engineRef.current = null;
       useLab.getState().setEngineSystemInfo(null);
       useLab.getState().setCaptureScreenshot(null);
+      useLab.getState().setCaptureThumbnail(null);
       useLab.getState().setStartRecording(null);
       useLab.getState().setStopRecording(null);
       useLab.getState().setStartGif(null);
@@ -601,45 +635,35 @@ export function CanvasStage() {
     return () => window.removeEventListener("clear-field", onClearField);
   }, []);
 
+  // Keyboard shortcuts dispatch from the single command registry (Item 16), the
+  // same list the command palette and the help overlay read from, so a binding
+  // can never drift between them. The input-focus guard is preserved: we never
+  // fire while typing in a text field / contentEditable. mod+shift+? for help is
+  // kept working (Shift+/ is "?"). Every pre-refactor shortcut maps 1:1 to a
+  // command binding; see src/lib/commands/registry.ts.
   useEffect(() => {
+    const commands = buildCommands({
+      toggleFullscreen: () => {
+        if (typeof document === "undefined") return;
+        if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.();
+        else void document.exitFullscreen?.();
+      },
+    });
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) return;
+      const binding = eventToBinding(e);
+      const cmd = commandForBinding(commands, binding);
+      if (!cmd) return;
       const s = useLab.getState();
-      const meta = e.metaKey || e.ctrlKey;
-      if (meta && e.key.toLowerCase() === "z") {
+      if (cmd.enabled && !cmd.enabled(s)) {
+        // Still swallow the key for a known-but-disabled binding (e.g. undo with
+        // an empty stack) so the browser default never fires.
         e.preventDefault();
-        if (e.shiftKey) s.redo();
-        else s.undo();
         return;
       }
-      if (meta && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        s.redo();
-        return;
-      }
-      if (e.code === "Space") {
-        e.preventDefault();
-        s.setPaused(!s.paused);
-      } else if (e.key === "1") s.setSpeed(0.25);
-      else if (e.key === "2") s.setSpeed(0.5);
-      else if (e.key === "3") s.setSpeed(1);
-      else if (e.key === "4") s.setSpeed(2);
-      else if (e.key === "5") s.setSpeed(4);
-      else if (e.key === "0") s.resetView();
-      else if (e.key === "+" || e.key === "=") s.setView({ zoom: s.viewZoom * 1.12 });
-      else if (e.key === "-" || e.key === "_") s.setView({ zoom: s.viewZoom / 1.12 });
-      else if (e.key === "f" || e.key === "F") {
-        if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.();
-        else void document.exitFullscreen?.();
-      } else if (e.key === "?" || (e.shiftKey && e.key === "/")) {
-        s.setHelpOpen(!s.helpOpen);
-      } else if (e.key === "[" ) s.setQuality(s.quality === "high" ? "medium" : "low");
-      else if (e.key === "]") s.setQuality(s.quality === "low" ? "medium" : "high");
-      else if (!e.metaKey && !e.ctrlKey && e.key >= "6" && e.key <= "9") {
-        const scene = SCENES[Number(e.key) - 6];
-        if (scene) s.applyScene(scene.id);
-      }
+      e.preventDefault();
+      cmd.run(s);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -722,12 +746,32 @@ export function CanvasStage() {
               /* ignore */
             }
             if (pointersRef.current.size >= 2) {
+              // A second finger converts the gesture to pinch-zoom / two-finger
+              // pan, so any pending long-press is cancelled.
+              cancelLongPress();
               const pts = [...pointersRef.current.values()];
               const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
               pinchRef.current = { dist: Math.max(dist, 1), zoom: useLab.getState().viewZoom };
               isPointerDownRef.current = false;
               setPointer({ down: false, inside: true });
               return;
+            }
+            // Arm long-press for a single touch: held in place past the
+            // threshold opens the tool switcher at the press point. Cancelled by
+            // movement (pointermove), a second finger (above), or pointerup.
+            if (e.pointerType === "touch") {
+              cancelLongPress();
+              longPressOriginRef.current = { x: e.clientX, y: e.clientY };
+              longPressTimerRef.current = window.setTimeout(() => {
+                // Still a single active pointer that hasn't moved far -> open.
+                if (pointersRef.current.size === 1 && longPressOriginRef.current) {
+                  isPointerDownRef.current = false;
+                  activePointerIdRef.current = null;
+                  setPointer({ down: false, inside: false });
+                  setToolMenu({ x: e.clientX, y: e.clientY });
+                }
+                longPressTimerRef.current = null;
+              }, LONG_PRESS_MS);
             }
             if (isPanEvent(e)) {
               if (!viewCssPanEnabled(useLab.getState().fillFrame, useLab.getState().viewZoom)) {
@@ -769,6 +813,14 @@ export function CanvasStage() {
               });
               return;
             }
+            // If the finger travels past the long-press tolerance, it's a paint
+            // stroke, not a long-press — cancel the pending timer.
+            if (longPressTimerRef.current !== null && longPressOriginRef.current) {
+              const o = longPressOriginRef.current;
+              if (Math.hypot(e.clientX - o.x, e.clientY - o.y) > LONG_PRESS_MOVE_TOLERANCE) {
+                cancelLongPress();
+              }
+            }
             const w = toWorld(e);
             const isDown = isPointerDownRef.current || (e.buttons & 1) !== 0 || e.pointerType === "touch";
             setPointer({
@@ -779,6 +831,7 @@ export function CanvasStage() {
           }}
           onPointerUp={(e) => {
             pointersRef.current.delete(e.pointerId);
+            cancelLongPress();
             if (pointersRef.current.size < 2) pinchRef.current = null;
             panRef.current = null;
             if (e.pointerId === activePointerIdRef.current || activePointerIdRef.current === null) {
@@ -795,6 +848,7 @@ export function CanvasStage() {
           }}
           onPointerCancel={(e) => {
             pointersRef.current.delete(e.pointerId);
+            cancelLongPress();
             pinchRef.current = null;
             panRef.current = null;
             isPointerDownRef.current = false;
@@ -824,6 +878,9 @@ export function CanvasStage() {
         )}
       </div>
       <div className="lab-vignette pointer-events-none absolute inset-0" />
+      {toolMenu ? (
+        <ToolSwitcher x={toolMenu.x} y={toolMenu.y} onClose={() => setToolMenu(null)} />
+      ) : null}
     </div>
   );
 }

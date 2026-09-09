@@ -168,6 +168,8 @@ export function GeneratorBar() {
         onClick={() => runOrUpgrade(g.id)}
         className={cn("gap-1.5", locked && "opacity-70")}
         title={locked ? "Pro generator — start a trial" : undefined}
+        aria-pressed={isActive(g.id)}
+        aria-label={locked ? `${g.label} generator (Pro)` : `${g.label} generator`}
       >
         <Icon className="size-3" />
         {g.label}
@@ -180,7 +182,12 @@ export function GeneratorBar() {
     <div className="relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border bg-surface/70 px-3 py-1.5 backdrop-blur-md md:px-4 md:py-2">
       <div className="flex items-center gap-2">
         <span className="hidden text-2xs uppercase tracking-[0.16em] text-faint sm:inline">Generate</span>
-        <div className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+        <div
+          className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
+          role="group"
+          aria-label="Generators and scenes"
+          data-tour="generators"
+        >
           {GENERATORS.map(renderChip)}
           <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden />
           {EFFECTS.map(renderChip)}
@@ -204,7 +211,7 @@ export function GeneratorBar() {
         </div>
       </div>
       <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1" data-tour="count">
           <SliderRow
             label="Count"
             value={spawnCount}
@@ -258,11 +265,23 @@ export function ToolBar() {
     <div className="relative z-20 flex shrink-0 flex-col gap-1.5 border-t border-border bg-surface/70 px-3 py-1.5 backdrop-blur-md md:px-4 md:py-2">
       <div className="flex items-center gap-2">
         <span className="hidden text-2xs uppercase tracking-[0.16em] text-faint sm:inline">Interact</span>
-        <div className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+        <div
+          className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
+          role="group"
+          aria-label="Interaction tools"
+          data-tour="tools"
+        >
           {TOOLS.map((t) => {
             const Icon = t.icon;
             return (
-              <Chip key={t.id} active={tool === t.id} onClick={() => setTool(t.id)} className="gap-1.5">
+              <Chip
+                key={t.id}
+                active={tool === t.id}
+                onClick={() => setTool(t.id)}
+                className="gap-1.5"
+                aria-pressed={tool === t.id}
+                aria-label={`${t.label} tool`}
+              >
                 <Icon className="size-3" />
                 {t.label}
               </Chip>

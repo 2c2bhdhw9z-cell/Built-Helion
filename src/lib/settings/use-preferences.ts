@@ -6,6 +6,7 @@ import {
   DEFAULT_PREFERENCES,
   PREFERENCES_STORAGE_KEY,
   normalizePreferences,
+  resolveReducedMotion,
   type ThemeId,
   type UserPreferences,
 } from "./types";
@@ -31,6 +32,35 @@ export function applyTheme(theme: ThemeId) {
   root.classList.toggle("light", next === "light");
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", next === "light" ? "#f4f1ea" : "#08090c");
+}
+
+/** True when the OS asks for reduced motion (safe under SSR — returns false). */
+export function systemPrefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Apply the accessibility preferences (Item 18) to <html>:
+ *   - `data-reduced-motion="reduce"` when the EFFECTIVE motion state is reduced
+ *     (from the user pref + the OS media query, via resolveReducedMotion). CSS
+ *     uses this attribute AND the native `motion-reduce:` variant to damp
+ *     transitions/animations.
+ *   - `data-contrast="high"` when the high-contrast token set is on.
+ * Safe under SSR (no-op without `document`).
+ */
+export function applyAccessibility(prefs: Pick<UserPreferences, "reducedMotion" | "highContrast">) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const reduce = resolveReducedMotion(prefs.reducedMotion, systemPrefersReducedMotion());
+  if (reduce) root.dataset.reducedMotion = "reduce";
+  else delete root.dataset.reducedMotion;
+  if (prefs.highContrast) root.dataset.contrast = "high";
+  else delete root.dataset.contrast;
 }
 
 /**
@@ -125,6 +155,7 @@ export function usePreferences(): PreferencesController {
       const local = readLocalPreferences();
       setPreferences(local);
       applyTheme(local.theme);
+      applyAccessibility(local);
       setIsLoading(false);
       return;
     }
@@ -136,6 +167,7 @@ export function usePreferences(): PreferencesController {
         const next = normalizePreferences(prefs);
         setPreferences(next);
         applyTheme(next.theme);
+        applyAccessibility(next);
       })
       .catch(() => {
         if (!cancelled) setPreferences({ ...DEFAULT_PREFERENCES });
@@ -162,12 +194,14 @@ export function usePreferences(): PreferencesController {
       preferencesRef.current = next;
       setPreferences(next);
       if (key === "theme") applyTheme(next.theme);
+      if (key === "reducedMotion" || key === "highContrast") applyAccessibility(next);
       if (isSignedIn) {
         try {
           const saved = await updatePreferencesFn({ data: next });
           const normalized = normalizePreferences(saved);
           setPreferences(normalized);
           if (key === "theme") applyTheme(normalized.theme);
+          if (key === "reducedMotion" || key === "highContrast") applyAccessibility(normalized);
         } catch {
           // Keep the optimistic value locally; server persistence failed but the
           // page must not error out.

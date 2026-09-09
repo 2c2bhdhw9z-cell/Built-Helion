@@ -12,6 +12,8 @@ import { DailyChallengeDialog } from "./daily-dialog";
 import { ProfileDialog } from "./profile-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
 import { HistoryDialog } from "./history-dialog";
+import { CommandPalette } from "./command-palette";
+import { OnboardingTour } from "./onboarding-tour";
 import { DeveloperDialog } from "./developer-dialog";
 import { CreateDialog } from "./create-dialog";
 import { PlayDialog } from "./play-dialog";
@@ -228,6 +230,8 @@ export function LabApp() {
         </a>
       ) : (
         <>
+      <CommandPalette />
+      <OnboardingTour />
       <FeedbackDialog />
       <FeedbackBoard />
       <CreationsDialog />

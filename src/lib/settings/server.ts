@@ -1,6 +1,7 @@
 import { getSql } from "@/lib/db";
 import {
   DEFAULT_PREFERENCES,
+  type MotionPref,
   type ThemeId,
   type UserPreferences,
 } from "./types.ts";
@@ -19,10 +20,25 @@ import {
 type PreferencesRow = {
   autofill_feedback_email: boolean;
   theme: string | null;
+  reduced_motion: string | null;
+  high_contrast: boolean | null;
 };
 
 function asTheme(value: string | null | undefined): ThemeId {
   return value === "light" ? "light" : "dark";
+}
+
+function asMotion(value: string | null | undefined): MotionPref {
+  return value === "on" || value === "off" ? value : "system";
+}
+
+function rowToPreferences(row: PreferencesRow): UserPreferences {
+  return {
+    autofillFeedbackEmail: Boolean(row.autofill_feedback_email),
+    theme: asTheme(row.theme),
+    reducedMotion: asMotion(row.reduced_motion),
+    highContrast: Boolean(row.high_contrast),
+  };
 }
 
 /**
@@ -32,16 +48,13 @@ function asTheme(value: string | null | undefined): ThemeId {
 export async function getPreferences(userId: string): Promise<UserPreferences> {
   const sql = await getSql();
   const rows = await sql<PreferencesRow>`
-    select autofill_feedback_email, theme
+    select autofill_feedback_email, theme, reduced_motion, high_contrast
     from user_preferences
     where user_id = ${userId}
   `;
   const row = rows[0];
   if (!row) return { ...DEFAULT_PREFERENCES };
-  return {
-    autofillFeedbackEmail: Boolean(row.autofill_feedback_email),
-    theme: asTheme(row.theme),
-  };
+  return rowToPreferences(row);
 }
 
 /**
@@ -54,17 +67,16 @@ export async function upsertPreferences(
 ): Promise<UserPreferences> {
   const sql = await getSql();
   const rows = await sql<PreferencesRow>`
-    insert into user_preferences (user_id, autofill_feedback_email, theme, updated_at)
-    values (${userId}, ${prefs.autofillFeedbackEmail}, ${prefs.theme}, now())
+    insert into user_preferences (user_id, autofill_feedback_email, theme, reduced_motion, high_contrast, updated_at)
+    values (${userId}, ${prefs.autofillFeedbackEmail}, ${prefs.theme}, ${prefs.reducedMotion}, ${prefs.highContrast}, now())
     on conflict (user_id) do update set
       autofill_feedback_email = excluded.autofill_feedback_email,
       theme = excluded.theme,
+      reduced_motion = excluded.reduced_motion,
+      high_contrast = excluded.high_contrast,
       updated_at = now()
-    returning autofill_feedback_email, theme
+    returning autofill_feedback_email, theme, reduced_motion, high_contrast
   `;
   const row = rows[0];
-  return {
-    autofillFeedbackEmail: Boolean(row.autofill_feedback_email),
-    theme: asTheme(row?.theme),
-  };
+  return rowToPreferences(row);
 }

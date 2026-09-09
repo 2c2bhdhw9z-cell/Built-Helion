@@ -106,6 +106,13 @@ type LabState = {
   perfHubOpen: boolean;
   perfCompact: boolean;
   helpOpen: boolean;
+  /** Whether the cmdk command palette is open (Item 16). Opened with Cmd/Ctrl+K. */
+  commandPaletteOpen: boolean;
+  /**
+   * Whether the first-run onboarding tour is showing (Item 14). Auto-opens once
+   * for a first-time visitor; re-launchable from the command palette / help.
+   */
+  tourOpen: boolean;
   /** Whether the keyframe timeline panel is open (Item 1). */
   timelineOpen: boolean;
   viewZoom: number;
@@ -135,6 +142,12 @@ type LabState = {
    * mounts (button then no-ops). NEVER gated on auth — capture works for anyone.
    */
   captureScreenshot: ((kind?: "png" | "jpg") => void) | null;
+  /**
+   * Produce a small downscaled JPEG dataURL preview of the current sim for the
+   * history timeline (Item 15). Set by CanvasStage; returns null until the
+   * engine mounts (callers fall back to a placeholder). Synchronous and cheap.
+   */
+  captureThumbnail: (() => string | null) | null;
   /**
    * Start recording the sim to a video. Set by CanvasStage once the engine is
    * running and cleared on unmount; the HUD record button calls it. Null until
@@ -253,6 +266,7 @@ type LabState = {
   setTimelineOpen: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setCaptureScreenshot: (fn: ((kind?: "png" | "jpg") => void) | null) => void;
+  setCaptureThumbnail: (fn: (() => string | null) | null) => void;
   setStartRecording: (fn: (() => void) | null) => void;
   setStopRecording: (fn: (() => void) | null) => void;
   setRecording: (v: boolean) => void;
@@ -266,6 +280,8 @@ type LabState = {
   applyCreationConfig: (config: CreationConfig) => void;
   clearSim: () => void;
   setHelpOpen: (v: boolean) => void;
+  setCommandPaletteOpen: (v: boolean) => void;
+  setTourOpen: (v: boolean) => void;
   setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number; pitch: number }>) => void;
   resetView: () => void;
   setFillFrame: (v: boolean) => void;
@@ -479,6 +495,8 @@ export const useLab = create<LabState>((set, get) => ({
   perfHubOpen: false,
   perfCompact: false,
   helpOpen: false,
+  commandPaletteOpen: false,
+  tourOpen: false,
   timelineOpen: false,
   viewZoom: 1,
   viewPanX: 0,
@@ -490,6 +508,7 @@ export const useLab = create<LabState>((set, get) => ({
   quality: "high",
   getEngineSystemInfo: null,
   captureScreenshot: null,
+  captureThumbnail: null,
   startRecording: null,
   stopRecording: null,
   startGif: null,
@@ -620,8 +639,11 @@ export const useLab = create<LabState>((set, get) => ({
   setPerfCompact: (v) => set({ perfCompact: v }),
   setTimelineOpen: (v) => set({ timelineOpen: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
+  setCommandPaletteOpen: (v) => set({ commandPaletteOpen: v }),
+  setTourOpen: (v) => set({ tourOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
+  setCaptureThumbnail: (fn) => set({ captureThumbnail: fn }),
   setStartRecording: (fn) => set({ startRecording: fn }),
   setStopRecording: (fn) => set({ stopRecording: fn }),
   setRecording: (v) => set({ recording: v }),

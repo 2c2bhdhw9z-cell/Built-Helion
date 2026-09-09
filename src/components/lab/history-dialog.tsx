@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Trash2, X } from "lucide-react";
+import { Redo2, Trash2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { currentCreationConfig, useLab } from "@/store/lab-store";
@@ -10,6 +10,7 @@ import {
   removeVersion,
   type VersionEntry,
 } from "@/lib/history/versions";
+import { timelineEntries } from "@/lib/history/thumbnails";
 import {
   deleteCloudVersionFn,
   listCloudVersionsFn,
@@ -80,10 +81,111 @@ function VersionList({
   );
 }
 
+/**
+ * Visual undo/redo + version timeline (Item 15). Wires the existing store
+ * undo()/redo() (with canUndo/canRedo gating the buttons) and surfaces the
+ * saved device version history as a scrubbable strip of thumbnail tiles — click
+ * a tile to jump to that saved state. Does NOT reimplement the snapshot stacks;
+ * it drives the store actions and reads the versions.ts local history.
+ */
+function HistoryTimeline({
+  versions,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  onJump,
+}: {
+  versions: VersionEntry[];
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  onJump: (row: VersionEntry) => void;
+}) {
+  const entries = timelineEntries(versions);
+  const byId = new Map(versions.map((v) => [v.id, v] as const));
+  return (
+    <div className="border-b border-border px-4 py-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8 shrink-0"
+          aria-label="Undo"
+          title="Undo (Ctrl+Z)"
+          disabled={!canUndo}
+          onClick={onUndo}
+        >
+          <Undo2 className="size-3.5" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8 shrink-0"
+          aria-label="Redo"
+          title="Redo (Ctrl+Shift+Z)"
+          disabled={!canRedo}
+          onClick={onRedo}
+        >
+          <Redo2 className="size-3.5" />
+        </Button>
+        <span className="text-2xs uppercase tracking-[0.12em] text-faint">Timeline</span>
+      </div>
+      {entries.length === 0 ? (
+        <p className="text-2xs text-faint">
+          Saved checkpoints appear here as a thumbnail timeline you can jump back to.
+        </p>
+      ) : (
+        <ol
+          className="lab-scroll flex items-stretch gap-2 overflow-x-auto pb-1"
+          aria-label="Saved checkpoints timeline"
+        >
+          {entries.map((e) => {
+            const row = byId.get(e.id);
+            return (
+              <li key={e.id} className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => row && onJump(row)}
+                  title={`Jump to “${e.name}” · ${formatWhen(e.at)}`}
+                  aria-label={`Jump to ${e.name}`}
+                  className="group flex w-24 flex-col overflow-hidden rounded-md border border-border bg-elevated/40 text-left transition-colors hover:border-border-strong"
+                >
+                  <span className="block h-16 w-full overflow-hidden bg-bg">
+                    {e.thumb ? (
+                      <img
+                        src={e.thumb}
+                        alt=""
+                        aria-hidden
+                        className="size-full object-cover"
+                        draggable={false}
+                      />
+                    ) : (
+                      <span className="flex size-full items-center justify-center text-2xs text-faint">
+                        no preview
+                      </span>
+                    )}
+                  </span>
+                  <span className="truncate px-1.5 py-1 text-2xs text-fg">{e.name}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 export function HistoryDialog() {
   const open = useLab((s) => s.historyOpen);
   const setOpen = useLab((s) => s.setHistoryOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
+  const undo = useLab((s) => s.undo);
+  const redo = useLab((s) => s.redo);
+  const canUndo = useLab((s) => s.canUndo);
+  const canRedo = useLab((s) => s.canRedo);
   const { user } = useCurrentUserState();
   // `useCurrentUserState()` builds a NEW `user` object literal on every render,
   // so keying the load effects below on `user` re-ran them after each of their
@@ -132,7 +234,10 @@ export function HistoryDialog() {
 
   const save = () => {
     const config = currentCreationConfig(useLab.getState());
-    const entry = pushVersion(name, config);
+    // Attach a cheap downscaled preview for the timeline (Item 15) when the
+    // engine is mounted; null-safe so a checkpoint still saves without one.
+    const thumb = useLab.getState().captureThumbnail?.() ?? undefined;
+    const entry = pushVersion(name, config, thumb);
     setName("");
     refreshDevice();
     toast.success(`Saved “${entry.name}”`);
@@ -178,6 +283,20 @@ export function HistoryDialog() {
               </Button>
             </Dialog.Close>
           </div>
+          <HistoryTimeline
+            versions={device}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={() => {
+              undo();
+              refreshDevice();
+            }}
+            onRedo={() => {
+              redo();
+              refreshDevice();
+            }}
+            onJump={restore}
+          />
           <div className="flex flex-col gap-3 px-4 py-3">
             {user ? (
               <div className="flex flex-wrap gap-1.5">
