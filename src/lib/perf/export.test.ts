@@ -13,6 +13,8 @@ function mkSample(over: Partial<PerfSample>): PerfSample {
     t: 1000,
     fps: 60,
     frameMs: 16.7,
+    frameMsMinWindow: 16.7,
+    frameMsMaxWindow: 16.7,
     computeMs: 5,
     renderMs: 5,
     other: 6.7,
@@ -28,7 +30,12 @@ function mkSample(over: Partial<PerfSample>): PerfSample {
   };
 }
 
-const samples = [mkSample({ t: 1 }), mkSample({ t: 2, fps: 30, frameMs: 33 })];
+const samples = [
+  mkSample({ t: 1 }),
+  // A slow frame: window extremes mirror its 33ms frame time so summarize()
+  // derives the worst-case fps min from the honest frame-time extents.
+  mkSample({ t: 2, fps: 30, frameMs: 33, frameMsMinWindow: 33, frameMsMaxWindow: 33 }),
+];
 
 function mkPayload(): PerfExportPayload {
   return {
@@ -56,7 +63,9 @@ test("toJsonExport produces parseable JSON with expected keys", () => {
   expect(parsed.window).toBe(2);
   expect(parsed.samples.length).toBe(2);
   expect(parsed.system.backend).toBe("webgl");
-  expect(parsed.summary.fpsMin).toBe(30);
+  // fpsMin is derived from the worst frame-time extent (33ms) -> ~30.3fps,
+  // consistent with the ms readouts rather than a raw sampled fps value.
+  expect(parsed.summary.fpsMin).toBeCloseTo(1000 / 33, 5);
 });
 
 test("toCsvExport header matches CSV_COLUMNS", () => {

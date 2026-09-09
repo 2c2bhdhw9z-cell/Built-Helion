@@ -76,6 +76,8 @@ test("sampleFromTelemetry computes clamped 'other' and copies fields", () => {
     {
       fps: 60,
       frameMs: 16,
+      frameMsMinWindow: 14,
+      frameMsMaxWindow: 22,
       computeMs: 6,
       renderMs: 4,
       live: 1000,
@@ -91,6 +93,8 @@ test("sampleFromTelemetry computes clamped 'other' and copies fields", () => {
   );
   expect(s.t).toBe(123);
   expect(s.other).toBe(6); // 16 - 6 - 4
+  expect(s.frameMsMinWindow).toBe(14);
+  expect(s.frameMsMaxWindow).toBe(22);
   expect(s.fps).toBe(60);
   expect(s.drawCalls).toBe(3);
   expect(s.oobCount).toBe(2);
@@ -101,6 +105,8 @@ test("sampleFromTelemetry clamps negative 'other' to 0", () => {
     {
       fps: 60,
       frameMs: 10,
+      frameMsMinWindow: 10,
+      frameMsMaxWindow: 10,
       computeMs: 8,
       renderMs: 5,
       live: 0,

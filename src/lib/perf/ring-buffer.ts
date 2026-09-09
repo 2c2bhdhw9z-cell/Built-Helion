@@ -18,6 +18,10 @@ export type PerfSample = {
   t: number;
   fps: number;
   frameMs: number;
+  /** True min/max frame time (ms) over the engine's rolling window at capture
+   * time — the honest best/worst frame, not an aliased single-poll snapshot. */
+  frameMsMinWindow: number;
+  frameMsMaxWindow: number;
   computeMs: number;
   renderMs: number;
   /** frameMs - computeMs - renderMs, clamped to >= 0. */
@@ -37,6 +41,8 @@ type TelemetryNumericSubset = Pick<
   Telemetry,
   | "fps"
   | "frameMs"
+  | "frameMsMinWindow"
+  | "frameMsMaxWindow"
   | "computeMs"
   | "renderMs"
   | "live"
@@ -62,6 +68,8 @@ export function sampleFromTelemetry(
     t,
     fps: tel.fps,
     frameMs: tel.frameMs,
+    frameMsMinWindow: tel.frameMsMinWindow,
+    frameMsMaxWindow: tel.frameMsMaxWindow,
     computeMs: tel.computeMs,
     renderMs: tel.renderMs,
     other,

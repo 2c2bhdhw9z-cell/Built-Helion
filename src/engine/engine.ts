@@ -26,6 +26,7 @@ import {
 } from "./types";
 import { Canvas2DRenderer } from "./canvas-renderer";
 import { MIN_VIEW_ZOOM } from "./camera";
+import { updateFrameMsEma, fpsFromFrameMs, FrameExtents } from "./frame-clock";
 import { tryCreateWebGPU, type WebGPUBackend } from "./webgpu-backend";
 import { WebGLRenderer } from "./webgl-renderer";
 
@@ -93,7 +94,10 @@ export class ParticleEngine {
   gl: WebGLRenderer | null = null;
   canvas2d: Canvas2DRenderer | null = null;
   telemetry: Telemetry;
-  private fpsEma = 60;
+  /** EMA of frame time (ms). Drives the smoothed, stable headline FPS. */
+  private frameMsEma = 1000 / 60;
+  /** True per-frame min/max frame time since the perf hub last read telemetry. */
+  private frameExtents = new FrameExtents();
   private lastTs = 0;
   private acc = 0;
   private totalTime = 0;
@@ -112,6 +116,8 @@ export class ParticleEngine {
     this.telemetry = {
       fps: 0,
       frameMs: 0,
+      frameMsMinWindow: 0,
+      frameMsMaxWindow: 0,
       computeMs: 0,
       renderMs: 0,
       live: 0,
@@ -597,9 +603,17 @@ export class ParticleEngine {
     const t2 = performance.now();
     const frame = t2 - (this.lastTs || t2);
     this.lastTs = t2;
-    if (frame > 0 && frame < 1000) this.fpsEma = this.fpsEma * 0.9 + (1000 / frame) * 0.1;
-    this.telemetry.fps = this.fpsEma;
+    // Smooth the frame time and derive FPS from it, so the headline reading is
+    // stable and always consistent with the MS readout (no single-frame 100+
+    // spikes when MS says 16). The raw `frame` is still published for the
+    // charts/histogram, which SHOULD show genuine jitter.
+    this.frameMsEma = updateFrameMsEma(this.frameMsEma, frame);
+    this.frameExtents.observe(frame);
+    const extents = this.frameExtents.read(frame);
+    this.telemetry.fps = fpsFromFrameMs(this.frameMsEma);
     this.telemetry.frameMs = frame;
+    this.telemetry.frameMsMinWindow = extents.min;
+    this.telemetry.frameMsMaxWindow = extents.max;
     this.telemetry.computeMs = t1 - t0;
     this.telemetry.renderMs = t2 - t1;
     this.telemetry.live = this.soa.count;

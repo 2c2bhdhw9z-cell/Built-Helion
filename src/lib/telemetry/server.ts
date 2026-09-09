@@ -84,6 +84,8 @@ export async function getTelemetryAggregates(): Promise<TelemetryAggregates> {
     t: 0,
     fps: r.fps_avg,
     frameMs: r.frame_ms_p95,
+    frameMsMinWindow: r.frame_ms_p95,
+    frameMsMaxWindow: r.frame_ms_p95,
     computeMs: 0,
     renderMs: 0,
     other: 0,
