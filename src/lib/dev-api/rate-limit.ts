@@ -27,6 +27,17 @@ import { getSql } from "@/lib/db";
 export const V1_LIMIT = 60;
 export const V1_WINDOW_MS = 60_000;
 
+/**
+ * The last window bucket for which this process issued a GLOBAL stale-window
+ * sweep. Throttles the global cleanup (below) to at most once per window per
+ * instance so a hot path never fires a table-wide delete on every request. Held
+ * on `globalThis` so dev HMR module reloads (which create a fresh module
+ * instance) don't reset it and re-sweep on the next request.
+ */
+const globalSweep = globalThis as typeof globalThis & {
+  __v1RateLimitSweptWindow__?: number;
+};
+
 /** The fixed-window bucket start (epoch ms) a timestamp falls into. */
 export function windowStart(now: number, windowMs: number = V1_WINDOW_MS): number {
   return Math.floor(now / windowMs) * windowMs;
@@ -66,6 +77,20 @@ export async function allowV1(key: string, now: number = Date.now()): Promise<bo
     void sql`
       delete from api_rate_limits where key = ${fullKey} and window_start < ${bucket}
     `.catch(() => undefined);
+    // Best-effort GLOBAL sweep of expired windows. The per-key sweep above only
+    // prunes buckets for keys that are actively hit, so keys that go quiet leave
+    // their rows behind forever; this deletes every window older than the current
+    // one regardless of key (covered by `api_rate_limits_window_idx` on
+    // `window_start`, migration 0010). It is THROTTLED to at most once per window
+    // per process (guarded by the last-swept bucket) so a hot path never issues a
+    // table-wide delete on every request, and it is fire-and-forget so it can
+    // never affect the rate-limit decision or add latency.
+    if (globalSweep.__v1RateLimitSweptWindow__ !== bucket) {
+      globalSweep.__v1RateLimitSweptWindow__ = bucket;
+      void sql`
+        delete from api_rate_limits where window_start < ${bucket}
+      `.catch(() => undefined);
+    }
     return isWithinLimit(count);
   } catch {
     // DB unavailable — degrade to the per-instance in-memory limiter rather than

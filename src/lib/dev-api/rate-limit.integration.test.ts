@@ -21,10 +21,14 @@ type RateLimit = {
   V1_WINDOW_MS: number;
 };
 
+type Db = { getSql: () => Promise<import("../db.ts").Sql> };
+
 let rl: RateLimit;
+let getSql: Db["getSql"];
 
 before(async () => {
   rl = (await import("./rate-limit.ts")) as unknown as RateLimit;
+  ({ getSql } = (await import("../db.ts")) as unknown as Db);
 });
 
 describe("rate-limit pure helpers (Req 11)", () => {
@@ -78,6 +82,60 @@ describe("allowV1 durable counter over real PGLite (Req 11)", () => {
 
     // `quiet` in the same window is unaffected — its own bucket is empty.
     assert.equal(await rl.allowV1(quiet, base + 1), true, "a different key has its own counter");
+  });
+
+  it("globally sweeps expired windows for OTHER keys, not just the key being hit", async () => {
+    const sql = await getSql();
+    const base = 4_000 * rl.V1_WINDOW_MS;
+
+    // Seed a stale window row for a key that will NOT receive any more traffic —
+    // exactly the "quiet key leaves rows behind forever" case the per-key sweep
+    // misses. Its window is one full window BEFORE `base`.
+    const quietKey = "v1:quiet-abandoned-key";
+    const staleWindow = base - rl.V1_WINDOW_MS;
+    await sql`
+      insert into api_rate_limits (key, window_start, count)
+      values (${quietKey}, ${staleWindow}, 7)
+      on conflict (key, window_start) do update set count = excluded.count
+    `;
+
+    const seeded = await sql<{ count: number | string }>`
+      select count(*) as count from api_rate_limits
+      where key = ${quietKey} and window_start = ${staleWindow}
+    `;
+    assert.equal(Number(seeded[0]?.count), 1, "the stale row for the quiet key is seeded");
+
+    // Hit a DIFFERENT key in a later window. The global cleanup is throttled to
+    // once per window per process; the sibling suites above already ran in
+    // earlier windows, and this window (`base`) is fresh, so the very first hit
+    // here rolls the window over and deterministically fires the global sweep.
+    const allowed = await rl.allowV1("busy-different-key", base + 1);
+    assert.equal(allowed, true, "the request itself is allowed (cleanup never blocks it)");
+
+    // The global sweep is fire-and-forget, so give the microtask/DB round-trip a
+    // moment to complete before asserting the stale row is gone. This is not the
+    // rate-limit decision path — only the best-effort cleanup — so a short wait
+    // here is about the async delete, not the (synchronous, already-returned)
+    // decision.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const after = await sql<{ count: number | string }>`
+      select count(*) as count from api_rate_limits
+      where key = ${quietKey} and window_start = ${staleWindow}
+    `;
+    assert.equal(
+      Number(after[0]?.count),
+      0,
+      "the quiet key's expired window row was globally cleaned up",
+    );
+
+    // Sanity: the current-window row for the key we hit is still present (only
+    // windows OLDER than the current one are swept, so live counters survive).
+    const live = await sql<{ count: number | string }>`
+      select count(*) as count from api_rate_limits
+      where key = 'v1:busy-different-key' and window_start = ${base}
+    `;
+    assert.equal(Number(live[0]?.count), 1, "the live current-window counter is retained");
   });
 
   it("is shared/durable: a second call in the same window sees the first call's count", async () => {
