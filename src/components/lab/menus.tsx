@@ -128,6 +128,10 @@ export function GeneratorBar() {
   const setParam = useLab((s) => s.setParam);
   const spawnCount = useLab((s) => s.spawnCount);
   const setSpawnCount = useLab((s) => s.setSpawnCount);
+  // Live particle count actually in the sim (telemetry.live), so the Count row
+  // shows the real amount on screen next to the target — the user can't tell
+  // whether particles spawned from the target alone.
+  const liveCount = useLab((s) => s.telemetry.live);
   const addParticles = useLab((s) => s.addParticles);
   const clearSim = useLab((s) => s.clearSim);
   const applyScene = useLab((s) => s.applyScene);
@@ -206,6 +210,7 @@ export function GeneratorBar() {
             max={countMax}
             step={100}
             format={(n) => n.toLocaleString()}
+            hint={`· ${liveCount.toLocaleString()} live`}
             onChange={(n) => {
               setSpawnCount(n);
               if (n > useLab.getState().cap) useLab.getState().setCap(n);
