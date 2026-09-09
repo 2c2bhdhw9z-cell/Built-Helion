@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Switch } from "@/components/ui/switch";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { usePreferences } from "@/lib/settings/use-preferences";
-import type { ThemeId, UserPreferences } from "@/lib/settings/types";
+import type { MotionPref, ThemeId, UserPreferences } from "@/lib/settings/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -39,6 +39,28 @@ const PREFERENCE_ROWS: ToggleRow[] = [
 const THEMES: { id: ThemeId; label: string }[] = [
   { id: "dark", label: "Dark" },
   { id: "light", label: "Light" },
+];
+
+const MOTION_OPTIONS: { id: MotionPref; label: string }[] = [
+  { id: "system", label: "System" },
+  { id: "off", label: "Full" },
+  { id: "on", label: "Reduced" },
+];
+
+/** Accessibility toggle rows (Item 18). Boolean prefs rendered as switches. */
+type ToggleRowA11y = {
+  key: keyof Pick<UserPreferences, "highContrast">;
+  label: string;
+  description: string;
+};
+
+const A11Y_TOGGLES: ToggleRowA11y[] = [
+  {
+    key: "highContrast",
+    label: "High-contrast chrome",
+    description:
+      "Boost the contrast of the menus, buttons, and text. The particle stage itself is unchanged.",
+  },
 ];
 
 function SettingsPage() {
@@ -115,6 +137,76 @@ function SettingsPage() {
               ))}
             </div>
           </div>
+        </section>
+
+        <section className="mb-4 rounded-lg border border-border bg-surface">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-sm font-medium">Accessibility</h2>
+            <p className="text-2xs text-faint">
+              Reduce motion and raise contrast. Applies immediately and saves
+              with your other preferences.
+            </p>
+          </div>
+          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm text-fg">Motion</p>
+              <p className="mt-0.5 text-2xs leading-relaxed text-faint">
+                Reduce UI animations and transitions. “System” follows your
+                device’s reduced-motion setting.
+              </p>
+            </div>
+            <div
+              className="flex rounded-md bg-elevated p-0.5"
+              role="radiogroup"
+              aria-label="Motion"
+            >
+              {MOTION_OPTIONS.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={preferences.reducedMotion === m.id}
+                  data-testid={`motion-${m.id}`}
+                  disabled={isLoading}
+                  onClick={() => void setPreference("reducedMotion", m.id)}
+                  className={cn(
+                    "h-8 min-w-16 rounded-sm px-3 text-2xs font-medium tracking-wide transition-colors",
+                    preferences.reducedMotion === m.id
+                      ? "bg-fg text-accent-fg"
+                      : "text-muted hover:text-fg",
+                  )}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ul>
+            {A11Y_TOGGLES.map((row) => (
+              <li
+                key={row.key}
+                className="flex items-start justify-between gap-4 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <label htmlFor={`pref-${row.key}`} className="text-sm text-fg">
+                    {row.label}
+                  </label>
+                  <p className="mt-0.5 text-2xs leading-relaxed text-faint">
+                    {row.description}
+                  </p>
+                </div>
+                <Switch
+                  id={`pref-${row.key}`}
+                  checked={Boolean(preferences[row.key])}
+                  disabled={isLoading}
+                  onCheckedChange={(checked) =>
+                    void setPreference(row.key, checked)
+                  }
+                  aria-label={row.label}
+                />
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="rounded-lg border border-border bg-surface">

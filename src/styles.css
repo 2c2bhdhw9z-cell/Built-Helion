@@ -91,6 +91,47 @@ html[data-theme="light"] {
   }
 }
 
+/*
+ * Reduced-motion override (Item 18a). ThemeSync sets data-reduced-motion="reduce"
+ * on <html> from resolveReducedMotion(userPref, prefers-reduced-motion). This
+ * mirrors the media query above but is driven by the resolved user preference,
+ * so a user can force reduced motion even when the OS setting is off.
+ */
+html[data-reduced-motion="reduce"] *,
+html[data-reduced-motion="reduce"] *::before,
+html[data-reduced-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/*
+ * High-contrast chrome (Item 18b). ThemeSync sets data-contrast="high" on <html>.
+ * This strengthens the token set (brighter fg/muted, opaque borders, stronger
+ * accent) for both the dark and light themes without touching the particle
+ * stage itself. Kept token-only so every control inherits it.
+ */
+html[data-contrast="high"] {
+  --color-fg: #ffffff;
+  --color-muted: #d4d8e2;
+  --color-faint: #a7adbd;
+  --color-border: #ffffff5c;
+  --color-border-strong: #ffffff8c;
+  --color-accent: #a6e4de;
+  --color-ring: #ffffff;
+}
+
+html[data-theme="light"][data-contrast="high"] {
+  --color-fg: #000000;
+  --color-muted: #24262c;
+  --color-faint: #45495a;
+  --color-border: #1a1c2080;
+  --color-border-strong: #1a1c20b0;
+  --color-accent: #0d5651;
+  --color-ring: #000000;
+}
+
 .lab-scroll {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--color-fg) 14%, transparent) transparent;
