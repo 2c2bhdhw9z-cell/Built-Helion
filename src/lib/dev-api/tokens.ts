@@ -175,6 +175,114 @@ async function recordDelivery(
   }
 }
 
+/**
+ * A single day's API request count for the developer usage chart (Item 19).
+ * `day` is a 'YYYY-MM-DD' string (the db layer normalizes DATE to text on both
+ * backends). Aggregate count only — no request bodies, no PII.
+ */
+export type ApiUsageDay = { day: string; count: number };
+
+/**
+ * Increment the caller's per-day API request counter (Item 19). Called once per
+ * authenticated /api/v1 request from the handler. Best-effort: the table may
+ * not exist on an un-migrated deploy, and a counter bump must never fail an API
+ * request, so any error is swallowed. `day` is derived server-side as the UTC
+ * calendar day so the rollup is stable regardless of client timezone.
+ */
+export async function bumpApiUsageDaily(userId: string, at: Date = new Date()): Promise<void> {
+  const day = at.toISOString().slice(0, 10);
+  try {
+    const sql = await getSql();
+    await sql`
+      insert into api_usage_daily (user_id, day, count)
+      values (${userId}, ${day}, 1)
+      on conflict (user_id, day)
+      do update set count = api_usage_daily.count + 1
+    `;
+  } catch {
+    /* table may not exist yet, or DB blip — never fail the request */
+  }
+}
+
+/**
+ * Read the caller's API request counts for the trailing `days` calendar days
+ * (Item 19), oldest→newest, zero-filled so the chart always shows a continuous
+ * window even for days with no traffic. Owner-scoped: only the given user's
+ * rows are read.
+ */
+export async function readApiUsageDaily(userId: string, days = 14): Promise<ApiUsageDay[]> {
+  const window = Math.min(90, Math.max(1, Math.floor(days)));
+  const byDay = new Map<string, number>();
+  try {
+    const sql = await getSql();
+    const since = new Date(Date.now() - (window - 1) * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const rows = await sql<{ day: string | Date; count: number | string }>`
+      select day, count from api_usage_daily
+      where user_id = ${userId} and day >= ${since}
+      order by day asc
+    `;
+    for (const r of rows) {
+      const key = typeof r.day === "string" ? r.day.slice(0, 10) : r.day.toISOString().slice(0, 10);
+      byDay.set(key, Number(r.count) || 0);
+    }
+  } catch {
+    /* table may not exist yet — fall through to a zero-filled window */
+  }
+  const out: ApiUsageDay[] = [];
+  for (let i = window - 1; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    out.push({ day, count: byDay.get(day) ?? 0 });
+  }
+  return out;
+}
+
+/**
+ * POST a JSON payload to one webhook URL and record the delivery, exactly like
+ * a real event delivery: 3s timeout, one retry on failure, and the ok/status/
+ * attempts result written to `webhook_deliveries` so it shows up in the list.
+ * This is the shared delivery primitive used by both `fireWebhooks` (event
+ * fan-out) and `testWebhook` (Item 20's manual "Test" action) so a test
+ * delivery is indistinguishable from a real one on the wire and in the log.
+ */
+async function deliverWebhook(
+  userId: string,
+  hook: { id: string; url: string },
+  event: string,
+  body: string,
+): Promise<{ ok: boolean; status: number | null; attempts: number }> {
+  const send = () =>
+    fetch(hook.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(3000),
+    });
+  let attempts = 1;
+  let ok = false;
+  let status: number | null = null;
+  try {
+    const res = await send();
+    status = res.status;
+    ok = res.ok;
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    attempts = 2;
+    try {
+      const res = await send();
+      status = res.status;
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+  }
+  await recordDelivery(userId, hook.id, event, ok, status, attempts);
+  return { ok, status, attempts };
+}
+
 export async function fireWebhooks(
   userId: string,
   payload: Record<string, unknown>,
@@ -183,36 +291,44 @@ export async function fireWebhooks(
   if (hooks.length === 0) return;
   const event = typeof payload.event === "string" ? payload.event : "event";
   const body = JSON.stringify(payload);
-  await Promise.all(
-    hooks.map(async (hook) => {
-      const send = () =>
-        fetch(hook.url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body,
-          signal: AbortSignal.timeout(3000),
-        });
-      let attempts = 1;
-      let ok = false;
-      let status: number | null = null;
-      try {
-        const res = await send();
-        status = res.status;
-        ok = res.ok;
-      } catch {
-        ok = false;
-      }
-      if (!ok) {
-        attempts = 2;
-        try {
-          const res = await send();
-          status = res.status;
-          ok = res.ok;
-        } catch {
-          ok = false;
-        }
-      }
-      await recordDelivery(userId, hook.id, event, ok, status, attempts);
-    }),
-  );
+  await Promise.all(hooks.map((hook) => deliverWebhook(userId, hook, event, body)));
+}
+
+/**
+ * Fire a TEST delivery to one of the caller's OWN registered webhooks (Item 20).
+ * OWNER-SCOPED: the webhook id is looked up filtered by `user_id`, so a user can
+ * only test a webhook they registered — a foreign id resolves to `null` and no
+ * request is made. This introduces NO new SSRF surface beyond `fireWebhooks`,
+ * which already POSTs to these same user-supplied URLs on real events; the only
+ * difference is the trigger (a manual button vs. an event). The delivery is
+ * recorded in `webhook_deliveries` exactly like a real one so it appears in the
+ * deliveries list with its ok/status/attempts.
+ */
+export async function testWebhook(
+  userId: string,
+  webhookId: string,
+): Promise<DeliveryRow | null> {
+  const sql = await getSql();
+  const rows = await sql<{ id: string; url: string }>`
+    select id, url from webhooks where id = ${webhookId} and user_id = ${userId}
+  `;
+  const hook = rows[0];
+  if (!hook) return null;
+  const event = "test.ping";
+  const body = JSON.stringify({
+    event,
+    test: true,
+    message: "Helion test webhook delivery",
+    at: new Date().toISOString(),
+  });
+  const result = await deliverWebhook(userId, hook, event, body);
+  return {
+    id: crypto.randomUUID(),
+    webhookId: hook.id,
+    event,
+    ok: result.ok,
+    status: result.status,
+    attempts: result.attempts,
+    at: new Date().toISOString(),
+  };
 }

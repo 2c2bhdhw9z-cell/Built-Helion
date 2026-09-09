@@ -55,6 +55,32 @@ export function isWithinLimit(countIncludingThis: number, limit: number = V1_LIM
 }
 
 /**
+ * The caller's CURRENT rate-limit window state for the usage/quota view (Item
+ * 19) — a read-only peek that never increments the counter. Returns the request
+ * count already recorded in the active window for `v1:<key>`, the policy limit,
+ * and how many ms remain in the window. Best-effort: on a DB error (or an
+ * un-migrated deploy) it reports an empty window rather than throwing.
+ */
+export async function readV1Quota(
+  key: string,
+  now: number = Date.now(),
+): Promise<{ used: number; limit: number; windowMs: number; resetMs: number }> {
+  const bucket = windowStart(now);
+  const fullKey = `v1:${key}`;
+  let used = 0;
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ count: number | string }>`
+      select count from api_rate_limits where key = ${fullKey} and window_start = ${bucket}
+    `;
+    used = Number(rows[0]?.count ?? 0);
+  } catch {
+    used = 0;
+  }
+  return { used, limit: V1_LIMIT, windowMs: V1_WINDOW_MS, resetMs: bucket + V1_WINDOW_MS - now };
+}
+
+/**
  * Durable, race-safe rate check for the V1 API. Returns true when the request is
  * allowed. Falls back to the in-memory limiter if the DB round-trip fails
  * (fail-open, documented above).

@@ -28,7 +28,15 @@ function bearer(request: Request): string | null {
 async function requireToken(request: Request) {
   const raw = bearer(request);
   if (!raw) return null;
-  return resolveToken(raw);
+  const auth = await resolveToken(raw);
+  if (auth) {
+    // Per-day API usage rollup (Item 19): count each authenticated request so
+    // the developer page can chart usage over the last N days. Fire-and-forget
+    // and best-effort — a counter bump must never delay or fail the request.
+    const { bumpApiUsageDaily } = await import("./tokens.ts");
+    void bumpApiUsageDaily(auth.userId);
+  }
+  return auth;
 }
 
 /**
