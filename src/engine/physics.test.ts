@@ -122,6 +122,63 @@ describe("Extra session brush", () => {
   });
 });
 
+describe("Finite-life particles age and are culled", () => {
+  const pointer = { x: 0, y: 0, down: false, inside: false };
+  // Generators/emitters hand out a positive finite `life` even when the global
+  // `params.lifespan` knob is 0 (see emitters.ts: burst/fireworks/fire/smoke all
+  // fall back to a hard-coded lifetime). Ageing must therefore be driven by the
+  // PARTICLE's own life, not by the global knob — the GPU integrate shader does
+  // exactly that. `life < 0` is the explicit "immortal" marker.
+  const params = {
+    ...DEFAULT_PARAMS,
+    gravityX: 0,
+    gravityY: 0,
+    drag: 0,
+    centralMass: 0,
+    lifespan: 0,
+  };
+
+  function stepN(life: number, n: number) {
+    const soa = new ParticleSoA(4);
+    const i = soa.spawnSlot();
+    soa.writeParticle(i, 0.5, 0.5, 0, 0, life, 1);
+    const hash = new SpatialHash();
+    for (let s = 0; s < n; s++) {
+      stepPhysics(
+        soa,
+        hash,
+        params,
+        pointer,
+        "attract",
+        0.12,
+        0.85,
+        [],
+        1.6,
+        1,
+        1 / 60,
+        0,
+        0,
+        0,
+        [],
+        IDLE_EXTRA_BRUSH,
+      );
+    }
+    return soa;
+  }
+
+  test("a particle with a finite life expires even when params.lifespan is 0", () => {
+    // 0.5s of life, stepped for 40/60 = 0.667s -> must be dead and compacted out.
+    const soa = stepN(0.5, 40);
+    expect(soa.count).toBe(0);
+  });
+
+  test("a particle with life < 0 is immortal", () => {
+    const soa = stepN(-1, 40);
+    expect(soa.count).toBe(1);
+    expect(soa.life[0]!).toBeLessThan(0);
+  });
+});
+
 describe("Spring compaction when a bonded particle dies", () => {
   const pointer = { x: 0, y: 0, down: false, inside: false };
 

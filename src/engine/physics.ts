@@ -181,7 +181,6 @@ export function stepPhysics(
   const cy = params.centralY * worldH;
   const cMass = params.centralMass;
   const eps = params.softening * params.softening;
-  const lifespan = params.lifespan;
   const pairwiseNbody = params.nbody && n <= 1600;
   if (params.nbody && !pairwiseNbody) {
     buildNbodyGrid(soa, n, worldW, worldH);
@@ -496,7 +495,15 @@ export function stepPhysics(
       vyi = 0;
     }
 
-    if (lifespan > 0 && life[i]! > 0) {
+    // Age every particle that carries a FINITE life. `life < 0` is the explicit
+    // "immortal" marker (see ParticleSoA.writeParticle); `life === 0` is dead and
+    // is compacted out below. This must NOT be gated on `params.lifespan`:
+    // generators and emitters hand out a positive finite life of their own (a
+    // burst gets ~2.2s, fire ~1.8s, smoke ~4.4s) even while the global lifespan
+    // knob sits at its 0 default, so gating on the knob left every burst/fire/
+    // smoke particle immortal on the CPU compute path and it piled up to the cap.
+    // The GPU integrate shader already ages unconditionally — this restores parity.
+    if (life[i]! > 0) {
       life[i] = life[i]! - dt;
       if (life[i]! <= 0) life[i] = 0;
     }
