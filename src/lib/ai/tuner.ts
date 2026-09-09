@@ -1,6 +1,6 @@
 import { DEFAULT_PARAMS, type LabParams } from "@/engine/types";
 import { labParamsSchema } from "@/lib/creations/types";
-import type { AiObjective, Candidate } from "@/lib/ai/objective";
+import type { Candidate } from "@/lib/ai/objective";
 
 /**
  * The closed-loop AI Tuner (Req 9; design Property 8 & 9).

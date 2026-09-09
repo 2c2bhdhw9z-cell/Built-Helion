@@ -21,7 +21,8 @@ type Bucket = { count: number; resetAt: number };
 
 const buckets = new Map<string, Bucket>();
 
-/** Sliding fixed-window limiter. Returns true when the call is allowed. */
+/** Fixed-window limiter: each key gets `limit` calls per `windowMs`, and the
+ * window resets (count back to 0) once it expires. Returns true when allowed. */
 export function allow(
   key: string,
   limit: number,

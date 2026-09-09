@@ -29,7 +29,6 @@ let mapStyle: (
   modelParams: string | Record<string, unknown> | null | undefined,
 ) => StyleResult;
 let labParamsSchema: (typeof import("../creations/types.ts"))["labParamsSchema"];
-let DEFAULT_PARAMS: LabParams;
 let GENERATOR_KINDS: readonly GeneratorKind[];
 
 before(async () => {
@@ -42,7 +41,6 @@ before(async () => {
   runTuner = tuner.runTuner;
   mapStyle = style.mapStyle;
   labParamsSchema = creationTypes.labParamsSchema;
-  DEFAULT_PARAMS = engineTypes.DEFAULT_PARAMS;
   GENERATOR_KINDS = engineTypes.GENERATOR_KINDS;
 });
 

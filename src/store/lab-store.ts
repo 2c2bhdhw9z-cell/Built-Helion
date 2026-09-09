@@ -536,7 +536,7 @@ export const useLab = create<LabState>((set, get) => ({
     set({ fillFrame: v });
   },
   setQuality: (q) =>
-    set((s) => ({
+    set(() => ({
       quality: q,
       cap: QUALITY_CAPS[q],
     })),
