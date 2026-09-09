@@ -1,11 +1,13 @@
 import { getSql } from "@/lib/db";
 import {
   decideSaveConflict,
+  FREE_PRIVATE_CREATION_LIMIT,
   normalizeCreationConfig,
   type CreationConfig,
   type CreationRow,
   type LibraryItem,
   type PublicCreation,
+  type SaveCreationResult,
   type UpdateCreationResult,
 } from "./types.ts";
 
@@ -75,6 +77,89 @@ export async function insertCreation(
   const saved = toCreationRow(rows[0]);
   if (!saved) throw new Error("Could not save");
   return saved;
+}
+
+/**
+ * Count the caller's PRIVATE (unlisted) creations — the rows that count against
+ * the free-tier quota (Item 23). Public (published) rows are excluded because
+ * publishing is never gated. Team-shared rows (`team_id` set) are also excluded:
+ * they belong to a team shelf, not the owner's private-draft quota. A creation
+ * created via `shareToTeam` therefore never eats into a free user's cap.
+ */
+export async function countPrivateCreations(userId: string): Promise<number> {
+  const sql = await getSql();
+  const rows = await sql<{ n: string | number }>`
+    select count(*) as n
+    from creations
+    where user_id = ${userId} and is_public = false and team_id is null
+  `;
+  return Number(rows[0]?.n ?? 0) || 0;
+}
+
+/**
+ * Save a NEW creation, enforcing the free-tier private-creation quota
+ * server-side (Item 23). Entitlement is re-derived from the caller's billing —
+ * the client's `entitled` flag is NEVER trusted for a resource-protecting write.
+ *
+ * A new save starts unlisted (private), so a free user at
+ * `FREE_PRIVATE_CREATION_LIMIT` existing private creations is blocked with a
+ * `limit` status (nothing is stored) rather than a thrown error, so the UI can
+ * surface a friendly upgrade prompt. Entitled users always save.
+ */
+export async function saveCreationGuarded(
+  userId: string,
+  name: string,
+  config: CreationConfig,
+): Promise<SaveCreationResult> {
+  const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
+  const billing = await getOrCreateBilling(userId);
+
+  // Entitled users have no quota, so skip the guarded path entirely.
+  if (billing.entitled) {
+    const row = await insertCreation(userId, name, config);
+    return { status: "saved", row };
+  }
+
+  // Free-tier quota. A plain count-then-insert has a check-then-act race: two
+  // concurrent saves by a free user at the boundary both read the pre-insert
+  // count and both proceed, overshooting FREE_PRIVATE_CREATION_LIMIT. Neither
+  // backend exposes a portable transaction/row-lock through the shared `Sql`
+  // surface (Neon's pg pool needs a client checkout; PGLite has its own
+  // `.transaction`), so we make the guard race-safe with a compensating
+  // insert-then-recount-and-rollback that lives in a single atomic SQL
+  // statement per step and works identically on Neon Postgres and PGLite:
+  //
+  //   1. Insert the new (unlisted) row.
+  //   2. In ONE statement, delete that row IFF, counting the caller's private
+  //      rows ordered oldest-first, it now ranks beyond the limit: that is, it
+  //      is one of the rows that overshot the cap. The just-inserted row
+  //      carries the newest created_at, so under a race it (not an older,
+  //      legitimately-kept draft) is the one rolled back. The ordering tie-break
+  //      on `id` keeps the decision deterministic when timestamps collide.
+  //
+  // Because the DELETE re-derives the count atomically at statement execution
+  // (rather than trusting a value read earlier), concurrent saves can never
+  // leave more than FREE_PRIVATE_CREATION_LIMIT private rows standing.
+  const row = await insertCreation(userId, name, config);
+  const sql = await getSql();
+  const removed = await sql<{ id: string }>`
+    delete from creations
+    where id = ${row.id}
+      and (
+        select count(*) from creations older
+        where older.user_id = ${userId}
+          and older.is_public = false
+          and older.team_id is null
+          and (older.created_at, older.id) <= (
+            select c.created_at, c.id from creations c where c.id = ${row.id}
+          )
+      ) > ${FREE_PRIVATE_CREATION_LIMIT}
+    returning id
+  `;
+  if (removed.length > 0) {
+    return { status: "limit", limit: FREE_PRIVATE_CREATION_LIMIT };
+  }
+  return { status: "saved", row };
 }
 
 /**

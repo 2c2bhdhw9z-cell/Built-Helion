@@ -12,17 +12,26 @@ import {
   type CreationRow,
   type LibraryItem,
   type PublicCreation,
+  type SaveCreationResult,
   type UpdateCreationResult,
 } from "./types.ts";
 
+/**
+ * Save a NEW creation. The free-tier private-creation quota (Item 23) is
+ * enforced server-side in `saveCreationGuarded`, which re-derives entitlement
+ * from the caller's billing (the client `entitled` flag is never trusted for
+ * this resource-protecting write). Returns a discriminated result so the UI can
+ * distinguish a successful save from a `limit` hit and surface an upgrade
+ * prompt without treating the block as an error.
+ */
 export const saveCreationFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => saveCreationSchema.parse(input))
-  .handler(async ({ data, context }): Promise<CreationRow> => {
+  .handler(async ({ data, context }): Promise<SaveCreationResult> => {
     const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
     await assertNotSuspended(context.userId);
-    const { insertCreation } = await import("./server.ts");
-    return insertCreation(context.userId, data.name, data.config);
+    const { saveCreationGuarded } = await import("./server.ts");
+    return saveCreationGuarded(context.userId, data.name, data.config);
   });
 
 /**

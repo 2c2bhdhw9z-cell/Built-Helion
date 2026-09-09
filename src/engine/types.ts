@@ -435,6 +435,34 @@ export const DEFAULT_TELEMETRY: Telemetry = {
   activeGenerator: "",
 };
 
+/**
+ * Per-plan ceiling for the particle-buffer cap (Item 23 — Pro tier).
+ *
+ * Free/unsigned visitors can push the cap up to `FREE_CAP_CEILING`; entitled
+ * (Pro / Enterprise / active trial) users unlock the full `SYSTEM_LIMIT`. The
+ * quality presets (`QUALITY_CAPS`) stay below the free ceiling so a free user
+ * never hits the paywall just by picking a preset — the ceiling only bites when
+ * they drag the cap slider past 100k, which is exactly where the upgrade prompt
+ * should fire. Pure so it can be unit-tested directly.
+ */
+export const FREE_CAP_CEILING = 100_000;
+
+export function capCeiling(entitled: boolean): number {
+  return entitled ? SYSTEM_LIMIT : FREE_CAP_CEILING;
+}
+
+/**
+ * Clamp a requested cap to the caller's plan ceiling AND the engine floor.
+ * Mirrors the store's `setCap` bounds (1024 floor) but replaces the blanket
+ * SYSTEM_LIMIT ceiling with the entitlement-aware `capCeiling`. Returns the
+ * clamped value; callers compare it to the request to decide whether to show an
+ * upgrade prompt (a free user asked for more than the free ceiling allows).
+ */
+export function clampCap(requested: number, entitled: boolean): number {
+  const ceiling = capCeiling(entitled);
+  return Math.max(1024, Math.min(ceiling, requested | 0));
+}
+
 export const QUALITY_CAPS: Record<QualityMode, number> = {
   low: 12_288,
   medium: 32_768,

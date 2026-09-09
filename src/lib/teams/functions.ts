@@ -9,6 +9,8 @@ import {
   setMemberRoleSchema,
   shareToTeamSchema,
   teamIdSchema,
+  type CreateTeamResult,
+  type JoinTeamResult,
   type TeamMember,
   type TeamRow,
 } from "./types";
@@ -17,7 +19,7 @@ import type { LibraryItem } from "@/lib/creations/types";
 export const createTeamFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => createTeamSchema.parse(input))
-  .handler(async ({ data, context }): Promise<TeamRow> => {
+  .handler(async ({ data, context }): Promise<CreateTeamResult> => {
     const { createTeam } = await import("./server.ts");
     return createTeam(context.userId, data.name);
   });
@@ -25,7 +27,7 @@ export const createTeamFn = createServerFn({ method: "POST" })
 export const joinTeamFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => joinTeamSchema.parse(input))
-  .handler(async ({ data, context }): Promise<TeamRow | null> => {
+  .handler(async ({ data, context }): Promise<JoinTeamResult> => {
     const { joinTeam } = await import("./server.ts");
     return joinTeam(context.userId, data.code);
   });

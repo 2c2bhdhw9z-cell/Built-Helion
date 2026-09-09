@@ -11,6 +11,17 @@ import { currentCreationConfig, useLab } from "@/store/lab-store";
 import type { CreationRow, UpdateCreationResult } from "./types";
 
 /**
+ * Outcome of a save from the UI's perspective (Item 23). `"saved"` stored the
+ * row; `"limit"` means the free private-creation quota is full (offer upgrade),
+ * with `limit` echoing the ceiling; `"error"` is a signed-out no-op or a
+ * transient failure.
+ */
+export type SaveOutcome =
+  | { status: "saved" }
+  | { status: "limit"; limit: number }
+  | { status: "error" };
+
+/**
  * Client-safe hook for a signed-in user's saved creations.
  *
  *   - LOGGED OUT -> `creations` is empty and save/remove are no-ops. The UI
@@ -34,11 +45,12 @@ export type CreationsController = {
   /** Re-fetch the list from the server (no-op when signed out). */
   refresh: () => Promise<void>;
   /**
-   * Snapshot the current sim and save it under `name`. Returns true on success.
-   * A no-op returning false when signed out — the UI gates the call on
-   * `isSignedIn` and shows a sign-in prompt instead.
+   * Snapshot the current sim and save it under `name`. Returns a discriminated
+   * result: `"saved"` on success, `"limit"` when a free user is at the private-
+   * creation quota (the UI should offer an upgrade), or `"error"` on a
+   * transient failure / signed-out no-op.
    */
-  save: (name: string) => Promise<boolean>;
+  save: (name: string) => Promise<SaveOutcome>;
   /**
    * Update an existing creation IN PLACE with the current sim, resolving a
    * cross-device save conflict via "newer wins with a warning" (Req 2). Sends
@@ -112,16 +124,19 @@ export function useCreations(): CreationsController {
   }, [isPending, userId]);
 
   const save = useCallback(
-    async (name: string): Promise<boolean> => {
-      if (!isSignedIn) return false;
+    async (name: string): Promise<SaveOutcome> => {
+      if (!isSignedIn) return { status: "error" };
       const config = currentCreationConfig(useLab.getState());
       try {
-        const row = await saveCreationFn({ data: { name, config } });
+        const result = await saveCreationFn({ data: { name, config } });
+        if (result.status === "limit") {
+          return { status: "limit", limit: result.limit };
+        }
         // Prepend the new row (server lists newest first).
-        setCreations((prev) => [row, ...prev]);
-        return true;
+        setCreations((prev) => [result.row, ...prev]);
+        return { status: "saved" };
       } catch {
-        return false;
+        return { status: "error" };
       }
     },
     [isSignedIn],
