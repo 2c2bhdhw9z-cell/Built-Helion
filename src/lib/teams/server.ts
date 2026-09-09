@@ -1,7 +1,6 @@
 import { getSql } from "@/lib/db";
 import { normalizeCreationConfig, type CreationConfig, type LibraryItem } from "@/lib/creations/types";
 import {
-  canAddSeat,
   canCreateTeam,
   seatLimit,
   type CreateTeamResult,
@@ -51,20 +50,22 @@ function toTeam(row: RawTeam): TeamRow {
   };
 }
 
-async function seatCount(teamId: string): Promise<number> {
-  const sql = await getSql();
-  const rows = await sql<{ n: string | number }>`
-    select count(*) as n from team_members where team_id = ${teamId}
-  `;
-  return Number(rows[0]?.n ?? 0) || 0;
-}
-
 /**
  * Create a team (Item 24). Shared team workspaces are a paid feature: the
  * owner must be ENTITLED (Pro / Enterprise / active trial). Entitlement is
  * re-derived from the owner's server-side billing — the client `entitled` flag
  * is never trusted for this write. An unentitled caller is rejected with a
  * `plan` status (nothing is created) so the UI can nudge them to upgrade.
+ *
+ * TRIAL-LAPSE LIFECYCLE (accepted product decision, intentionally not enforced
+ * here): a team created during an active trial keeps working for its existing
+ * members after the trial lapses. Only entitlement-gated MUTATIONS notice the
+ * lapse (creating a NEW team is blocked, and NEW joins are seat-limited by the
+ * owner's now-unentitled 0-seat plan), but the team read paths
+ * (`listMyTeams`, `listMembers`, `listTeamLibrary`, `shareToTeam`) do not
+ * re-check the owner's live entitlement, so the existing workspace does not
+ * evaporate mid-session. This is the known/accepted behavior for now; do not
+ * "fix" it into a hard teardown without a product decision.
  */
 export async function createTeam(userId: string, name: string): Promise<CreateTeamResult> {
   const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
@@ -112,21 +113,37 @@ export async function joinTeam(userId: string, code: string): Promise<JoinTeamRe
   const team = rows[0];
   if (!team) return { status: "notfound" };
 
+  const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
+  const ownerBilling = await getOrCreateBilling(team.owner_id);
+  const limit = seatLimit(ownerBilling.plan, ownerBilling.entitled);
+
+  // Seat gating has the same check-then-act race as the private-save quota: a
+  // seatCount() read followed by a separate insert lets two concurrent joins
+  // both observe an under-limit count and both insert, overshooting the
+  // owner-plan seat limit. No portable transaction/row-lock is exposed through
+  // the shared `Sql` surface (Neon pool vs PGLite `.transaction`), so we guard
+  // it with a single atomic conditional insert that works on both backends:
+  // the INSERT ... SELECT only materializes a row when the live seat count is
+  // BELOW the limit, evaluated in the same statement as the insert. A re-join
+  // stays idempotent via `on conflict (team_id, user_id) do nothing`, and it
+  // must NOT be seat-gated (an existing member consumes no new seat), so we
+  // only apply the count guard for a genuinely new member.
   const alreadyMember = await isTeamMember(userId, team.id);
   if (!alreadyMember) {
-    const { getOrCreateBilling } = await import("@/lib/billing/server.ts");
-    const ownerBilling = await getOrCreateBilling(team.owner_id);
-    const seats = await seatCount(team.id);
-    if (!canAddSeat(seats, ownerBilling.plan, ownerBilling.entitled)) {
-      return { status: "full", limit: seatLimit(ownerBilling.plan, ownerBilling.entitled) };
+    const inserted = await sql<{ user_id: string }>`
+      insert into team_members (team_id, user_id, role)
+      select ${team.id}, ${userId}, ${"edit"}
+      where (select count(*) from team_members where team_id = ${team.id}) < ${limit}
+      on conflict (team_id, user_id) do nothing
+      returning user_id
+    `;
+    if (inserted.length === 0) {
+      // The conditional insert stored nothing: the team was at its seat limit
+      // when the statement ran (a concurrent join filled the last seat).
+      return { status: "full", limit };
     }
   }
 
-  await sql`
-    insert into team_members (team_id, user_id, role)
-    values (${team.id}, ${userId}, ${"edit"})
-    on conflict (team_id, user_id) do nothing
-  `;
   return {
     status: "joined",
     team: {

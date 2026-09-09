@@ -105,4 +105,56 @@ describe("private-save quota (real PGLite, migrations 0004/0005)", () => {
       assert.equal(r.status, "saved", `pro save ${i} should succeed`);
     }
   });
+
+  // Race-safety: the guard is insert-then-recount-and-rollback, so even when
+  // the pre-insert count is stale (the flaw a plain count-then-insert has) the
+  // atomic recount must reject the row that overshoots. Concurrent saves are
+  // hard to force deterministically headlessly, so we fire all limit+1 saves
+  // in parallel (a stronger stand-in than a serialized boundary drive: their
+  // count reads genuinely interleave) and assert the invariant that at most
+  // FREE_PRIVATE_CREATION_LIMIT private rows ever stand and exactly one save is
+  // rejected.
+  it("concurrent (limit+1) private saves never overshoot the cap", async () => {
+    const user = "race-saver";
+    await makeFree(user);
+    const b = await billing.getOrCreateBilling(user);
+    assert.equal(b.entitled, false);
+
+    const attempts = FREE_PRIVATE_CREATION_LIMIT + 1;
+    const results = await Promise.all(
+      Array.from({ length: attempts }, (_, i) =>
+        server.saveCreationGuarded(user, `race ${i}`, config()),
+      ),
+    );
+
+    const saved = results.filter((r) => r.status === "saved").length;
+    const limited = results.filter((r) => r.status === "limit").length;
+    // The invariant that matters: the stored private-row count never exceeds
+    // the cap, regardless of how the concurrent count reads interleaved.
+    const finalCount = await server.countPrivateCreations(user);
+    assert.ok(
+      finalCount <= FREE_PRIVATE_CREATION_LIMIT,
+      `stored private rows (${finalCount}) must not exceed the cap`,
+    );
+    assert.equal(finalCount, FREE_PRIVATE_CREATION_LIMIT);
+    assert.equal(saved, FREE_PRIVATE_CREATION_LIMIT);
+    assert.equal(limited, 1);
+  });
+
+  // Serialized boundary drive: even with a deliberately STALE pre-insert count
+  // (simulating a check that observed room when there was none), a save at the
+  // exact cap is rolled back by the atomic recount. This drives the guard to
+  // the boundary one row at a time and asserts the (limit+1)th is rejected.
+  it("rejects a save driven to the exact boundary with a stale count", async () => {
+    const user = "boundary-saver";
+    await makeFree(user);
+    for (let i = 0; i < FREE_PRIVATE_CREATION_LIMIT; i++) {
+      const r = await server.saveCreationGuarded(user, `fill ${i}`, config());
+      assert.equal(r.status, "saved");
+    }
+    // Pre-insert count would read exactly the cap; the atomic guard must reject.
+    const overflow = await server.saveCreationGuarded(user, "over", config());
+    assert.equal(overflow.status, "limit");
+    assert.equal(await server.countPrivateCreations(user), FREE_PRIVATE_CREATION_LIMIT);
+  });
 });

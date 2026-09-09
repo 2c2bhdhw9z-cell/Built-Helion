@@ -556,7 +556,10 @@ export const useLab = create<LabState>((set, get) => ({
     // ceiling AND open the upgrade dialog so the paywall is discoverable rather
     // than a silent truncation.
     const entitled = get().entitled;
-    const requested = Math.max(1024, Math.min(SYSTEM_LIMIT, v | 0));
+    // Floor at the cap slider's 2^10 minimum, then let the entitlement-aware
+    // clampCap apply the ceiling (SYSTEM_LIMIT for entitled users, the free
+    // ceiling otherwise): a single clamp, no redundant SYSTEM_LIMIT pass.
+    const requested = Math.max(1024, v | 0);
     const next = clampCap(requested, entitled);
     if (!entitled && requested > next) {
       set({ cap: next, upgradeOpen: true });

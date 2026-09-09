@@ -173,6 +173,36 @@ describe("teams (real PGLite, no seed rows)", () => {
     assert.equal(rejoin.status, "joined");
   });
 
+  // Race-safety: the seat guard is a single atomic conditional insert (INSERT …
+  // SELECT WHERE count < limit), so concurrent joins can't both slip past a
+  // stale seat count. Firing all overflowing joins in parallel exercises the
+  // interleaving a plain count-then-insert would lose to; the invariant is that
+  // the stored member count never exceeds the owner-plan seat limit.
+  it("concurrent joins never exceed the owner-plan seat limit", async () => {
+    const owner = await entitledUser("race-owner");
+    const created = await server.createTeam(owner, "Race studio");
+    assert.ok(created.status === "created");
+    const code = created.team.joinCode;
+    const limit = PRO_SEAT_LIMIT;
+
+    // Owner already fills one seat, so (limit) fresh guests over-subscribe by
+    // one. Fire them all at once.
+    const guests = Array.from({ length: limit }, (_, i) => `race-guest-${i}`);
+    const results = await Promise.all(guests.map((g) => server.joinTeam(g, code)));
+
+    const joined = results.filter((r) => r.status === "joined").length;
+    const full = results.filter((r) => r.status === "full").length;
+    const members = await server.listMembers(owner, created.team.id);
+    assert.ok(
+      members.length <= limit,
+      `stored members (${members.length}) must not exceed the seat limit`,
+    );
+    assert.equal(members.length, limit);
+    // Owner + (limit-1) guests joined; exactly one guest was turned away full.
+    assert.equal(joined, limit - 1);
+    assert.equal(full, 1);
+  });
+
   it("bad join code returns notfound", async () => {
     const r = await server.joinTeam("who", "ZZZZZZ");
     assert.equal(r.status, "notfound");

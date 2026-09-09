@@ -93,6 +93,7 @@ export const PLANS: {
       "Particle cap up to 1M",
       "4K stills, no watermark",
       "Unlimited private creations",
+      "Team workspaces, up to 5 seats",
       "Live sessions, voice, roles",
     ],
   },
@@ -104,7 +105,7 @@ export const PLANS: {
     perks: [
       "Everything in Pro",
       "8K stills",
-      "Team workspaces & seats",
+      "Team workspaces, up to 50 seats",
       "Private team galleries",
       "REST API, tokens, webhooks",
     ],
