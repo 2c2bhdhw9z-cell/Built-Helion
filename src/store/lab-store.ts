@@ -77,6 +77,14 @@ type LabState = {
   creationsOpen: boolean;
   libraryOpen: boolean;
   profileOpen: boolean;
+  /** True when the daily-challenge (seed-of-the-day) dialog is open (Item 7). */
+  dailyOpen: boolean;
+  /**
+   * Read-only embed mode (Item 10): the chromeless `/embed/:id` player sets this
+   * so LabApp renders with NO menus/HUD/tools and the sim just autoplays. It is
+   * a session-only view flag (never persisted).
+   */
+  viewOnly: boolean;
   upgradeOpen: boolean;
   /** True when the signed-in plan or active trial unlocks Pro generators / 4K. */
   entitled: boolean;
@@ -222,6 +230,8 @@ type LabState = {
   setCreationsOpen: (v: boolean) => void;
   setLibraryOpen: (v: boolean) => void;
   setProfileOpen: (v: boolean) => void;
+  setDailyOpen: (v: boolean) => void;
+  setViewOnly: (v: boolean) => void;
   setUpgradeOpen: (v: boolean) => void;
   setEntitled: (v: boolean) => void;
   setPlan: (p: PlanId) => void;
@@ -447,6 +457,8 @@ export const useLab = create<LabState>((set, get) => ({
   creationsOpen: false,
   libraryOpen: false,
   profileOpen: false,
+  dailyOpen: false,
+  viewOnly: false,
   upgradeOpen: false,
   entitled: false,
   plan: "free",
@@ -546,6 +558,8 @@ export const useLab = create<LabState>((set, get) => ({
   setCreationsOpen: (v) => set({ creationsOpen: v }),
   setLibraryOpen: (v) => set({ libraryOpen: v }),
   setProfileOpen: (v) => set({ profileOpen: v }),
+  setDailyOpen: (v) => set({ dailyOpen: v }),
+  setViewOnly: (v) => set({ viewOnly: v }),
   setUpgradeOpen: (v) => set({ upgradeOpen: v }),
   setEntitled: (v) => set({ entitled: v }),
   setPlan: (p) => set({ plan: p }),

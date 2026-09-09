@@ -88,3 +88,17 @@ export async function throttleVote(): Promise<void> {
     throw new RateLimitError("Too many votes — try again shortly.");
   }
 }
+
+/**
+ * Throttle the comment-posting path (Item 9). Posting is authenticated, but the
+ * same lightweight per-client window blunts a scripted comment flood / unbounded
+ * row growth, matching the feedback-submit guard. Not a hard guarantee
+ * (documented in the module header).
+ */
+export async function throttleComment(): Promise<void> {
+  const key = await requestKey();
+  // 12 comments per minute per client — generous for a human, hostile to a flood.
+  if (!allow(`comment:${key}`, 12, 60_000)) {
+    throw new RateLimitError("Too many comments — try again shortly.");
+  }
+}

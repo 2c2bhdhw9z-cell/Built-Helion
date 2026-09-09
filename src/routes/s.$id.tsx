@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { LabApp } from "@/components/lab/lab-app";
+import { CreationComments } from "@/components/lab/creation-comments";
 import { useLab } from "@/store/lab-store";
 import { normalizeCreationConfig, type PublicCreation } from "@/lib/creations/types";
 
@@ -16,6 +17,21 @@ import { normalizeCreationConfig, type PublicCreation } from "@/lib/creations/ty
  */
 export const Route = createFileRoute("/s/$id")({
   component: SharedCreation,
+  // oEmbed discovery (Item 10): advertise the JSON oEmbed endpoint for this
+  // creation so consumers (blogs/CMSes) can auto-unfurl it into the embed
+  // player. The `url` points back at this share page; the endpoint resolves the
+  // id from it. A relative href is fine — consumers resolve it against the page
+  // origin.
+  head: ({ params }: { params: { id: string } }) => ({
+    links: [
+      {
+        rel: "alternate",
+        type: "application/json+oembed",
+        href: `/api/oembed?url=/s/${encodeURIComponent(params.id)}&format=json`,
+        title: "Helion creation",
+      },
+    ],
+  }),
   loader: async ({ params }): Promise<{ creation: PublicCreation | null }> => {
     try {
       // Import the server fn dynamically INSIDE the loader (not at module top
@@ -56,5 +72,13 @@ function SharedCreation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creation?.id]);
 
-  return <LabApp />;
+  return (
+    <>
+      <LabApp />
+      {/* Comments live on the PUBLIC creation — only shown when the shared id
+          resolved to a real creation. Reading needs no login; posting is authed
+          inside the panel (Item 9). */}
+      {creation ? <CreationComments creationId={creation.id} /> : null}
+    </>
+  );
 }

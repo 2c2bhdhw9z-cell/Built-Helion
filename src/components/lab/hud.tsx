@@ -9,6 +9,7 @@ import {
   Bookmark,
   History,
   Image,
+  CalendarDays,
   KeyRound,
   Library,
   Link2,
@@ -100,6 +101,7 @@ export function Hud() {
   const setBoardOpen = useLab((s) => s.setBoardOpen);
   const setCreationsOpen = useLab((s) => s.setCreationsOpen);
   const setLibraryOpen = useLab((s) => s.setLibraryOpen);
+  const setDailyOpen = useLab((s) => s.setDailyOpen);
   const setProfileOpen = useLab((s) => s.setProfileOpen);
   const setUpgradeOpen = useLab((s) => s.setUpgradeOpen);
   const setHistoryOpen = useLab((s) => s.setHistoryOpen);
@@ -270,6 +272,17 @@ export function Hud() {
             onClick={() => setPlayOpen(true)}
           >
             <Trophy className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Daily challenge"
+            title="Daily Challenge"
+            data-testid="open-daily"
+            onClick={() => setDailyOpen(true)}
+          >
+            <CalendarDays className="size-3.5" />
           </Button>
           <Button
             variant="outline"

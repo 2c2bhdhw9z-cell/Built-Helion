@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import * as Dialog from "@radix-ui/react-dialog";
 import { GitFork, Heart, Play, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -544,7 +545,19 @@ export function LibraryDialog() {
                       <p className="truncate text-sm text-fg" title={item.name}>
                         {item.name}
                       </p>
-                      <p className="truncate text-2xs text-faint">{item.author}</p>
+                      {item.authorId ? (
+                        <Link
+                          to="/u/$id"
+                          params={{ id: item.authorId }}
+                          className="block truncate text-2xs text-faint hover:text-fg hover:underline"
+                          title={`View ${item.author}'s profile`}
+                          onClick={() => setOpen(false)}
+                        >
+                          {item.author}
+                        </Link>
+                      ) : (
+                        <p className="truncate text-2xs text-faint">{item.author}</p>
+                      )}
                       {item.parentName ? (
                         <p className="truncate text-2xs text-faint" title={`Remixed from ${item.parentName}`}>
                           <GitFork className="mr-1 inline size-3 align-[-1px]" />

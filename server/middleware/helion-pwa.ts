@@ -20,6 +20,7 @@ import { serviceWorkerSource } from "virtual:helion-sw";
 import {
   acceptsHtml,
   createHeadInjector,
+  framePolicyForPath,
   isDocumentPath,
   isInstallQuery,
   renderInstallPageHtml,
@@ -107,6 +108,7 @@ export default async function helionPwaMiddleware(
       headers: {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-cache",
+        ...framePolicyForPath(path).headers,
       },
     });
   }
@@ -120,7 +122,24 @@ export default async function helionPwaMiddleware(
     String(result.headers.get("content-type") ?? "").includes("text/html") &&
     !result.headers.get("content-encoding")
   ) {
-    return injectHeadStreaming(result, requestHost(event));
+    // Scope a clickjacking policy to app documents (Finding 3): the chromeless
+    // `/embed/*` player stays framable (`frame-ancestors *`); every other
+    // interactive, auth-bearing document is made non-framable (X-Frame-Options
+    // DENY + CSP frame-ancestors 'self'). The head-injection transform preserves
+    // these headers (it only rewrites the body + drops content-length).
+    return applyFramePolicy(injectHeadStreaming(result, requestHost(event)), path);
   }
   return result;
+}
+
+/**
+ * Set the frame-scoping headers for a document response without disturbing the
+ * rest of it. Returns the SAME Response with the policy headers applied.
+ */
+function applyFramePolicy(response: Response, path: string): Response {
+  const { headers } = framePolicyForPath(path);
+  for (const [key, value] of Object.entries(headers)) {
+    response.headers.set(key, value);
+  }
+  return response;
 }
