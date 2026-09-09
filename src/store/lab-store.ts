@@ -106,6 +106,8 @@ type LabState = {
   perfHubOpen: boolean;
   perfCompact: boolean;
   helpOpen: boolean;
+  /** Whether the cmdk command palette is open (Item 16). Opened with Cmd/Ctrl+K. */
+  commandPaletteOpen: boolean;
   /** Whether the keyframe timeline panel is open (Item 1). */
   timelineOpen: boolean;
   viewZoom: number;
@@ -266,6 +268,7 @@ type LabState = {
   applyCreationConfig: (config: CreationConfig) => void;
   clearSim: () => void;
   setHelpOpen: (v: boolean) => void;
+  setCommandPaletteOpen: (v: boolean) => void;
   setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number; pitch: number }>) => void;
   resetView: () => void;
   setFillFrame: (v: boolean) => void;
@@ -479,6 +482,7 @@ export const useLab = create<LabState>((set, get) => ({
   perfHubOpen: false,
   perfCompact: false,
   helpOpen: false,
+  commandPaletteOpen: false,
   timelineOpen: false,
   viewZoom: 1,
   viewPanX: 0,
@@ -620,6 +624,7 @@ export const useLab = create<LabState>((set, get) => ({
   setPerfCompact: (v) => set({ perfCompact: v }),
   setTimelineOpen: (v) => set({ timelineOpen: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
+  setCommandPaletteOpen: (v) => set({ commandPaletteOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
   setStartRecording: (fn) => set({ startRecording: fn }),

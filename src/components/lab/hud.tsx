@@ -26,6 +26,7 @@ import {
   Share2,
   Sparkles,
   Square,
+  TerminalSquare,
   Undo2,
   UserRound,
   Trophy,
@@ -59,6 +60,19 @@ import type { ExportSize, RecordFps } from "@/lib/capture/composite";
 import { Chip } from "./controls";
 import { SessionHudButton } from "./session-dialog";
 import { EphemeralBadge } from "./ephemeral-badge";
+import { buildCommands, keyedCommands } from "@/lib/commands/registry";
+import { formatBinding } from "@/lib/commands/keys";
+
+// The help overlay lists the KEYED subset of the single command registry
+// (Item 16), so it can never drift from what the canvas keydown handler and the
+// command palette dispatch. Built once at module load (the registry is pure
+// data; the fullscreen side-effect isn't invoked here).
+const HELP_SHORTCUTS = keyedCommands(buildCommands({ toggleFullscreen: () => {} }));
+
+function detectMac(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent || "");
+}
 
 /**
  * Optional account affordance on the right of the HUD. Signed in -> the identity
@@ -133,7 +147,9 @@ export function Hud() {
   const canRedo = useLab((s) => s.canRedo);
   const helpOpen = useLab((s) => s.helpOpen);
   const setHelpOpen = useLab((s) => s.setHelpOpen);
+  const setCommandPaletteOpen = useLab((s) => s.setCommandPaletteOpen);
   const uiTopOpen = useLab((s) => s.uiTopOpen);
+  const [shortcutMac] = useState(detectMac);
   const [fullscreen, setFullscreen] = useState(false);
   const [embedOpen, setEmbedOpen] = useState(false);
   const [embedCode, setEmbedCode] = useState("");
@@ -495,6 +511,17 @@ export function Hud() {
             variant="outline"
             size="icon"
             className="shrink-0"
+            aria-label="Command palette"
+            title={`Command palette (${shortcutMac ? "⌘K" : "Ctrl+K"})`}
+            data-testid="open-command-palette"
+            onClick={() => setCommandPaletteOpen(true)}
+          >
+            <TerminalSquare className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
             aria-label="Keyboard shortcuts"
             title="Shortcuts (?)"
             onClick={() => setHelpOpen(!helpOpen)}
@@ -597,15 +624,22 @@ export function Hud() {
           </div>
           <Dialog.Description className="sr-only">Keyboard and touch shortcuts</Dialog.Description>
           <ul className="grid grid-cols-1 gap-1.5 text-xs text-muted">
-            <li><kbd className="text-fg">Space</kbd> pause</li>
-            <li><kbd className="text-fg">1–5</kbd> speed</li>
-            <li><kbd className="text-fg">Ctrl+Z / Shift+Z</kbd> undo / redo</li>
-            <li><kbd className="text-fg">Scroll</kbd> or <kbd className="text-fg">pinch</kbd> zoom</li>
-            <li><kbd className="text-fg">Alt-drag</kbd> pan · <kbd className="text-fg">0</kbd> reset view</li>
-            <li>View → Fill frame uses zoom-out as extra playground</li>
-            <li><kbd className="text-fg">F</kbd> fullscreen · <kbd className="text-fg">[ ]</kbd> quality</li>
-            <li>History saves named checkpoints on this device</li>
-            <li>Export → size, fps, PNG alpha, scene JSON</li>
+            <li className="mb-1 flex items-center gap-2 text-fg">
+              <kbd className="rounded-sm border border-border px-1.5 py-0.5 font-mono text-2xs">
+                {shortcutMac ? "⌘K" : "Ctrl+K"}
+              </kbd>
+              <span>command palette — search &amp; run anything</span>
+            </li>
+            {HELP_SHORTCUTS.map((cmd) => (
+              <li key={cmd.id} className="flex items-center gap-2">
+                <kbd className="min-w-14 rounded-sm border border-border px-1.5 py-0.5 text-center font-mono text-2xs text-fg">
+                  {formatBinding(cmd.keys![0]!, shortcutMac)}
+                </kbd>
+                <span>{cmd.label}</span>
+              </li>
+            ))}
+            <li className="mt-1"><kbd className="text-fg">Scroll</kbd> / <kbd className="text-fg">pinch</kbd> zoom · <kbd className="text-fg">Alt-drag</kbd> / two-finger pan</li>
+            <li>Long-press the canvas on touch to switch tools</li>
             <li>Use the chevrons to hide the menus and see the sim</li>
           </ul>
         </Dialog.Content>

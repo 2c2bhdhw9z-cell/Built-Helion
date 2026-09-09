@@ -12,8 +12,9 @@ import { GifRecorder } from "@/lib/capture/gif";
 import { knockoutVoid } from "@/lib/capture/alpha";
 import { drawWatermark } from "@/lib/capture/watermark";
 import { Backdrop } from "./backdrop";
-import { SCENES } from "@/engine/scenes";
 import { SessionCursors } from "./session-cursors";
+import { buildCommands, commandForBinding } from "@/lib/commands/registry";
+import { eventToBinding } from "@/lib/commands/keys";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale, degToRad, unprojectOrbit } from "@/engine/camera";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import { deserializeField, serializeField } from "@/engine/force-field";
@@ -601,45 +602,35 @@ export function CanvasStage() {
     return () => window.removeEventListener("clear-field", onClearField);
   }, []);
 
+  // Keyboard shortcuts dispatch from the single command registry (Item 16), the
+  // same list the command palette and the help overlay read from, so a binding
+  // can never drift between them. The input-focus guard is preserved: we never
+  // fire while typing in a text field / contentEditable. mod+shift+? for help is
+  // kept working (Shift+/ is "?"). Every pre-refactor shortcut maps 1:1 to a
+  // command binding; see src/lib/commands/registry.ts.
   useEffect(() => {
+    const commands = buildCommands({
+      toggleFullscreen: () => {
+        if (typeof document === "undefined") return;
+        if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.();
+        else void document.exitFullscreen?.();
+      },
+    });
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) return;
+      const binding = eventToBinding(e);
+      const cmd = commandForBinding(commands, binding);
+      if (!cmd) return;
       const s = useLab.getState();
-      const meta = e.metaKey || e.ctrlKey;
-      if (meta && e.key.toLowerCase() === "z") {
+      if (cmd.enabled && !cmd.enabled(s)) {
+        // Still swallow the key for a known-but-disabled binding (e.g. undo with
+        // an empty stack) so the browser default never fires.
         e.preventDefault();
-        if (e.shiftKey) s.redo();
-        else s.undo();
         return;
       }
-      if (meta && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        s.redo();
-        return;
-      }
-      if (e.code === "Space") {
-        e.preventDefault();
-        s.setPaused(!s.paused);
-      } else if (e.key === "1") s.setSpeed(0.25);
-      else if (e.key === "2") s.setSpeed(0.5);
-      else if (e.key === "3") s.setSpeed(1);
-      else if (e.key === "4") s.setSpeed(2);
-      else if (e.key === "5") s.setSpeed(4);
-      else if (e.key === "0") s.resetView();
-      else if (e.key === "+" || e.key === "=") s.setView({ zoom: s.viewZoom * 1.12 });
-      else if (e.key === "-" || e.key === "_") s.setView({ zoom: s.viewZoom / 1.12 });
-      else if (e.key === "f" || e.key === "F") {
-        if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.();
-        else void document.exitFullscreen?.();
-      } else if (e.key === "?" || (e.shiftKey && e.key === "/")) {
-        s.setHelpOpen(!s.helpOpen);
-      } else if (e.key === "[" ) s.setQuality(s.quality === "high" ? "medium" : "low");
-      else if (e.key === "]") s.setQuality(s.quality === "low" ? "medium" : "high");
-      else if (!e.metaKey && !e.ctrlKey && e.key >= "6" && e.key <= "9") {
-        const scene = SCENES[Number(e.key) - 6];
-        if (scene) s.applyScene(scene.id);
-      }
+      e.preventDefault();
+      cmd.run(s);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
