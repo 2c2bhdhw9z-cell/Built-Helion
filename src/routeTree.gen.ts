@@ -16,7 +16,9 @@ import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 import { Route as AdminCommentsRouteImport } from './routes/admin.comments'
 import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
 import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
+import { Route as ApiOembedRouteImport } from './routes/api/oembed'
 import { Route as ApiRtcRouteImport } from './routes/api/rtc'
+import { Route as EmbedIdRouteImport } from './routes/embed.$id'
 import { Route as SIdRouteImport } from './routes/s.$id'
 import { Route as UIdRouteImport } from './routes/u.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -57,9 +59,19 @@ const AdminFeedbackRoute = AdminFeedbackRouteImport.update({
   path: '/admin/feedback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOembedRoute = ApiOembedRouteImport.update({
+  id: '/api/oembed',
+  path: '/api/oembed',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiRtcRoute = ApiRtcRouteImport.update({
   id: '/api/rtc',
   path: '/api/rtc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedIdRoute = EmbedIdRouteImport.update({
+  id: '/embed/$id',
+  path: '/embed/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SIdRoute = SIdRouteImport.update({
@@ -91,7 +103,9 @@ export interface FileRoutesByFullPath {
   '/admin/comments': typeof AdminCommentsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
+  '/api/oembed': typeof ApiOembedRoute
   '/api/rtc': typeof ApiRtcRoute
+  '/embed/$id': typeof EmbedIdRoute
   '/s/$id': typeof SIdRoute
   '/u/$id': typeof UIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -105,7 +119,9 @@ export interface FileRoutesByTo {
   '/admin/comments': typeof AdminCommentsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
+  '/api/oembed': typeof ApiOembedRoute
   '/api/rtc': typeof ApiRtcRoute
+  '/embed/$id': typeof EmbedIdRoute
   '/s/$id': typeof SIdRoute
   '/u/$id': typeof UIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -120,7 +136,9 @@ export interface FileRoutesById {
   '/admin/comments': typeof AdminCommentsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
+  '/api/oembed': typeof ApiOembedRoute
   '/api/rtc': typeof ApiRtcRoute
+  '/embed/$id': typeof EmbedIdRoute
   '/s/$id': typeof SIdRoute
   '/u/$id': typeof UIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -136,7 +154,9 @@ export interface FileRouteTypes {
     | '/admin/comments'
     | '/admin/dashboard'
     | '/admin/feedback'
+    | '/api/oembed'
     | '/api/rtc'
+    | '/embed/$id'
     | '/s/$id'
     | '/u/$id'
     | '/api/auth/$'
@@ -150,7 +170,9 @@ export interface FileRouteTypes {
     | '/admin/comments'
     | '/admin/dashboard'
     | '/admin/feedback'
+    | '/api/oembed'
     | '/api/rtc'
+    | '/embed/$id'
     | '/s/$id'
     | '/u/$id'
     | '/api/auth/$'
@@ -164,7 +186,9 @@ export interface FileRouteTypes {
     | '/admin/comments'
     | '/admin/dashboard'
     | '/admin/feedback'
+    | '/api/oembed'
     | '/api/rtc'
+    | '/embed/$id'
     | '/s/$id'
     | '/u/$id'
     | '/api/auth/$'
@@ -179,7 +203,9 @@ export interface RootRouteChildren {
   AdminCommentsRoute: typeof AdminCommentsRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdminFeedbackRoute: typeof AdminFeedbackRoute
+  ApiOembedRoute: typeof ApiOembedRoute
   ApiRtcRoute: typeof ApiRtcRoute
+  EmbedIdRoute: typeof EmbedIdRoute
   SIdRoute: typeof SIdRoute
   UIdRoute: typeof UIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -237,11 +263,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminFeedbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/oembed': {
+      id: '/api/oembed'
+      path: '/api/oembed'
+      fullPath: '/api/oembed'
+      preLoaderRoute: typeof ApiOembedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/rtc': {
       id: '/api/rtc'
       path: '/api/rtc'
       fullPath: '/api/rtc'
       preLoaderRoute: typeof ApiRtcRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/embed/$id': {
+      id: '/embed/$id'
+      path: '/embed/$id'
+      fullPath: '/embed/$id'
+      preLoaderRoute: typeof EmbedIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/s/$id': {
@@ -283,7 +323,9 @@ const rootRouteChildren: RootRouteChildren = {
   AdminCommentsRoute: AdminCommentsRoute,
   AdminDashboardRoute: AdminDashboardRoute,
   AdminFeedbackRoute: AdminFeedbackRoute,
+  ApiOembedRoute: ApiOembedRoute,
   ApiRtcRoute: ApiRtcRoute,
+  EmbedIdRoute: EmbedIdRoute,
   SIdRoute: SIdRoute,
   UIdRoute: UIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

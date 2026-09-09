@@ -32,7 +32,12 @@ export function LabApp() {
   const uiBottomOpen = useLab((s) => s.uiBottomOpen);
   const toggleUiTop = useLab((s) => s.toggleUiTop);
   const toggleUiBottom = useLab((s) => s.toggleUiBottom);
-  const [embed, setEmbed] = useState(false);
+  const [embedFromSearch, setEmbedFromSearch] = useState(false);
+  // Read-only embed mode is set either by the legacy `?embed=1` query (share
+  // link) OR by the dedicated `/embed/:id` route via the store `viewOnly` flag
+  // (Item 10). Either renders the chromeless, autoplaying player.
+  const viewOnly = useLab((s) => s.viewOnly);
+  const embed = embedFromSearch || viewOnly;
   const [layout, setLayout] = useState<"phone" | "tablet" | "desktop">("phone");
   const sessionCode = useSession((s) => s.code);
   const sessionIsHost = useSession((s) => s.isHost);
@@ -65,7 +70,7 @@ export function LabApp() {
 
   useEffect(() => {
     const search = window.location.search;
-    setEmbed(isEmbedSearch(search));
+    setEmbedFromSearch(isEmbedSearch(search));
     const session = readSessionFromSearch(search);
     if (session) {
       writeSessionQuery(session);
@@ -191,7 +196,15 @@ export function LabApp() {
       </div>
       {embed ? (
         <a
-          href={window.location.pathname + window.location.search.replace(/([?&])embed=1(&|$)/, "$1").replace(/[?&]$/, "")}
+          href={
+            viewOnly
+              ? // /embed/:id → link the full share view /s/:id.
+                window.location.pathname.replace(/^\/embed\//, "/s/")
+              : window.location.pathname +
+                window.location.search.replace(/([?&])embed=1(&|$)/, "$1").replace(/[?&]$/, "")
+          }
+          target={viewOnly ? "_blank" : undefined}
+          rel={viewOnly ? "noopener noreferrer" : undefined}
           className="absolute bottom-3 right-3 z-20 rounded-md border border-border bg-surface/80 px-2.5 py-1.5 text-2xs uppercase tracking-[0.14em] text-muted backdrop-blur-md hover:text-fg"
         >
           Open in Helion

@@ -20,8 +20,18 @@ export const Route = createFileRoute("/s/$id")({
   // oEmbed discovery (Item 10): advertise the JSON oEmbed endpoint for this
   // creation so consumers (blogs/CMSes) can auto-unfurl it into the embed
   // player. The `url` points back at this share page; the endpoint resolves the
-  // id from it. Absolute-less link is fine — consumers resolve it against the
-  // page origin.
+  // id from it. A relative href is fine — consumers resolve it against the page
+  // origin.
+  head: ({ params }: { params: { id: string } }) => ({
+    links: [
+      {
+        rel: "alternate",
+        type: "application/json+oembed",
+        href: `/api/oembed?url=/s/${encodeURIComponent(params.id)}&format=json`,
+        title: "Helion creation",
+      },
+    ],
+  }),
   loader: async ({ params }): Promise<{ creation: PublicCreation | null }> => {
     try {
       // Import the server fn dynamically INSIDE the loader (not at module top
