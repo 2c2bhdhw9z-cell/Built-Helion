@@ -184,6 +184,9 @@ export function CanvasStage() {
         quality: s.quality,
         extraBrush,
         audioMappings: s.audioMappings,
+        timeline: s.timelineTrack,
+        timelinePlaying: s.timelinePlaying,
+        timelinePlayhead: s.timelinePlayhead,
       });
       engine.stepFrame(dt, s.paused, s.speed, s.tiltX * s.params.tiltScale, s.tiltY * s.params.tiltScale);
       // While recording, keep the live compositing canvas in sync with the
@@ -210,6 +213,12 @@ export function CanvasStage() {
       if (now - hudAt > 120) {
         if (engine.tool === "field" && engine.field && engine.hasFieldPaint) {
           s.setFieldData(serializeField(engine.field));
+        }
+        // Mirror the engine playhead back for the scrub UI while playing, and
+        // reflect a natural (non-loop) end back into the store's playing flag.
+        if (s.timelinePlaying) {
+          s.setTimelinePlayhead(engine.timelinePlayhead);
+          if (!engine.timelinePlaying) s.setTimelinePlaying(false);
         }
       }
       if (now - hudAt > 120) {

@@ -36,6 +36,13 @@ vi.mock("@/engine/engine", () => {
     requestScreenshot = () => Promise.resolve();
     clear = vi.fn();
     clearWalls = vi.fn();
+    setForceField = vi.fn();
+    clearForceField = vi.fn();
+    field = null;
+    hasFieldPaint = false;
+    tool = "attract";
+    timelinePlaying = false;
+    timelinePlayhead = 0;
     dispose = disposeSpy;
   }
   return { ParticleEngine };

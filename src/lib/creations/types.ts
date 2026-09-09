@@ -274,6 +274,40 @@ export const creationConfigSchema = z.object({
     )
     .optional()
     .catch(undefined),
+  // Optional keyframe timeline (Item 1). Loosely validated here (keys with a
+  // numeric t + a params object); the engine's normalizeTrack does the strict
+  // per-key coercion. Absent when the creation has no animation.
+  timeline: z
+    .object({
+      keys: z.array(
+        z.object({
+          t: z.number().finite(),
+          // The animatable subset (all optional). Strict keys keep CreationConfig
+          // fully JSON-serializable (no `unknown`) so the server functions'
+          // return types stay concrete; the engine's normalizeTrack does the
+          // final coercion/clamping of untrusted values.
+          params: z
+            .object({
+              gravityX: z.number().finite().optional(),
+              gravityY: z.number().finite().optional(),
+              drag: z.number().finite().optional(),
+              pointSize: z.number().finite().optional(),
+              forceStrength: z.number().finite().optional(),
+              trailLength: z.number().finite().optional(),
+              flowStrength: z.number().finite().optional(),
+              bloomStrength: z.number().finite().optional(),
+              nbodyG: z.number().finite().optional(),
+              centralMass: z.number().finite().optional(),
+              palette: z.string().optional(),
+              shape: z.string().optional(),
+            })
+            .catch({}),
+        }),
+      ),
+      loop: z.boolean().optional(),
+    })
+    .optional()
+    .catch(undefined),
 });
 
 /** The validated, always-complete saved config. */

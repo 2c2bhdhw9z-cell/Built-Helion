@@ -22,6 +22,15 @@ import type { CreationConfig } from "@/lib/creations/types";
 import type { SerializedField } from "@/engine/force-field";
 import type { PaletteStop } from "@/engine/palette-stops";
 import { DEFAULT_AUDIO_MAPPINGS, type AudioMapping } from "@/engine/audio-modulation";
+import {
+  addKeyframe as addKf,
+  createTrack,
+  normalizeTrack,
+  removeKeyframe as removeKf,
+  trackDuration,
+  type AnimatableParams,
+  type Track,
+} from "@/engine/timeline";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
 import type { PlanId } from "@/lib/billing/types";
@@ -89,6 +98,8 @@ type LabState = {
   perfHubOpen: boolean;
   perfCompact: boolean;
   helpOpen: boolean;
+  /** Whether the keyframe timeline panel is open (Item 1). */
+  timelineOpen: boolean;
   viewZoom: number;
   viewPanX: number;
   viewPanY: number;
@@ -181,6 +192,16 @@ type LabState = {
    * creation config so a saved audio-reactive scene replays its mapping.
    */
   audioMappings: AudioMapping[];
+  /**
+   * Keyframe timeline (Item 1). A sorted list of keyframes over an animatable
+   * subset of params, plus playback state. The engine advances the playhead
+   * each frame while `timelinePlaying` and applies the sampled params; the store
+   * is authoritative for the track + playing flag and mirrors the live playhead
+   * back for the scrub UI. Persisted in the creation config.
+   */
+  timelineTrack: Track;
+  timelinePlaying: boolean;
+  timelinePlayhead: number;
   setParam: <K extends keyof LabParams>(key: K, value: LabParams[K]) => void;
   patchParams: (p: Partial<LabParams>) => void;
   setTelemetry: (t: Telemetry) => void;
@@ -219,6 +240,7 @@ type LabState = {
   setRecordFps: (v: RecordFps) => void;
   setPerfHubOpen: (v: boolean) => void;
   setPerfCompact: (v: boolean) => void;
+  setTimelineOpen: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setCaptureScreenshot: (fn: ((kind?: "png" | "jpg") => void) | null) => void;
   setStartRecording: (fn: (() => void) | null) => void;
@@ -250,6 +272,16 @@ type LabState = {
   setPaletteStops: (stops: PaletteStop[]) => void;
   /** Replace the audio-reactive mappings. */
   setAudioMappings: (mappings: AudioMapping[]) => void;
+  /** Capture the current animatable params as a keyframe at the given time. */
+  addTimelineKeyframe: (t: number) => void;
+  /** Remove the keyframe at index i. */
+  removeTimelineKeyframe: (i: number) => void;
+  /** Replace the whole track (e.g. toggle loop, clear). */
+  setTimelineTrack: (track: Track) => void;
+  /** Start/stop playback. */
+  setTimelinePlaying: (v: boolean) => void;
+  /** Set the playhead (scrub or engine mirror). */
+  setTimelinePlayhead: (t: number) => void;
 };
 
 /**
@@ -261,7 +293,14 @@ type LabState = {
 export function currentCreationConfig(
   state: Pick<
     LabState,
-    "params" | "spawnKind" | "spawnCount" | "speed" | "cap" | "fieldData" | "audioMappings"
+    | "params"
+    | "spawnKind"
+    | "spawnCount"
+    | "speed"
+    | "cap"
+    | "fieldData"
+    | "audioMappings"
+    | "timelineTrack"
   >,
 ): CreationConfig {
   return {
@@ -281,6 +320,9 @@ export function currentCreationConfig(
     ...(state.params.audioReactive && state.audioMappings.length
       ? { audioMappings: state.audioMappings }
       : {}),
+    // Persist the keyframe timeline only when it has keyframes so a saved
+    // animated creation replays.
+    ...(state.timelineTrack.keys.length ? { timeline: state.timelineTrack } : {}),
   };
 }
 
@@ -425,6 +467,7 @@ export const useLab = create<LabState>((set, get) => ({
   perfHubOpen: false,
   perfCompact: false,
   helpOpen: false,
+  timelineOpen: false,
   viewZoom: 1,
   viewPanX: 0,
   viewPanY: 0,
@@ -452,6 +495,9 @@ export const useLab = create<LabState>((set, get) => ({
   fieldApplyId: 0,
   paletteStops: [],
   audioMappings: [...DEFAULT_AUDIO_MAPPINGS],
+  timelineTrack: createTrack(true),
+  timelinePlaying: false,
+  timelinePlayhead: 0,
   canUndo: false,
   canRedo: false,
   setParam: (key, value) => {
@@ -558,6 +604,7 @@ export const useLab = create<LabState>((set, get) => ({
   setRecordFps: (v) => set({ recordFps: v }),
   setPerfHubOpen: (v) => set({ perfHubOpen: v }),
   setPerfCompact: (v) => set({ perfCompact: v }),
+  setTimelineOpen: (v) => set({ timelineOpen: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
@@ -674,6 +721,9 @@ export const useLab = create<LabState>((set, get) => ({
       fieldApplyId: s.fieldApplyId + 1,
       paletteStops: nextParams.paletteStops ?? [],
       audioMappings: config.audioMappings ?? [...DEFAULT_AUDIO_MAPPINGS],
+      timelineTrack: (config.timeline ? normalizeTrack(config.timeline) : null) ?? createTrack(true),
+      timelinePlaying: false,
+      timelinePlayhead: 0,
       canUndo: past.length > 0,
       canRedo: false,
     }));
@@ -701,6 +751,44 @@ export const useLab = create<LabState>((set, get) => ({
     if (rejectIfView()) return;
     set({ audioMappings: mappings, activeSceneId: null });
   },
+  addTimelineKeyframe: (t) => {
+    if (rejectIfView()) return;
+    const p = get().params;
+    const snap: Partial<AnimatableParams> = {
+      gravityX: p.gravityX,
+      gravityY: p.gravityY,
+      drag: p.drag,
+      pointSize: p.pointSize,
+      forceStrength: p.forceStrength,
+      trailLength: p.trailLength,
+      flowStrength: p.flowStrength,
+      bloomStrength: p.bloomStrength,
+      nbodyG: p.nbodyG,
+      centralMass: p.centralMass,
+      palette: p.palette,
+      shape: p.shape,
+    };
+    set((s) => ({ timelineTrack: addKf(s.timelineTrack, t, snap) }));
+  },
+  removeTimelineKeyframe: (i) => {
+    if (rejectIfView()) return;
+    set((s) => {
+      const track = removeKf(s.timelineTrack, i);
+      return {
+        timelineTrack: track,
+        timelinePlayhead: Math.min(s.timelinePlayhead, trackDuration(track)),
+      };
+    });
+  },
+  setTimelineTrack: (track) => {
+    if (rejectIfView()) return;
+    set((s) => ({ timelineTrack: track, timelinePlayhead: Math.min(s.timelinePlayhead, trackDuration(track)) }));
+  },
+  setTimelinePlaying: (v) => {
+    if (rejectIfView()) return;
+    set({ timelinePlaying: v });
+  },
+  setTimelinePlayhead: (t) => set({ timelinePlayhead: t }),
   setPaletteStops: (stops) => {
     if (rejectIfView()) return;
     // Route custom stops into params so the renderers (which only see params)
