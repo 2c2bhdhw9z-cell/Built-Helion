@@ -236,6 +236,29 @@ export const creationConfigSchema = z.object({
     .transform((n) => Math.max(CAP_MIN, Math.min(CAP_MAX, Math.round(n))))
     .catch(DEFAULT_CAP)
     .default(DEFAULT_CAP),
+  // Optional painted vector force field (Item 4). Stored as a small resolution +
+  // flat number[] so a saved creation replays the field particles follow. An
+  // untrusted/garbage value is dropped by the engine's deserializeField guard,
+  // so we only validate shape loosely here (res number + numeric data array).
+  // Absent on older rows and on creations with no painted field.
+  field: z
+    .object({
+      res: z.number().finite(),
+      data: z.array(z.number().finite()),
+    })
+    .optional(),
+  // Optional custom multi-stop palette (Item 5). Each stop is a #rrggbb color at
+  // a 0..1 position. Absent when the creation uses a built-in palette or the
+  // two-stop colorA/colorB gradient. Empty/invalid entries are ignored by the
+  // palette editor's normalizer.
+  paletteStops: z
+    .array(
+      z.object({
+        pos: z.number().finite(),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      }),
+    )
+    .optional(),
 });
 
 /** The validated, always-complete saved config. */

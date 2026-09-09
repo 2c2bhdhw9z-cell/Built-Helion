@@ -19,6 +19,8 @@ import { GENERATOR_PRESETS } from "@/engine/generator-presets";
 import { SCENES, type SceneId } from "@/engine/scenes";
 import { clampViewPitch, clampViewZoom } from "@/engine/camera";
 import type { CreationConfig } from "@/lib/creations/types";
+import type { SerializedField } from "@/engine/force-field";
+import type { PaletteStop } from "@/engine/palette-stops";
 import { canRecord as canRecordCapability } from "@/lib/capture/mime";
 import { useSession } from "@/lib/multiplayer/session-store";
 import type { PlanId } from "@/lib/billing/types";
@@ -153,6 +155,25 @@ type LabState = {
   clearId: number;
   /** Id of the most recently applied scene, or null. Purely informational for the picker. */
   activeSceneId: SceneId | null;
+  /**
+   * Serialized painted force field (Item 4). Null when no field is painted. The
+   * store is authoritative for persistence: CanvasStage mirrors the engine's
+   * live painted field back into here (via setFieldData) so save/undo/session
+   * snapshots capture it, and applyCreationConfig pushes it back to the engine.
+   */
+  fieldData: SerializedField | null;
+  /**
+   * A monotonically increasing token bumped whenever fieldData changes from a
+   * SOURCE OTHER than the engine's own paint loop (config load, clear, remote).
+   * CanvasStage watches this to push the field into the engine, without echoing
+   * the engine's own paint back at it.
+   */
+  fieldApplyId: number;
+  /**
+   * Custom multi-stop palette (Item 5). Empty when using a built-in palette or
+   * the two-stop colorA/colorB gradient. Persisted in the creation config.
+   */
+  paletteStops: PaletteStop[];
   setParam: <K extends keyof LabParams>(key: K, value: LabParams[K]) => void;
   patchParams: (p: Partial<LabParams>) => void;
   setTelemetry: (t: Telemetry) => void;
@@ -214,6 +235,12 @@ type LabState = {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  /** Mirror the engine's live painted field into the store (no re-apply). */
+  setFieldData: (field: SerializedField | null) => void;
+  /** Replace the field AND signal CanvasStage to push it into the engine. */
+  applyFieldData: (field: SerializedField | null) => void;
+  /** Set the custom multi-stop palette. */
+  setPaletteStops: (stops: PaletteStop[]) => void;
 };
 
 /**
@@ -223,7 +250,10 @@ type LabState = {
  * existing fallbacks in addParticles/runGenerator.
  */
 export function currentCreationConfig(
-  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed" | "cap">,
+  state: Pick<
+    LabState,
+    "params" | "spawnKind" | "spawnCount" | "speed" | "cap" | "fieldData" | "paletteStops"
+  >,
 ): CreationConfig {
   return {
     params: { ...state.params },
@@ -233,6 +263,11 @@ export function currentCreationConfig(
     // Capture the buffer cap so a high-count creation reproduces at full
     // particle count on load (mirrors how applyScene persists scene.cap).
     cap: state.cap,
+    // Persist the painted force field + custom palette so a saved creation
+    // reproduces them. Omitted (undefined) when unset so older/clean configs
+    // stay minimal.
+    ...(state.fieldData ? { field: state.fieldData } : {}),
+    ...(state.paletteStops.length ? { paletteStops: state.paletteStops } : {}),
   };
 }
 
@@ -400,6 +435,9 @@ export const useLab = create<LabState>((set, get) => ({
   spawnKind: "galaxy",
   clearId: 0,
   activeSceneId: null,
+  fieldData: null,
+  fieldApplyId: 0,
+  paletteStops: [],
   canUndo: false,
   canRedo: false,
   setParam: (key, value) => {
@@ -615,6 +653,11 @@ export const useLab = create<LabState>((set, get) => ({
       spawnKind: config.spawnKind as GeneratorKind,
       spawnId: s.spawnId + 1,
       activeSceneId: null,
+      // Restore the painted field + custom palette from the config, and bump
+      // fieldApplyId so CanvasStage pushes the field into the engine.
+      fieldData: config.field ?? null,
+      fieldApplyId: s.fieldApplyId + 1,
+      paletteStops: config.paletteStops ?? [],
       canUndo: past.length > 0,
       canRedo: false,
     }));
@@ -632,6 +675,15 @@ export const useLab = create<LabState>((set, get) => ({
       canUndo: past.length > 0,
       canRedo: false,
     }));
+  },
+  setFieldData: (field) => set({ fieldData: field }),
+  applyFieldData: (field) => {
+    if (rejectIfView()) return;
+    set((s) => ({ fieldData: field, fieldApplyId: s.fieldApplyId + 1 }));
+  },
+  setPaletteStops: (stops) => {
+    if (rejectIfView()) return;
+    set({ paletteStops: stops, activeSceneId: null });
   },
   undo: () => {
     if (rejectIfView()) return;

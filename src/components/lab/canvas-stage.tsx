@@ -15,6 +15,7 @@ import { SCENES } from "@/engine/scenes";
 import { SessionCursors } from "./session-cursors";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale, degToRad, unprojectOrbit } from "@/engine/camera";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
+import { deserializeField, serializeField } from "@/engine/force-field";
 import { pickLiveExtraBrush } from "@/lib/multiplayer/protocol";
 import { useSession } from "@/lib/multiplayer/session-store";
 import { awardBadge } from "@/lib/play/progress";
@@ -198,6 +199,15 @@ export function CanvasStage() {
           } catch {
             /* never throw into the render loop */
           }
+        }
+      }
+      // Mirror a freshly painted force field back into the store so it is
+      // captured by save / undo / session snapshots. Only runs when the user is
+      // actively painting with the Field tool (cheap check), throttled to the
+      // HUD cadence so it never taxes the hot loop.
+      if (now - hudAt > 120) {
+        if (engine.tool === "field" && engine.field && engine.hasFieldPaint) {
+          s.setFieldData(serializeField(engine.field));
         }
       }
       if (now - hudAt > 120) {
@@ -559,6 +569,29 @@ export function CanvasStage() {
     const onClearWalls = () => engineRef.current?.clearWalls();
     window.addEventListener("clear-walls", onClearWalls);
     return () => window.removeEventListener("clear-walls", onClearWalls);
+  }, []);
+
+  // Push a force field into the engine whenever it changes from a source other
+  // than the engine's own paint loop (config load, remix, remote, or a Clear
+  // Field). fieldApplyId is bumped by the store on those paths.
+  const fieldApplyId = useLab((s) => s.fieldApplyId);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const data = useLab.getState().fieldData;
+    engine.setForceField(data ? deserializeField(data) : null);
+  }, [fieldApplyId]);
+
+  // The Physics tab's "Clear Field" button dispatches this event; the engine
+  // owns the live field, so the listener lives next to the engine ref and also
+  // clears the store's persisted copy.
+  useEffect(() => {
+    const onClearField = () => {
+      engineRef.current?.clearForceField();
+      useLab.getState().setFieldData(null);
+    };
+    window.addEventListener("clear-field", onClearField);
+    return () => window.removeEventListener("clear-field", onClearField);
   }, []);
 
   useEffect(() => {

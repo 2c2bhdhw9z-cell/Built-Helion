@@ -97,6 +97,7 @@ const TOOLS: { id: ToolKind; label: string; icon: typeof Magnet }[] = [
   { id: "vortex", label: "Vortex", icon: Orbit },
   { id: "paint", label: "Paint", icon: Paintbrush },
   { id: "wall", label: "Wall", icon: PenLine },
+  { id: "field", label: "Field", icon: Grid3x3 },
   { id: "freeze", label: "Freeze", icon: Snowflake },
 ];
 
@@ -267,7 +268,20 @@ export function ToolBar() {
             );
           })}
         </div>
+        {tool === "field" && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => window.dispatchEvent(new Event("clear-field"))}
+          >
+            Clear field
+          </Button>
+        )}
       </div>
+      {tool === "field" && (
+        <p className="text-2xs text-faint">Drag to paint a vector field — particles follow the direction you draw.</p>
+      )}
       <div className="grid grid-cols-3 gap-3 md:max-w-xl">
         <SliderRow
           label="Brush"

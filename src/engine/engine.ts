@@ -1,6 +1,7 @@
 import { audioManager } from "./audio";
 import { forceRuntime } from "./force-expr";
 import { emitAlongStroke, emitContinuous, spawnGenerator } from "./emitters";
+import { createField, paintField, type ForceField } from "./force-field";
 import { SpatialHash } from "./hash";
 import { stepPhysics } from "./physics";
 import { ParticleSoA } from "./soa";
@@ -90,6 +91,16 @@ export class ParticleEngine {
   lastWallX = 0;
   lastWallY = 0;
   walls: Array<{x1:number, y1:number, x2:number, y2:number}> = [];
+  /**
+   * Painted vector force field particles follow (CPU physics path). Null until
+   * the user paints with the Field tool or a creation config restores one. GPU
+   * compute does not read the field, so painting gates the engine to the CPU
+   * physics step (see stepFrame's cpuDriven check).
+   */
+  field: ForceField | null = null;
+  lastFieldX = 0;
+  lastFieldY = 0;
+  hasFieldPaint = false;
   gpu: WebGPUBackend | null = null;
   gl: WebGLRenderer | null = null;
   canvas2d: Canvas2DRenderer | null = null;
@@ -470,6 +481,22 @@ export class ParticleEngine {
     this.hasWallPaint = false;
   }
 
+  /**
+   * Drop the painted force field. Independent of particles and walls, like
+   * clearWalls(). Setting it to null lets the engine fall back to its native
+   * compute path on the next frame.
+   */
+  clearForceField(): void {
+    this.field = null;
+    this.hasFieldPaint = false;
+  }
+
+  /** Restore a force field from a (deserialized) config. Null clears it. */
+  setForceField(field: ForceField | null): void {
+    this.field = field;
+    this.hasFieldPaint = false;
+  }
+
   spawn(kind: GeneratorKind, replace: boolean, origin?: { x: number; y: number }, count?: number): number {
     if (replace) {
       this.soa.clear();
@@ -724,6 +751,27 @@ export class ParticleEngine {
       this.hasWallPaint = false;
     }
 
+    if (this.tool === "field" && this.pointer.down) {
+      if (!this.field) this.field = createField();
+      if (this.hasFieldPaint) {
+        const dx = this.pointer.x - this.lastFieldX;
+        const dy = this.pointer.y - this.lastFieldY;
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-4) {
+          // Drag direction sets the painted vector; normalize to a unit dir so
+          // stroke speed doesn't change field magnitude.
+          const nx = this.pointer.x / Math.max(this.worldW, 1e-6);
+          const ny = this.pointer.y / Math.max(this.worldH, 1e-6);
+          paintField(this.field, nx, ny, dx / len, dy / len, this.brushRadius, this.brushStrength);
+        }
+      }
+      this.lastFieldX = this.pointer.x;
+      this.lastFieldY = this.pointer.y;
+      this.hasFieldPaint = true;
+    } else {
+      this.hasFieldPaint = false;
+    }
+
     for (const e of this.emitters) {
       e.acc += e.rate * dt;
       const n = Math.floor(e.acc);
@@ -797,7 +845,9 @@ export class ParticleEngine {
       effectiveParams.pointSize = Math.min(24, this.params.pointSize * (1 + mid * 0.8));
     }
     
-    if (this.compute === "cpu" || this.springs.length > 0) {
+    // A painted force field is only read by the CPU physics step, so force the
+    // CPU path whenever a field exists (mirrors the springs override).
+    if (this.compute === "cpu" || this.springs.length > 0 || this.field !== null) {
       const pt0 = performance.now();
       const st = stepPhysics(
         this.soa,
@@ -816,6 +866,7 @@ export class ParticleEngine {
         this.totalTime,
         this.walls,
         this.extraBrush,
+        this.field,
       );
       this.cpuPhysicsMs += performance.now() - pt0;
       this.telemetry.nanCount += st.nan;
@@ -866,7 +917,7 @@ export class ParticleEngine {
    */
   render(refreshGpuParams = true): void {
     if (this.gpu) {
-      const cpuDriven = this.compute === "cpu" || this.springs.length > 0;
+      const cpuDriven = this.compute === "cpu" || this.springs.length > 0 || this.field !== null;
       if (cpuDriven) this.gpu.uploadSoA(this.soa);
       if (cpuDriven || refreshGpuParams) {
         this.gpu.writeParams(

@@ -91,7 +91,8 @@ export type ToolKind =
   | "repulsor"
   | "vortex"
   | "paint"
-  | "freeze";
+  | "freeze"
+  | "field";
 
 export type BlendMode = "additive" | "alpha";
 export type ParticleShape =

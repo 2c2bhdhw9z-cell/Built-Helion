@@ -14,6 +14,7 @@ import {
   type ToolKind,
 } from "./types";
 import { applyCustomForce } from "./force-expr";
+import { fieldHasData, sampleField, type ForceField } from "./force-field";
 
 export type PhysicsStats = {
   nan: number;
@@ -124,6 +125,7 @@ export function stepPhysics(
   totalTime: number,
   walls: Array<{x1:number, y1:number, x2:number, y2:number}> = [],
   extraBrush: ExtraBrush = IDLE_EXTRA_BRUSH,
+  field: ForceField | null = null,
 ): PhysicsStats {
 
   stats.nan = 0;
@@ -168,6 +170,10 @@ export function stepPhysics(
   const mMode = pointer.down ? brushMode(tool, true) : 0;
   const extra = extraBrush ?? IDLE_EXTRA_BRUSH;
   const eMode = extra.mode | 0;
+  const fieldActive = fieldHasData(field);
+  // Painted vectors are stored small (0..~1); scale into an acceleration
+  // comparable to the custom-force presets so the field visibly steers.
+  const fieldGain = 8 * (params.forceStrength || 1);
 
   const rest = params.restitution;
   const pr = params.particleRadius;
@@ -223,6 +229,14 @@ export function stepPhysics(
       );
       ax += extra.ax;
       ay += extra.ay;
+    }
+
+    if (fieldActive && field) {
+      const nx = x / Math.max(worldW, 1e-6);
+      const ny = y / Math.max(worldH, 1e-6);
+      const [fvx, fvy] = sampleField(field, nx, ny);
+      ax += fvx * fieldGain;
+      ay += fvy * fieldGain;
     }
 
     let kickX = 0;
