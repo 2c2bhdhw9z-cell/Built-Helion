@@ -1,9 +1,9 @@
 import { saveCreationSchema } from "@/lib/creations/types";
-import { resolveToken } from "./tokens";
-import { allowV1 } from "./rate-limit";
+import { resolveToken } from "./tokens.ts";
+import { allowV1 } from "./rate-limit.ts";
 import { writeAudit } from "@/lib/audit/server";
 import { getSql } from "@/lib/db";
-import { attachControlSocket, pushToUser } from "./socket";
+import { attachControlSocket, pushToUser } from "./socket.ts";
 
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -29,6 +29,27 @@ async function requireToken(request: Request) {
   const raw = bearer(request);
   if (!raw) return null;
   return resolveToken(raw);
+}
+
+/**
+ * Reject a suspended account's write with a 403 JSON response, or return null
+ * when the account may write. A suspended account can still READ, but every
+ * authenticated WRITE must reject (Req 5.3) — the same gate the session-based
+ * server functions apply (see `saveCreationFn` etc. in
+ * `@/lib/creations/functions`). Without this the REST surface, which
+ * authenticates by bearer token rather than a session, would let a suspended
+ * account keep writing (save a creation, queue a control command) and bypass
+ * the suspension entirely.
+ */
+async function suspendedWriteGuard(userId: string): Promise<Response | null> {
+  const { assertNotSuspended, SuspendedError } = await import("@/lib/admin/guard.server");
+  try {
+    await assertNotSuspended(userId);
+    return null;
+  } catch (err) {
+    if (err instanceof SuspendedError) return json(403, { error: "Account suspended" });
+    throw err;
+  }
 }
 
 /**
@@ -124,6 +145,8 @@ export async function handleV1(request: Request): Promise<Response> {
   if (path === "creations" && request.method === "POST") {
     const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
+    const suspended = await suspendedWriteGuard(auth.userId);
+    if (suspended) return suspended;
     let payload: unknown;
     try {
       payload = await request.json();
@@ -134,7 +157,7 @@ export async function handleV1(request: Request): Promise<Response> {
     if (!parsed.success) return json(400, { error: "Invalid scene", details: parsed.error.flatten() });
     const { insertCreation } = await import("@/lib/creations/server");
     const row = await insertCreation(auth.userId, parsed.data.name, parsed.data.config);
-    const { fireWebhooks } = await import("./tokens");
+    const { fireWebhooks } = await import("./tokens.ts");
     void fireWebhooks(auth.userId, { event: "creation.saved", id: row.id, name: row.name });
     void writeAudit(auth.userId, "creation.save", row.name);
     return json(201, { id: row.id, name: row.name });
@@ -179,7 +202,7 @@ export async function handleV1(request: Request): Promise<Response> {
     const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
     try {
-      const { listDeliveries } = await import("./tokens");
+      const { listDeliveries } = await import("./tokens.ts");
       const items = await listDeliveries(auth.userId);
       return json(200, { items });
     } catch {
@@ -190,6 +213,8 @@ export async function handleV1(request: Request): Promise<Response> {
   if (path === "control" && request.method === "POST") {
     const auth = await requireToken(request);
     if (!auth) return json(401, { error: "Bearer token required" });
+    const suspended = await suspendedWriteGuard(auth.userId);
+    if (suspended) return suspended;
     let payload: unknown;
     try {
       payload = await request.json();
