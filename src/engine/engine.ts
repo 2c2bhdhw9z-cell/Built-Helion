@@ -288,7 +288,22 @@ export class ParticleEngine {
     const next = Math.max(1024, Math.min(SYSTEM_LIMIT, cap | 0));
     if (next === this.soa.capacity) return;
     this.soa.allocate(next);
-    this.telemetry.cap = next;
+    // soa.allocate grows geometrically and may end up larger than `next`, so size
+    // the GPU/renderer buffers to the ACTUAL SoA capacity (never the raw request)
+    // so backend storage always matches the CPU-side arrays.
+    const actual = this.soa.capacity;
+    // Grow the ACTIVE backend's GPU buffers to match. Without this the WebGPU
+    // storage buffers stay at their original size and any particles past the old
+    // cap are dropped by the GPU — the cap slider appears not to take effect.
+    // (WebGL grows its packed vertex buffer lazily in ensurePacked(); Canvas2D
+    // holds no fixed per-particle buffer, so both self-heal without a call here.)
+    if (this.gpu) {
+      this.gpu.resizeCapacity(actual);
+      // Re-upload current particles so they land in the freshly (re)allocated
+      // buffers instead of the destroyed ones.
+      if (this.soa.count > 0) this.gpu.uploadSoA(this.soa);
+    }
+    this.telemetry.cap = actual;
     this.telemetry.ramBytes = this.soa.byteSize();
   }
 

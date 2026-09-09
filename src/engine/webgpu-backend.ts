@@ -4,6 +4,7 @@ import { WGSL_FADE, WGSL_INTEGRATE, WGSL_POST, WGSL_RENDER_VS } from "./shaders"
 import type { ParticleSoA } from "./soa";
 import { HASH_MAX_PER_CELL, IDLE_EXTRA_BRUSH, brushMode, shapeId, type ExtraBrush, type LabParams, type PointerState, type ToolKind } from "./types";
 import { trailFadeAlpha } from "./camera";
+import { particleBufferSizes } from "./webgpu-buffers";
 
 const UNIFORM_BYTES = 256;
 
@@ -81,9 +82,10 @@ export class WebGPUBackend {
     this.format = format;
     this.cap = cap;
     const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
-    this.posPrevBuf = device.createBuffer({ size: cap * 16, usage: storage });
-    this.velBuf = device.createBuffer({ size: cap * 8, usage: storage });
-    this.lifeMassPhaseBuf = device.createBuffer({ size: cap * 16, usage: storage });
+    const sizes = particleBufferSizes(cap);
+    this.posPrevBuf = device.createBuffer({ size: sizes.posPrev, usage: storage });
+    this.velBuf = device.createBuffer({ size: sizes.vel, usage: storage });
+    this.lifeMassPhaseBuf = device.createBuffer({ size: sizes.lifeMassPhase, usage: storage });
     this.cells = this.cols * this.rows;
     this.hashCountBuf = device.createBuffer({
       size: this.cells * 4,
@@ -729,6 +731,52 @@ export class WebGPUBackend {
     postPass.end();
 
     this.device.queue.submit([enc.finish()]);
+  }
+
+  /**
+   * Grow (or shrink) the three per-particle storage buffers to hold `newCap`
+   * particles and rebuild EVERY bind group that references them.
+   *
+   * The particle storage buffers (posPrev/vel/lifeMassPhase) are created ONCE in
+   * the constructor sized to the initial cap. Without this, raising the particle
+   * cap grows only the CPU-side SoA arrays; the GPU buffers stay at the old size
+   * so uploadSoA() writes past the end and the extra particles are dropped — the
+   * cap slider appears to do nothing past its original value. This is the fix.
+   *
+   * The compute bind group (bindings 1/2/3) and render/vertex bind group
+   * (bindings 1/2/3) both reference these buffers, so both MUST be recreated to
+   * point at the new buffers; otherwise the pipelines keep the old/destroyed
+   * buffers bound. hashCount/hashBucket are sized to grid `cells`, not cap, so
+   * they are left untouched.
+   *
+   * No-ops when `newCap` already matches `this.cap` so repeated slider churn at
+   * the same value is free. The old GPUBuffers are `.destroy()`ed to avoid a GPU
+   * memory leak when the slider is dragged repeatedly.
+   */
+  resizeCapacity(newCap: number): void {
+    const next = Math.max(1, newCap | 0);
+    if (next === this.cap) return;
+    const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
+    const sizes = particleBufferSizes(next);
+
+    const oldPosPrev = this.posPrevBuf;
+    const oldVel = this.velBuf;
+    const oldLmp = this.lifeMassPhaseBuf;
+
+    this.posPrevBuf = this.device.createBuffer({ size: sizes.posPrev, usage: storage });
+    this.velBuf = this.device.createBuffer({ size: sizes.vel, usage: storage });
+    this.lifeMassPhaseBuf = this.device.createBuffer({ size: sizes.lifeMassPhase, usage: storage });
+    this.cap = next;
+
+    // Rebuild every bind group that references the per-particle buffers so the
+    // compute and render pipelines bind the NEW buffers, not the freed ones.
+    this.computeBG = this.makeComputeBG();
+    this.renderBG = this.makeRenderBG();
+
+    // Release the old buffers now that nothing references them.
+    oldPosPrev.destroy();
+    oldVel.destroy();
+    oldLmp.destroy();
   }
 
   dispose(): void {
