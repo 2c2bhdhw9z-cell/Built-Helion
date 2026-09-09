@@ -9,6 +9,57 @@ import { join } from "node:path";
 export const DEFAULT_APP_NAME = "Helion";
 export const OG_SITE_REL_PATH = "src/lib/og/site.json";
 
+/**
+ * Service-worker chrome (Req 9 — offline/PWA). The SW is served from ROOT
+ * (`/sw.js`) so its default scope is `/` and it can control every navigation.
+ * Pure helpers below (cache naming, the asset-match predicate) are unit-tested
+ * in helion-pwa-plugin.test.mjs; the SW's actual offline behavior needs a
+ * browser SW runtime and cannot be exercised headlessly.
+ */
+export const SW_PATH = "/sw.js";
+
+/** The prefix all Helion runtime caches share, so `activate` can sweep old ones. */
+export const SW_CACHE_PREFIX = "helion-cache-";
+
+/**
+ * The versioned cache name for a build. `version` is baked at build/serve time
+ * (the asset build hash, or a dev sentinel) so a new deploy uses a NEW cache
+ * and the old one is deleted on `activate` — no stale assets survive a deploy.
+ */
+export function swCacheName(version) {
+  const v = String(version ?? "").trim() || "0";
+  return `${SW_CACHE_PREFIX}${v}`;
+}
+
+/**
+ * True for a same-origin request path the SW may cache-first: the hashed build
+ * assets (`/assets/*`), the static PWA icons/app chrome under `/__helion/`, and
+ * the top-level static files (favicon, sdk helpers). These are content-hashed
+ * or effectively immutable, so serving them from cache is safe and fast.
+ *
+ * Deliberately EXCLUDES anything that must always hit the network:
+ *   - `/api/*`            (the REST + server-function surface)
+ *   - `/api/auth/*`       (Better Auth endpoints — covered by /api/*)
+ *   - `/_serverFn/*`      (TanStack Start server-function POST transport)
+ *   - `/__helion/manifest.*` (served no-cache, per-request app name)
+ *   - navigations / documents (handled network-first with an app-shell fallback)
+ */
+export function isPrecachableAssetPath(pathname) {
+  const path = String(pathname ?? "");
+  if (path.startsWith("/api/")) return false;
+  if (path.startsWith("/_serverFn/")) return false;
+  if (path === "/__helion/manifest.webmanifest" || path === "/__helion/manifest.json") {
+    return false;
+  }
+  if (path.startsWith("/assets/")) return true;
+  if (path.startsWith("/__helion/")) return true;
+  return (
+    path === "/favicon.svg" ||
+    path.startsWith("/sdk/") ||
+    /^\/[^/]+\.(?:png|jpg|jpeg|svg|webp|ico|woff2?|css|js)$/i.test(path)
+  );
+}
+
 const SHARE_META_KEYS = new Set([
   "og:title",
   "og:description",
@@ -181,6 +232,23 @@ export function renderWebManifest(hostHeader) {
     null,
     2,
   );
+}
+
+/**
+ * Bake the service-worker template (`scripts/service-worker.js`) for serving:
+ * substitutes the versioned cache name, the shared cache prefix, and the
+ * app-shell fallback URL. `version` is the build asset hash (or a dev sentinel)
+ * so a new deploy gets a fresh cache and the old one is swept on `activate`.
+ *
+ * Pure string templating (no I/O) so it is unit-testable; callers read the
+ * template file and the version and pass both in — exactly like the install
+ * page renderer.
+ */
+export function renderServiceWorker(template, { version = "0", appShell = "/" } = {}) {
+  return String(template)
+    .replaceAll("{{CACHE_NAME}}", swCacheName(version))
+    .replaceAll("{{CACHE_PREFIX}}", SW_CACHE_PREFIX)
+    .replaceAll("{{APP_SHELL}}", String(appShell || "/"));
 }
 
 export function pwaHeadTags(appName = DEFAULT_APP_NAME) {

@@ -1,7 +1,18 @@
+import { useEffect } from "react";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { ThemeSync, ThemeToaster } from "@/components/lab/theme-sync";
+import { registerServiceWorker } from "@/lib/pwa/register-sw";
 import appCss from "../styles.css?url";
+
+/** Register the offline/PWA service worker once, client-side (Req 9). No-op in
+ * dev and where service workers are unsupported (see register-sw.ts). */
+function ServiceWorkerRegistrar() {
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
+  return null;
+}
 
 const APP_NAME = "Helion";
 
@@ -67,6 +78,7 @@ export const Route = createRootRoute({
       <body className="bg-bg text-fg">
         <AuthProvider>
           <ThemeSync />
+          <ServiceWorkerRegistrar />
           <Outlet />
           <ThemeToaster />
         </AuthProvider>
