@@ -1,4 +1,4 @@
-import { bakePalette, bakeStops, usesCustomStops } from "./palettes";
+import { bakeParamsPalette } from "./palettes";
 import { rasterizeGlyph, rasterizeImage, GLYPH_ATLAS_SIZE, onGlyphFontsReady } from "./glyph-atlas";
 import { WGSL_FADE, WGSL_INTEGRATE, WGSL_POST, WGSL_RENDER_VS } from "./shaders";
 import type { ParticleSoA } from "./soa";
@@ -514,12 +514,11 @@ export class WebGPUBackend {
     }
     this.device.queue.writeBuffer(this.wallsBuf, 0, wBuf.buffer);
 
-    const palKey = `${params.palette}:${params.tint}:${params.colorA}:${params.colorB}`;
+    const stopsKey = params.paletteStops ? JSON.stringify(params.paletteStops) : "";
+    const palKey = `${params.palette}:${params.tint}:${params.colorA}:${params.colorB}:${stopsKey}`;
     if (this.lastPalette !== palKey) {
       this.lastPalette = palKey;
-      const pal = usesCustomStops(params.colorA, params.colorB)
-        ? bakeStops(params.colorA, params.colorB, params.tint)
-        : bakePalette(params.palette, params.tint);
+      const pal = bakeParamsPalette(params);
       this.device.queue.writeTexture(
         { texture: this.palTex },
         pal as unknown as GPUAllowSharedBufferSource,

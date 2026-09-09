@@ -1,4 +1,4 @@
-import { parseTint, samplePalette, sampleStops, usesCustomStops } from "./palettes";
+import { parseTint, sampleParamsPalette } from "./palettes";
 import type { ParticleSoA } from "./soa";
 import type { LabParams } from "./types";
 import { projectOrbit, trailFadeAlpha } from "./camera";
@@ -68,9 +68,7 @@ export class Canvas2DRenderer {
         const cy = worldH * 0.5;
         metric = Math.min(1, Math.hypot(soa.posX[i]! - cx, soa.posY[i]! - cy) / Math.max(0.5 * Math.min(worldW, worldH), 1e-4));
       }
-      const [pr, pg, pb] = usesCustomStops(params.colorA, params.colorB)
-        ? sampleStops(params.colorA, params.colorB, metric)
-        : samplePalette(params.palette, metric);
+      const [pr, pg, pb] = sampleParamsPalette(params, metric);
       const [tr, tg, tb] = parseTint(params.tint);
       const r = pr * tr;
       const g = pg * tg;

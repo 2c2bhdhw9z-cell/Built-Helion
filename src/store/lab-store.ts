@@ -250,12 +250,11 @@ type LabState = {
  * existing fallbacks in addParticles/runGenerator.
  */
 export function currentCreationConfig(
-  state: Pick<
-    LabState,
-    "params" | "spawnKind" | "spawnCount" | "speed" | "cap" | "fieldData" | "paletteStops"
-  >,
+  state: Pick<LabState, "params" | "spawnKind" | "spawnCount" | "speed" | "cap" | "fieldData">,
 ): CreationConfig {
   return {
+    // params carries the custom palette stops (params.paletteStops), so it is
+    // persisted for free here.
     params: { ...state.params },
     spawnKind: state.spawnKind ?? "galaxy",
     spawnCount: state.spawnCount,
@@ -263,11 +262,9 @@ export function currentCreationConfig(
     // Capture the buffer cap so a high-count creation reproduces at full
     // particle count on load (mirrors how applyScene persists scene.cap).
     cap: state.cap,
-    // Persist the painted force field + custom palette so a saved creation
-    // reproduces them. Omitted (undefined) when unset so older/clean configs
-    // stay minimal.
+    // Persist the painted force field so a saved creation reproduces it.
+    // Omitted (undefined) when unset so older/clean configs stay minimal.
     ...(state.fieldData ? { field: state.fieldData } : {}),
-    ...(state.paletteStops.length ? { paletteStops: state.paletteStops } : {}),
   };
 }
 
@@ -653,11 +650,12 @@ export const useLab = create<LabState>((set, get) => ({
       spawnKind: config.spawnKind as GeneratorKind,
       spawnId: s.spawnId + 1,
       activeSceneId: null,
-      // Restore the painted field + custom palette from the config, and bump
-      // fieldApplyId so CanvasStage pushes the field into the engine.
+      // Restore the painted field from the config, and bump fieldApplyId so
+      // CanvasStage pushes it into the engine. The custom palette rides along
+      // inside params (params.paletteStops); mirror it into the editor copy.
       fieldData: config.field ?? null,
       fieldApplyId: s.fieldApplyId + 1,
-      paletteStops: config.paletteStops ?? [],
+      paletteStops: nextParams.paletteStops ?? [],
       canUndo: past.length > 0,
       canRedo: false,
     }));
@@ -683,7 +681,14 @@ export const useLab = create<LabState>((set, get) => ({
   },
   setPaletteStops: (stops) => {
     if (rejectIfView()) return;
-    set({ paletteStops: stops, activeSceneId: null });
+    // Route custom stops into params so the renderers (which only see params)
+    // pick them up; drop the field entirely when cleared so the built-in
+    // palette path resumes.
+    set((s) => ({
+      params: { ...s.params, paletteStops: stops.length ? stops : undefined },
+      paletteStops: stops,
+      activeSceneId: null,
+    }));
   },
   undo: () => {
     if (rejectIfView()) return;

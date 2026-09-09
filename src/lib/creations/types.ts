@@ -170,6 +170,19 @@ export const labParamsSchema: z.ZodType<LabParams> = z
       .regex(/^#[0-9a-fA-F]{6}$/)
       .catch(DEFAULT_PARAMS.colorB)
       .default(DEFAULT_PARAMS.colorB),
+    // Optional custom multi-stop palette (Item 5). Each stop is a #rrggbb color
+    // at a 0..1 position. Absent when the creation uses a built-in palette or
+    // the two-stop colorA/colorB gradient. Malformed stops are dropped so an
+    // untrusted blob is coerced to a usable (possibly empty) list.
+    paletteStops: z
+      .array(
+        z.object({
+          pos: z.number().finite(),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+        }),
+      )
+      .optional()
+      .catch(undefined),
   })
   .catch({ ...DEFAULT_PARAMS }) as z.ZodType<LabParams>;
 
@@ -246,18 +259,6 @@ export const creationConfigSchema = z.object({
       res: z.number().finite(),
       data: z.array(z.number().finite()),
     })
-    .optional(),
-  // Optional custom multi-stop palette (Item 5). Each stop is a #rrggbb color at
-  // a 0..1 position. Absent when the creation uses a built-in palette or the
-  // two-stop colorA/colorB gradient. Empty/invalid entries are ignored by the
-  // palette editor's normalizer.
-  paletteStops: z
-    .array(
-      z.object({
-        pos: z.number().finite(),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-      }),
-    )
     .optional(),
 });
 

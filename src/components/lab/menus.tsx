@@ -39,6 +39,7 @@ import { isProGenerator, SYSTEM_LIMIT, type ForceKind, type GeneratorKind, type 
 import { useLab } from "@/store/lab-store";
 import { Button } from "@/components/ui/button";
 import { Chip, Segmented, SliderRow, ToggleRow } from "./controls";
+import { PaletteEditor } from "./palette-editor";
 import { cn } from "@/lib/utils";
 import { audioManager } from "@/engine/audio";
 import { forceExprOk } from "@/engine/force-expr";
@@ -629,6 +630,7 @@ export function ParamDock() {
                     <span className="text-2xs text-faint">Same colors → named palette. Different → lifetime/speed gradient.</span>
                   )}
                 </div>
+                <PaletteEditor />
                 <div className="col-span-2">
                   <div className="mb-1 text-xs text-muted">Shape</div>
                   <div className="flex flex-wrap gap-1.5">
