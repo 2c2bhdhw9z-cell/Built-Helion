@@ -15,6 +15,8 @@ import { Backdrop } from "./backdrop";
 import { SessionCursors } from "./session-cursors";
 import { buildCommands, commandForBinding } from "@/lib/commands/registry";
 import { eventToBinding } from "@/lib/commands/keys";
+import { LONG_PRESS_MS, LONG_PRESS_MOVE_TOLERANCE } from "@/lib/gestures/touch";
+import { ToolSwitcher } from "./tool-switcher";
 import { fillWorldScale, viewCssPanEnabled, viewCssScale, degToRad, unprojectOrbit } from "@/engine/camera";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import { deserializeField, serializeField } from "@/engine/force-field";
@@ -108,7 +110,22 @@ export function CanvasStage() {
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
+  // Long-press (Item 17): on a single touch held in place we open a tool
+  // switcher at the press point. The timer is armed on pointerdown and cancelled
+  // by movement past the tolerance, a second finger, or pointerup — see
+  // isLongPress() for the pure policy this mirrors.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const [toolMenu, setToolMenu] = useState<{ x: number; y: number } | null>(null);
   const [viewportH, setViewportH] = useState(400);
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressOriginRef.current = null;
+  };
 
   const brush = useLab((s) => s.brushRadius);
   const pointer = useLab((s) => s.pointer);
@@ -286,6 +303,10 @@ export function CanvasStage() {
       dead = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
       // Tear down any in-progress recording so navigating away never leaks a
       // MediaRecorder or an active capture stream (dispose stops both).
       recordingRef.current = false;
@@ -713,12 +734,32 @@ export function CanvasStage() {
               /* ignore */
             }
             if (pointersRef.current.size >= 2) {
+              // A second finger converts the gesture to pinch-zoom / two-finger
+              // pan, so any pending long-press is cancelled.
+              cancelLongPress();
               const pts = [...pointersRef.current.values()];
               const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
               pinchRef.current = { dist: Math.max(dist, 1), zoom: useLab.getState().viewZoom };
               isPointerDownRef.current = false;
               setPointer({ down: false, inside: true });
               return;
+            }
+            // Arm long-press for a single touch: held in place past the
+            // threshold opens the tool switcher at the press point. Cancelled by
+            // movement (pointermove), a second finger (above), or pointerup.
+            if (e.pointerType === "touch") {
+              cancelLongPress();
+              longPressOriginRef.current = { x: e.clientX, y: e.clientY };
+              longPressTimerRef.current = window.setTimeout(() => {
+                // Still a single active pointer that hasn't moved far -> open.
+                if (pointersRef.current.size === 1 && longPressOriginRef.current) {
+                  isPointerDownRef.current = false;
+                  activePointerIdRef.current = null;
+                  setPointer({ down: false, inside: false });
+                  setToolMenu({ x: e.clientX, y: e.clientY });
+                }
+                longPressTimerRef.current = null;
+              }, LONG_PRESS_MS);
             }
             if (isPanEvent(e)) {
               if (!viewCssPanEnabled(useLab.getState().fillFrame, useLab.getState().viewZoom)) {
@@ -760,6 +801,14 @@ export function CanvasStage() {
               });
               return;
             }
+            // If the finger travels past the long-press tolerance, it's a paint
+            // stroke, not a long-press — cancel the pending timer.
+            if (longPressTimerRef.current !== null && longPressOriginRef.current) {
+              const o = longPressOriginRef.current;
+              if (Math.hypot(e.clientX - o.x, e.clientY - o.y) > LONG_PRESS_MOVE_TOLERANCE) {
+                cancelLongPress();
+              }
+            }
             const w = toWorld(e);
             const isDown = isPointerDownRef.current || (e.buttons & 1) !== 0 || e.pointerType === "touch";
             setPointer({
@@ -770,6 +819,7 @@ export function CanvasStage() {
           }}
           onPointerUp={(e) => {
             pointersRef.current.delete(e.pointerId);
+            cancelLongPress();
             if (pointersRef.current.size < 2) pinchRef.current = null;
             panRef.current = null;
             if (e.pointerId === activePointerIdRef.current || activePointerIdRef.current === null) {
@@ -786,6 +836,7 @@ export function CanvasStage() {
           }}
           onPointerCancel={(e) => {
             pointersRef.current.delete(e.pointerId);
+            cancelLongPress();
             pinchRef.current = null;
             panRef.current = null;
             isPointerDownRef.current = false;
@@ -815,6 +866,9 @@ export function CanvasStage() {
         )}
       </div>
       <div className="lab-vignette pointer-events-none absolute inset-0" />
+      {toolMenu ? (
+        <ToolSwitcher x={toolMenu.x} y={toolMenu.y} onClose={() => setToolMenu(null)} />
+      ) : null}
     </div>
   );
 }
