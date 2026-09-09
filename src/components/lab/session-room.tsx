@@ -325,6 +325,11 @@ function applyRemote(selfId: string, msg: SessionMsg): void {
       lab.clearSim();
       break;
     case "tool":
+      // The sender broadcasts a ToolMsg precisely when tool OR brush changed, and
+      // the message carries all three. Applying only the brush left the remote
+      // tool change silently dropped, so peers' HUDs disagreed about the active
+      // tool (the late-joiner "snapshot" path already applies msg.tool).
+      lab.setTool(msg.tool);
       lab.setBrush(msg.brushRadius, msg.brushStrength);
       break;
     case "paused":
