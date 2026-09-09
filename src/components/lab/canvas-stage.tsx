@@ -285,6 +285,10 @@ export function CanvasStage() {
       useLab.getState().setRecording(false);
       useLab.getState().setGifRecording(false);
     };
+    // Mount-only: registers the GIF capture handlers once. `startGif` is
+    // redefined every render, so listing it would re-run this setup/teardown on
+    // each render and thrash the handler registration. Intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**

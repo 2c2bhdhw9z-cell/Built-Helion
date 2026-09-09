@@ -211,7 +211,13 @@ export function CreateDialog() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => void onImage(e.target.files?.[0])}
+                onChange={(e) => {
+                  // Reset the input value so re-selecting the SAME file fires
+                  // onChange again (browsers suppress it otherwise).
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  void onImage(f);
+                }}
               />
               <Button variant="outline" disabled={busy} onClick={() => imageRef.current?.click()}>
                 Image to particles
@@ -228,7 +234,11 @@ export function CreateDialog() {
                 type="file"
                 accept=".csv,text/csv,text/plain"
                 className="hidden"
-                onChange={(e) => void onCsv(e.target.files?.[0])}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  void onCsv(f);
+                }}
               />
               <Button variant="outline" disabled={busy} onClick={() => csvRef.current?.click()}>
                 Import CSV
@@ -242,7 +252,11 @@ export function CreateDialog() {
                 type="file"
                 accept=".obj,.xyz,.txt,text/plain"
                 className="hidden"
-                onChange={(e) => void onObj(e.target.files?.[0])}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  void onObj(f);
+                }}
               />
               <Button variant="outline" disabled={busy} onClick={() => objRef.current?.click()}>
                 Import OBJ

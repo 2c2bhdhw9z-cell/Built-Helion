@@ -30,13 +30,18 @@ before(async () => {
   MAX_LEADERBOARD_ENTRIES = server.MAX_LEADERBOARD_ENTRIES;
 });
 
-// A generator for raw score rows. userIds are drawn from a SMALL alphabet so
-// duplicate userIds and — crucially — equal scores occur often, exercising the
-// tie-break path. Scores are constrained to a small integer range for the same
-// reason (many collisions => the stable-ordering property is meaningfully hit).
+// A generator for raw score rows. Scores are drawn from a SMALL integer range
+// so equal scores occur often, exercising the tie-break path. userIds are
+// UNIQUE per row set — the production aggregate query does `group by
+// c.user_id`, so a creator appears at most once; duplicate-userId rows are not
+// a real input. (When two rows could share a userId AND a score but differ in
+// displayName, the "independent of input order" property is genuinely
+// undefined — reversing the input flips their order — which is what used to
+// make this test flaky. Unique userIds make the total order fully determined by
+// the row set, matching reality.)
 function rowsArb() {
   const rowArb = fc.record({
-    userId: fc.string({ minLength: 1, maxLength: 4 }),
+    userId: fc.string({ minLength: 1, maxLength: 6 }),
     displayName: fc.oneof(
       fc.constant(undefined),
       fc.constant(null),
@@ -44,7 +49,10 @@ function rowsArb() {
     ),
     score: fc.integer({ min: 0, max: 20 }),
   });
-  return fc.array(rowArb, { maxLength: 60 });
+  return fc.uniqueArray(rowArb, {
+    maxLength: 60,
+    selector: (row) => row.userId,
+  });
 }
 
 describe("rankRows — Property 5: leaderboard ordering is non-increasing and stable", () => {

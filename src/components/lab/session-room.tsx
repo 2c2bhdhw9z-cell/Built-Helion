@@ -96,6 +96,11 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
       if (!rolesRef.current[n.id]) rolesRef.current[n.id] = "edit";
       p2p.send(snap, n.id);
     }
+    // Depends on the specific STABLE p2p members it uses (send/selfId are
+    // useCallback-stable, peers is the value that should retrigger). Listing the
+    // whole `p2p` object would add its per-render identity and re-run this every
+    // render. Intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p2p.peers, p2p.selfId, p2p.send, isHost]);
 
   useEffect(
@@ -160,6 +165,9 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
           applying.current = false;
         }
       }),
+    // Stable p2p members only; the parent `p2p` object's per-render identity is
+    // intentionally not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [p2p.onMessage, p2p.selfId],
   );
 
@@ -183,6 +191,8 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
+    // Uses the stable p2p.broadcast; parent `p2p` identity intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p2p.broadcast, name]);
 
   useEffect(() => {
@@ -242,10 +252,14 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
       unsub();
       clearTimeout(paramTimer);
     };
+    // Uses the stable p2p.send; parent `p2p` identity intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p2p.send]);
 
   useEffect(() => {
     p2p.send({ t: "hello", name, isHost });
+    // Stable p2p members (send/joined) only; parent `p2p` identity omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p2p.send, name, isHost, p2p.joined]);
 
   useEffect(() => {
@@ -266,6 +280,8 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
         el.pause();
       }
     };
+    // Uses the stable p2p.onTrack; parent `p2p` identity intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p2p.onTrack]);
 
   useEffect(() => {
@@ -294,6 +310,8 @@ export function SessionRoom({ code, isHost }: { code: string; isHost: boolean })
       stream?.getTracks().forEach((t) => t.stop());
       p2p.setLocalAudio(null);
     };
+    // Uses the stable p2p.setLocalAudio; parent `p2p` identity omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [micOn, p2p.setLocalAudio]);
 
   return null;

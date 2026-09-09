@@ -284,7 +284,7 @@ req = urllib.request.Request(
                 GET /api/v1/meta · library · creations · history · teams · usage · webhooks/deliveries · control. Helpers at /sdk/helion.js and /sdk/helion.py.
               </p>
               <p className="text-2xs leading-relaxed text-faint">
-                No FFmpeg farm, no multi-GPU, no headless GPU, no WebSocket on this host. Live control is a command queue: POST /api/v1/control, then Listen here.
+                No FFmpeg farm, no multi-GPU, no headless GPU. Live control uses a WebSocket channel where the host supports socket upgrades, and falls back to a command queue otherwise: POST /api/v1/control, then Listen here.
               </p>
               {signedIn ? (
                 <Button

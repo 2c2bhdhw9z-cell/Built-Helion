@@ -691,6 +691,8 @@ export function ParamDock() {
                       aria-label="Upload particle sprite"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
+                        // Reset the value so re-selecting the SAME image reloads it.
+                        e.target.value = "";
                         if (!file) return;
                         const prev = useLab.getState().spriteObjectUrl;
                         const url = URL.createObjectURL(file);
