@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { IDLE_EXTRA_BRUSH } from "@/engine/types";
 import { kv } from "../platform/storage";
 import {
+  decideReconnect,
   ensureGuestName,
   isSessionMsg,
   normalizeRoomCode,
@@ -10,6 +11,7 @@ import {
   readGuestName,
   readSessionFromSearch,
   writeGuestName,
+  type ReconnectContext,
 } from "./protocol";
 
 test("random room codes are 6 alphanumerics", () => {
@@ -63,4 +65,54 @@ test("pickLiveExtraBrush uses the newest down cursor", () => {
 test("kick is a session message", () => {
   expect(isSessionMsg({ t: "kick", peerId: "p-1" })).toBe(true);
   expect(isSessionMsg({ t: "hello", name: "Nova", isHost: true })).toBe(true);
+});
+
+const RC: ReconnectContext = {
+  state: "failed",
+  wasConnected: true,
+  recoveryAttempts: 0,
+  maxAttempts: 3,
+  isDialer: true,
+};
+
+test("decideReconnect ignores a pair that never connected", () => {
+  // A pair still doing its first handshake is handled by normal negotiation
+  // and the stall watchdog, not the connected→dropped reconnect path.
+  expect(decideReconnect({ ...RC, wasConnected: false })).toBe("none");
+  expect(decideReconnect({ ...RC, wasConnected: false, state: "disconnected" })).toBe("none");
+});
+
+test("decideReconnect ignores non-drop states", () => {
+  for (const state of ["new", "connecting", "connected", "closed"] as const) {
+    expect(decideReconnect({ ...RC, state })).toBe("none");
+  }
+});
+
+test("decideReconnect rebuilds on the dialer when a connected pair fails", () => {
+  expect(decideReconnect({ ...RC, state: "failed", isDialer: true })).toBe("rebuild");
+});
+
+test("decideReconnect waits on the receiver when a connected pair fails", () => {
+  // Only the dialer re-dials; the receiver waits for the fresh offer.
+  expect(decideReconnect({ ...RC, state: "failed", isDialer: false })).toBe("wait");
+});
+
+test("decideReconnect restarts ICE in place for a transient disconnect", () => {
+  // A blip (phone sleep/wake) should try to self-heal before spending a
+  // rebuild attempt — and it does so on both sides.
+  expect(decideReconnect({ ...RC, state: "disconnected", isDialer: true })).toBe("restart-ice");
+  expect(decideReconnect({ ...RC, state: "disconnected", isDialer: false })).toBe("restart-ice");
+});
+
+test("decideReconnect gives up once attempts hit the ceiling (no storm)", () => {
+  // A genuinely NAT-blocked pair must not reconnect-storm.
+  expect(decideReconnect({ ...RC, recoveryAttempts: 3, maxAttempts: 3 })).toBe("none");
+  expect(
+    decideReconnect({ ...RC, state: "disconnected", recoveryAttempts: 3, maxAttempts: 3 }),
+  ).toBe("none");
+  expect(decideReconnect({ ...RC, recoveryAttempts: 5, maxAttempts: 3 })).toBe("none");
+});
+
+test("decideReconnect still acts while attempts remain under the ceiling", () => {
+  expect(decideReconnect({ ...RC, recoveryAttempts: 2, maxAttempts: 3 })).toBe("rebuild");
 });
