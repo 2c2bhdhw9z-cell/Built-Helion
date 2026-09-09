@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Heart, Play, Trash2, X } from "lucide-react";
+import { GitFork, Heart, Play, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { currentCreationConfig, useLab } from "@/store/lab-store";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
+  forkCreationFn,
   listFeaturedFn,
   listLibraryAuthFn,
   listLibraryFn,
@@ -159,6 +160,26 @@ export function LibraryDialog() {
       );
     } catch {
       toast.error("Could not update like");
+    }
+  };
+
+  const onRemix = async (item: LibraryItem) => {
+    if (!signedIn) {
+      toast.message("Sign in to remix a creation");
+      return;
+    }
+    try {
+      const res = await forkCreationFn({ data: { sourceId: item.id } });
+      if (!res.ok || !res.row) {
+        toast.error("Could not remix that creation");
+        return;
+      }
+      const config = normalizeCreationConfig(res.row.config);
+      if (config) applyCreationConfig(config);
+      setOpen(false);
+      toast.success(`Remixed “${item.name}” — saved to your creations`);
+    } catch {
+      toast.error("Could not remix that creation");
     }
   };
 
@@ -524,6 +545,12 @@ export function LibraryDialog() {
                         {item.name}
                       </p>
                       <p className="truncate text-2xs text-faint">{item.author}</p>
+                      {item.parentName ? (
+                        <p className="truncate text-2xs text-faint" title={`Remixed from ${item.parentName}`}>
+                          <GitFork className="mr-1 inline size-3 align-[-1px]" />
+                          Remixed from {item.parentName}
+                        </p>
+                      ) : null}
                     </div>
                     <Button
                       variant={item.liked ? "default" : "outline"}
@@ -534,6 +561,17 @@ export function LibraryDialog() {
                     >
                       <Heart className={`size-3.5 ${item.liked ? "fill-current" : ""}`} />
                       <span className="tabular-nums">{item.likeCount}</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 px-2"
+                      aria-label={`Remix ${item.name}`}
+                      title="Remix into your own creation"
+                      onClick={() => void onRemix(item)}
+                    >
+                      <GitFork className="size-3.5" />
+                      <span className="hidden sm:inline">Remix</span>
                     </Button>
                     <Button
                       variant="outline"

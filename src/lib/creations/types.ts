@@ -367,6 +367,16 @@ export const sharedCreationSchema = z.object({
 export type SharedCreationInput = z.infer<typeof sharedCreationSchema>;
 
 /**
+ * Validates a fork/remix request (Item 3): the id of the PUBLIC source creation
+ * to copy into a new creation owned by the caller.
+ */
+export const forkCreationSchema = z.object({
+  sourceId: z.string().min(1),
+});
+
+export type ForkCreationInput = z.infer<typeof forkCreationSchema>;
+
+/**
  * A creation row as stored in and returned from Postgres (owner-scoped).
  * `created_at` is a `timestamptz` column: the pg/PGLite drivers parse it into a
  * JS `Date` on the server and, once serialized across the server-function
@@ -386,6 +396,17 @@ export interface CreationRow {
   updated_at: string | Date;
   is_public: boolean;
   featured?: boolean;
+  /**
+   * Lineage pointer (Item 3): the id of the creation this one was remixed from,
+   * or null/undefined for an original. Absent on older rows / narrow SELECTs.
+   */
+  parent_id?: string | null;
+  /**
+   * The source creation's display name, filled only when the parent is still
+   * PUBLIC, so the UI can show "Remixed from …". Never set for a private/deleted
+   * parent (no PII / no leaking a private name).
+   */
+  parent_name?: string | null;
 }
 
 /**
@@ -402,6 +423,10 @@ export interface LibraryItem {
   likeCount: number;
   liked: boolean;
   ownerId?: string;
+  /** Lineage (Item 3): the source creation id, when this card is a remix. */
+  parentId?: string | null;
+  /** The source creation's name, only when the parent is still public. */
+  parentName?: string | null;
 }
 
 export const setPublicSchema = z.object({

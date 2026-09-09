@@ -17,6 +17,8 @@ type RawCreationRow = {
   created_at: string | Date;
   updated_at?: string | Date;
   is_public?: boolean | number | string;
+  parent_id?: string | null;
+  parent_name?: string | null;
 };
 
 function asBool(v: unknown): boolean {
@@ -43,6 +45,8 @@ function toCreationRow(row: RawCreationRow): CreationRow | null {
     // equals its created_at), so the field is always populated and honest.
     updated_at: row.updated_at ?? row.created_at,
     is_public: asBool(row.is_public),
+    parent_id: row.parent_id ?? null,
+    parent_name: row.parent_name ?? null,
   };
 }
 
@@ -150,13 +154,59 @@ export async function updateCreationChecked(
 
 export async function listCreations(userId: string): Promise<CreationRow[]> {
   const sql = await getSql();
+  // Project the parent's name ONLY when the parent still exists AND is public,
+  // so a remix can show "Remixed from …" without leaking a private/deleted
+  // source's name. A dangling or private parent yields a null parent_name.
   const rows = await sql<RawCreationRow>`
-    select id, user_id, name, config, created_at, updated_at, is_public
-    from creations
-    where user_id = ${userId}
-    order by created_at desc
+    select c.id, c.user_id, c.name, c.config, c.created_at, c.updated_at, c.is_public,
+      c.parent_id,
+      (select p.name from creations p where p.id = c.parent_id and p.is_public = true) as parent_name
+    from creations c
+    where c.user_id = ${userId}
+    order by c.created_at desc
   `;
   return rows.map(toCreationRow).filter((row): row is CreationRow => row !== null);
+}
+
+/**
+ * Fork/remix a PUBLIC creation (Item 3): copy the source's config into a NEW
+ * creation owned by `userId`, with `parent_id` set to the source id. Only
+ * public sources can be forked — attempting to fork a private creation you do
+ * not own returns null (denied). The new creation starts unlisted
+ * (is_public defaults to false) so a remix isn't auto-published. The copied
+ * config is normalized (untrusted-input discipline) before it is re-stored.
+ */
+export async function forkCreation(
+  userId: string,
+  sourceId: string,
+): Promise<CreationRow | null> {
+  const sql = await getSql();
+  const src = await sql<{ id: string; name: string; config: unknown; is_public: boolean | number | string }>`
+    select id, name, config, is_public from creations where id = ${sourceId}
+  `;
+  const row = src[0];
+  if (!row || !asBool(row.is_public)) return null;
+  const config = normalizeCreationConfig(row.config);
+  if (!config) return null;
+
+  const id = crypto.randomUUID();
+  const name = `${row.name} (remix)`.slice(0, 120);
+  const rows = await sql<RawCreationRow>`
+    insert into creations (id, user_id, name, config, updated_at, parent_id)
+    values (${id}, ${userId}, ${name}, ${JSON.stringify(config)}, now(), ${sourceId})
+    returning id, user_id, name, config, created_at, updated_at, is_public, parent_id
+  `;
+  const saved = rows[0];
+  if (!saved) return null;
+  try {
+    const { writeAudit } = await import("@/lib/audit/server");
+    void writeAudit(userId, "creation.remix", name);
+  } catch {
+    /* audit is best-effort */
+  }
+  const created = toCreationRow(saved);
+  if (created) created.parent_name = row.name;
+  return created;
 }
 
 export async function deleteCreation(userId: string, id: string): Promise<boolean> {
@@ -232,6 +282,8 @@ type LibraryRow = {
   author: string | null;
   like_count: string | number;
   liked: boolean | number | string | null;
+  parent_id?: string | null;
+  parent_name?: string | null;
 };
 
 function toLibraryItem(row: LibraryRow, likedIds: Set<string>): LibraryItem | null {
@@ -246,6 +298,8 @@ function toLibraryItem(row: LibraryRow, likedIds: Set<string>): LibraryItem | nu
     author: authorLabel(row.author),
     likeCount,
     liked: likedIds.has(row.id) || asBool(row.liked),
+    parentId: row.parent_id ?? null,
+    parentName: row.parent_name ?? null,
   };
 }
 
@@ -263,7 +317,9 @@ export async function listLibrary(
       ? await sql<LibraryRow>`
           select c.id, c.name, c.config, c.created_at,
             coalesce(nullif(p.display_name, ''), '') as author,
-            (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
+            (select count(*) from creation_likes l where l.creation_id = c.id) as like_count,
+            c.parent_id,
+            (select pc.name from creations pc where pc.id = c.parent_id and pc.is_public = true) as parent_name
           from creations c
           left join profiles p on p.user_id = c.user_id
           where c.is_public = true
@@ -273,7 +329,9 @@ export async function listLibrary(
       : await sql<LibraryRow>`
           select c.id, c.name, c.config, c.created_at,
             coalesce(nullif(p.display_name, ''), '') as author,
-            (select count(*) from creation_likes l where l.creation_id = c.id) as like_count
+            (select count(*) from creation_likes l where l.creation_id = c.id) as like_count,
+            c.parent_id,
+            (select pc.name from creations pc where pc.id = c.parent_id and pc.is_public = true) as parent_name
           from creations c
           left join profiles p on p.user_id = c.user_id
           where c.is_public = true
