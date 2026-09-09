@@ -85,6 +85,12 @@ export function HistoryDialog() {
   const setOpen = useLab((s) => s.setHistoryOpen);
   const applyCreationConfig = useLab((s) => s.applyCreationConfig);
   const { user } = useCurrentUserState();
+  // `useCurrentUserState()` builds a NEW `user` object literal on every render,
+  // so keying the load effects below on `user` re-ran them after each of their
+  // own setState calls — an unbounded re-render + refetch loop while this dialog
+  // was open and signed in. Key on the STABLE id (a primitive), matching
+  // use-creations / use-achievements / use-billing / use-preferences.
+  const userId = user?.id ?? null;
   const [name, setName] = useState("");
   const [device, setDevice] = useState<VersionEntry[]>([]);
   const [cloud, setCloud] = useState<VersionEntry[]>([]);
@@ -98,9 +104,9 @@ export function HistoryDialog() {
   useEffect(() => {
     if (!open) return;
     refreshDevice();
-    if (user) setScope("account");
+    if (userId) setScope("account");
     else setScope("device");
-    if (open && user) {
+    if (userId) {
       void listCloudVersionsFn()
         .then((list) =>
           setCloud(list.map((r) => ({ id: r.id, at: r.at, name: r.name, config: r.config }))),
@@ -113,16 +119,16 @@ export function HistoryDialog() {
         })
         .catch(() => setTeams([]));
     }
-  }, [open, user]);
+  }, [open, userId]);
 
   useEffect(() => {
-    if (!open || !user || !teamId || scope !== "team") return;
+    if (!open || !userId || !teamId || scope !== "team") return;
     void listTeamHistoryFn({ data: { teamId } })
       .then((list) =>
         setTeamRows(list.map((r) => ({ id: r.id, at: r.at, name: r.name, config: r.config }))),
       )
       .catch(() => setTeamRows([]));
-  }, [open, user, teamId, scope]);
+  }, [open, userId, teamId, scope]);
 
   const save = () => {
     const config = currentCreationConfig(useLab.getState());

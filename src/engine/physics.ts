@@ -181,7 +181,6 @@ export function stepPhysics(
   const cy = params.centralY * worldH;
   const cMass = params.centralMass;
   const eps = params.softening * params.softening;
-  const lifespan = params.lifespan;
   const pairwiseNbody = params.nbody && n <= 1600;
   if (params.nbody && !pairwiseNbody) {
     buildNbodyGrid(soa, n, worldW, worldH);
@@ -496,7 +495,15 @@ export function stepPhysics(
       vyi = 0;
     }
 
-    if (lifespan > 0 && life[i]! > 0) {
+    // Age every particle that carries a FINITE life. `life < 0` is the explicit
+    // "immortal" marker (see ParticleSoA.writeParticle); `life === 0` is dead and
+    // is compacted out below. This must NOT be gated on `params.lifespan`:
+    // generators and emitters hand out a positive finite life of their own (a
+    // burst gets ~2.2s, fire ~1.8s, smoke ~4.4s) even while the global lifespan
+    // knob sits at its 0 default, so gating on the knob left every burst/fire/
+    // smoke particle immortal on the CPU compute path and it piled up to the cap.
+    // The GPU integrate shader already ages unconditionally — this restores parity.
+    if (life[i]! > 0) {
       life[i] = life[i]! - dt;
       if (life[i]! <= 0) life[i] = 0;
     }
@@ -806,21 +813,26 @@ function compactDead(soa: ParticleSoA, springs: Spring[]): void {
   while (i < soa.count) {
     const L = life[i]!;
     if (L === 0) {
+      // `killSwap` moves the current last particle into slot `i` (or just drops
+      // `i` when it *is* the last), then decrements count. `last` is the index
+      // whose particle now lives at slot `i`.
       const last = soa.count - 1;
       soa.killSwap(i);
       if (springs.length > 0) {
         for (let s = springs.length - 1; s >= 0; s--) {
           const sp = springs[s]!;
-          if (sp.a === i || sp.b === i || sp.a === last || sp.b === last) {
-            if (sp.a === last) sp.a = i;
-            if (sp.b === last) sp.b = i;
-            if (sp.a === i || sp.b === i) {
-              /* keep if remapped from last */
-            }
-            if (sp.a === last || sp.b === last || sp.a >= soa.count || sp.b >= soa.count) {
-              springs.splice(s, 1);
-            }
+          // Any spring attached to the just-killed particle (slot `i`) is now
+          // dangling — the particle it bonded to is gone. Drop it. This must be
+          // checked *before* remapping `last` so a spring that referenced the
+          // dead particle is never silently reattached to the swapped-in one.
+          if (sp.a === i || sp.b === i) {
+            springs.splice(s, 1);
+            continue;
           }
+          // The particle formerly at `last` now lives at slot `i`; retarget any
+          // spring that referenced it so the bond follows the moved particle.
+          if (sp.a === last) sp.a = i;
+          if (sp.b === last) sp.b = i;
         }
       }
       continue;

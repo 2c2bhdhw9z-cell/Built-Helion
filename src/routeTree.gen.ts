@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as AdminAuditRouteImport } from './routes/admin.audit'
+import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
 import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
 import { Route as ApiRtcRouteImport } from './routes/api/rtc'
 import { Route as SIdRouteImport } from './routes/s.$id'
@@ -31,6 +33,16 @@ const LoginRoute = LoginRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/admin/audit',
+  path: '/admin/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/admin/dashboard',
+  path: '/admin/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminFeedbackRoute = AdminFeedbackRouteImport.update({
@@ -63,6 +75,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
   '/s/$id': typeof SIdRoute
@@ -73,6 +87,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
   '/s/$id': typeof SIdRoute
@@ -84,6 +100,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
   '/s/$id': typeof SIdRoute
@@ -96,6 +114,8 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/settings'
+    | '/admin/audit'
+    | '/admin/dashboard'
     | '/admin/feedback'
     | '/api/rtc'
     | '/s/$id'
@@ -106,6 +126,8 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/settings'
+    | '/admin/audit'
+    | '/admin/dashboard'
     | '/admin/feedback'
     | '/api/rtc'
     | '/s/$id'
@@ -116,6 +138,8 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/settings'
+    | '/admin/audit'
+    | '/admin/dashboard'
     | '/admin/feedback'
     | '/api/rtc'
     | '/s/$id'
@@ -127,6 +151,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
+  AdminAuditRoute: typeof AdminAuditRoute
+  AdminDashboardRoute: typeof AdminDashboardRoute
   AdminFeedbackRoute: typeof AdminFeedbackRoute
   ApiRtcRoute: typeof ApiRtcRoute
   SIdRoute: typeof SIdRoute
@@ -155,6 +181,20 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/admin/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/dashboard': {
+      id: '/admin/dashboard'
+      path: '/admin/dashboard'
+      fullPath: '/admin/dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/feedback': {
@@ -199,6 +239,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,
+  AdminAuditRoute: AdminAuditRoute,
+  AdminDashboardRoute: AdminDashboardRoute,
   AdminFeedbackRoute: AdminFeedbackRoute,
   ApiRtcRoute: ApiRtcRoute,
   SIdRoute: SIdRoute,

@@ -21,6 +21,12 @@ export function PlayDialog() {
   const open = useLab((s) => s.playOpen);
   const setOpen = useLab((s) => s.setPlayOpen);
   const { user } = useCurrentUserState();
+  // `useCurrentUserState()` builds a NEW `user` object literal on every render,
+  // so keying the load effect below on `user` re-ran it after each of its own
+  // setState calls — an unbounded re-render + refetch loop while this dialog was
+  // open and signed in. Key on the STABLE id (a primitive), matching
+  // use-creations / use-achievements / use-billing / use-preferences.
+  const userId = user?.id ?? null;
   const [progress, setProgress] = useState<PlayProgress>(() => readProgress());
   const [usage, setUsage] = useState<UsageStats>(() => readUsage());
   const [account, setAccount] = useState<UsageStats | null>(null);
@@ -37,14 +43,14 @@ export function PlayDialog() {
     void listLeaderboardFn({ data: { limit: 8 } })
       .then((rows) => setBoard(rows))
       .catch(() => setBoard([]));
-    if (user) {
+    if (userId) {
       void getUsageFn()
         .then(setAccount)
         .catch(() => setAccount(emptyUsage()));
     } else {
       setAccount(null);
     }
-  }, [open, user]);
+  }, [open, userId]);
 
   const badges = Object.keys(BADGE_COPY) as BadgeId[];
 

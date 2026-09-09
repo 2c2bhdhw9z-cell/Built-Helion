@@ -28,7 +28,7 @@ let mapStyle: (
   request: StyleRequest,
   modelParams: string | Record<string, unknown> | null | undefined,
 ) => StyleResult;
-let labParamsSchema: import("../creations/types.ts")["labParamsSchema"];
+let labParamsSchema: (typeof import("../creations/types.ts"))["labParamsSchema"];
 let DEFAULT_PARAMS: LabParams;
 let GENERATOR_KINDS: readonly GeneratorKind[];
 

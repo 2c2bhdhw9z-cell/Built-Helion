@@ -45,7 +45,7 @@ export const pushCloudVersionFn = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<CloudVersion> => {
     const config = normalizeCreationConfig(data.config);
     if (!config) throw new Error("Invalid scene");
-    let teamId: string | null = data.teamId ?? null;
+    const teamId: string | null = data.teamId ?? null;
     if (teamId) {
       const { isTeamMember } = await import("@/lib/teams/server");
       if (!(await isTeamMember(context.userId, teamId))) throw new Error("Not on that team");
