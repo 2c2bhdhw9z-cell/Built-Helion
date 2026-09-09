@@ -36,6 +36,13 @@ export function LabApp() {
   const sessionIsHost = useSession((s) => s.isHost);
   const listenToken = useLab((s) => s.listenToken);
   const { user } = useCurrentUserState();
+  // `useCurrentUserState()` builds a NEW `user` object literal on every render.
+  // The 15s usage-flush interval below must key on the STABLE id: with `user` in
+  // its dep array the interval was torn down and recreated on every unrelated
+  // re-render of this component (a menu toggle, a session update, a Better Auth
+  // session refetch), restarting the 15s countdown each time — so on a busy
+  // screen `addSeconds(15)` could never fire and lab time never accrued.
+  const userId = user?.id ?? null;
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1280px)");
@@ -83,7 +90,7 @@ export function LabApp() {
     const id = window.setInterval(() => {
       void import("@/lib/play/analytics").then(async ({ addSeconds, hasDelta, takeDelta }) => {
         addSeconds(15);
-        if (!user) return;
+        if (!userId) return;
         const delta = takeDelta();
         if (!hasDelta(delta)) return;
         try {
@@ -95,7 +102,7 @@ export function LabApp() {
       });
     }, 15_000);
     return () => window.clearInterval(id);
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     if (!listenToken) return;
