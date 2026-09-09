@@ -7,9 +7,11 @@ import {
   setPublicSchema,
   sharedCreationSchema,
   toggleLikeSchema,
+  updateCreationSchema,
   type CreationRow,
   type LibraryItem,
   type PublicCreation,
+  type UpdateCreationResult,
 } from "./types.ts";
 
 export const saveCreationFn = createServerFn({ method: "POST" })
@@ -20,6 +22,29 @@ export const saveCreationFn = createServerFn({ method: "POST" })
     await assertNotSuspended(context.userId);
     const { insertCreation } = await import("./server.ts");
     return insertCreation(context.userId, data.name, data.config);
+  });
+
+/**
+ * Update a creation IN PLACE with conflict resolution (Req 2 — "newer wins with
+ * a warning"). The client sends `baseUpdatedAt`, the `updated_at` it last
+ * loaded; the server refuses to overwrite when a NEWER version exists (edited on
+ * another device) and returns a `conflict` status the UI surfaces as a
+ * non-destructive warning, rather than a silent last-write-wins overwrite.
+ */
+export const updateCreationFn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => updateCreationSchema.parse(input))
+  .handler(async ({ data, context }): Promise<UpdateCreationResult> => {
+    const { assertNotSuspended } = await import("@/lib/admin/guard.server.ts");
+    await assertNotSuspended(context.userId);
+    const { updateCreationChecked } = await import("./server.ts");
+    return updateCreationChecked(
+      context.userId,
+      data.id,
+      data.name,
+      data.config,
+      data.baseUpdatedAt,
+    );
   });
 
 export const listCreationsFn = createServerFn({ method: "GET" })
