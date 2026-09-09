@@ -5,6 +5,7 @@ import { GL_FADE_FS, GL_FS, GL_POST_FS, GL_POST_VS, GL_QUAD_VS, GL_VS } from "./
 import type { ParticleSoA } from "./soa";
 import type { ColorMap, LabParams, PaletteId } from "./types";
 import { ORBIT_CAM, trailFadeAlpha } from "./camera";
+import { backingPointSize } from "./point-size";
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
   const sh = gl.createShader(type);
@@ -382,7 +383,7 @@ export class WebGLRenderer {
       gl.uniform2f(this.uWorld, worldW, worldH);
       const sizePx = Math.min(
         this.maxPoint,
-        Math.max(1.0, params.pointSize * dpr * (params.shape === "emoji" || params.shape === "sprite" ? 1.7 : 1)),
+        Math.max(1.0, backingPointSize(params.pointSize, dpr, params.shape)),
       );
       gl.uniform1f(this.uSize, sizePx);
       gl.uniform2f(this.uLifeCurve, params.lifeFadeIn, params.lifeFadeOut);
