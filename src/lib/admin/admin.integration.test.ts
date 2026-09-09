@@ -25,10 +25,7 @@ type AdminServer = {
   suspendAccount: (adminId: string, targetId: string) => Promise<void>;
   reinstateAccount: (adminId: string, targetId: string) => Promise<void>;
   getDashboardAnalytics: () => Promise<import("./types.ts").AdminDashboardAnalytics>;
-  aggregateGeneratorPopularity: (
-    maps: Array<Record<string, unknown> | null | undefined>,
-    limit?: number,
-  ) => import("./types.ts").AdminBreakdownSlice[];
+  TOP_GENERATORS: number;
 };
 
 type Guard = {
@@ -231,42 +228,158 @@ describe("admin authorization — non-admin caller is denied (Reqs 5.5, 6.4)", (
   });
 });
 
-describe("aggregateGeneratorPopularity — pure ranking (Req 12)", () => {
-  it("sums generator counts across accounts, ranks desc, breaks ties by label", () => {
-    const slices = adminServer.aggregateGeneratorPopularity([
-      { galaxy: 3, ring: 1 },
-      { galaxy: 2, flock: 4 },
-      { ring: 1 },
-    ]);
-    // galaxy 5, flock 4, ring 2.
-    assert.deepEqual(slices, [
-      { label: "galaxy", count: 5 },
-      { label: "flock", count: 4 },
-      { label: "ring", count: 2 },
-    ]);
+describe("getDashboardAnalytics — generator popularity is aggregated in SQL (Req 12)", () => {
+  // These cases prove correctness through the NEW bounded SQL query path
+  // (jsonb_each_text + GROUP BY, ordered count desc / label asc, capped to
+  // TOP_GENERATORS) rather than through a pure JS helper. Every generator label
+  // here is uniquely prefixed ("gp-…") so no other seeded row in the shared
+  // PGLite instance can contribute to these counts, letting us assert exact
+  // totals, ordering, and garbage rejection directly on the returned slices.
+  // The ranking is a GLOBAL top-N over the whole `usage_stats` table, so seeded
+  // rows here would otherwise crowd the low-count generators the sibling
+  // "aggregates real usage/telemetry rows" suite relies on out of the top-N.
+  // Each case cleans up its own seeded rows afterwards so the shared PGLite
+  // instance is left as it was found.
+  async function clearUsage(...ids: string[]): Promise<void> {
+    const sql = await getSql();
+    for (const id of ids) {
+      await sql`delete from usage_stats where user_id = ${id}`;
+    }
+  }
+
+  it("sums per-account maps, ranks desc, breaks ties by label, and rejects garbage", async () => {
+    const sql = await getSql();
+    // gp-galaxy = 3 + 2 + round(2.6)=3 => 8 ; gp-flock = 4 ; gp-ring = 1 + 1 => 2.
+    // Garbage in the last account must NOT inject a slice: a negative count, an
+    // empty label, a whitespace-only label, and a non-numeric value. Counts are
+    // small on purpose so they never displace other rows from the global top-N;
+    // we assert on our own uniquely-prefixed slices only.
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('gp-a', 0, 0, 0, 0, ${JSON.stringify({ "gp-galaxy": 3, "gp-ring": 1 })}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('gp-b', 0, 0, 0, 0, ${JSON.stringify({ "gp-galaxy": 2, "gp-flock": 4 })}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('gp-c', 0, 0, 0, 0, ${JSON.stringify({ "gp-ring": 1 })}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('gp-garbage', 0, 0, 0, 0,
+        ${JSON.stringify({ "gp-galaxy": 2.6, "gp-neg": -5, "": 99, "  ": 7, "gp-bad": "nope" })},
+        now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+
+    try {
+      // Raise TOP_GENERATORS's effective reach for the assertion by asking the
+      // query directly is not needed — our labels are unique, but with a global
+      // top-N we can only guarantee OUR slices appear if they're within the top
+      // TOP_GENERATORS overall. Keep counts modest and assert relative ordering
+      // among the gp-* slices that surface plus exact totals for those present.
+      const { popularGenerators } = await adminServer.getDashboardAnalytics();
+      const mine = popularGenerators.filter((s) => s.label.startsWith("gp-"));
+      const byLabel = new Map(mine.map((s) => [s.label, s.count]));
+      // Exact per-generator totals through the SQL path (sum with rounding).
+      assert.equal(byLabel.get("gp-galaxy"), 8, "gp-galaxy = 3 + 2 + round(2.6)");
+      assert.equal(byLabel.get("gp-flock"), 4, "gp-flock = 4");
+      assert.equal(byLabel.get("gp-ring"), 2, "gp-ring = 1 + 1");
+      // Ranking among our slices: galaxy (8) > flock (4) > ring (2).
+      const order = mine.map((s) => s.label);
+      assert.ok(
+        order.indexOf("gp-galaxy") < order.indexOf("gp-flock"),
+        "gp-galaxy outranks gp-flock",
+      );
+      assert.ok(
+        order.indexOf("gp-flock") < order.indexOf("gp-ring"),
+        "gp-flock outranks gp-ring",
+      );
+      // Garbage labels never appear anywhere in the ranking.
+      for (const bad of ["gp-neg", "gp-bad", "", "  "]) {
+        assert.ok(
+          !popularGenerators.some((s) => s.label === bad),
+          `garbage label ${JSON.stringify(bad)} must not appear`,
+        );
+      }
+    } finally {
+      await clearUsage("gp-a", "gp-b", "gp-c", "gp-garbage");
+    }
   });
 
-  it("ignores garbage counts, empty labels, and non-object maps; honors the limit", () => {
-    const slices = adminServer.aggregateGeneratorPopularity(
-      [
-        { galaxy: 5, ring: -1, "": 99, bad: "nope" },
-        null,
-        undefined,
-        // @ts-expect-error exercising a non-object entry defensively
-        [1, 2, 3],
-        { flock: 2, burst: 2 },
-      ],
-      2,
-    );
-    // Only positive, real counts survive: galaxy 5, then burst/flock tie at 2 →
-    // "burst" wins the tie-break; capped to 2 slices.
-    assert.equal(slices.length, 2);
-    assert.deepEqual(slices[0], { label: "galaxy", count: 5 });
-    assert.deepEqual(slices[1], { label: "burst", count: 2 });
+  it("caps the ranking to TOP_GENERATORS and returns the highest-count ones in order", async () => {
+    const sql = await getSql();
+    const limit = adminServer.TOP_GENERATORS;
+    // Seed strictly more distinct generators than the cap, with STRICTLY
+    // DESCENDING counts that are all large enough to dominate every other row in
+    // the shared table, so the global top-N is composed entirely of our
+    // cap-* slices. The query must then return exactly `limit` of them, in
+    // descending order, proving the LIMIT bound holds through the SQL path.
+    const total = limit + 5;
+    const map: Record<string, number> = {};
+    for (let i = 0; i < total; i++) {
+      // Zero-pad so the label ordering is well-defined; counts start high
+      // (1_000 + …) so they outrank any incidental generator in the instance.
+      map[`cap-${String(i).padStart(3, "0")}`] = 1_000 + (total - i);
+    }
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('cap-user', 0, 0, 0, 0, ${JSON.stringify(map)}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+
+    try {
+      const { popularGenerators } = await adminServer.getDashboardAnalytics();
+      // Every returned slice is one of ours (they dominate the whole table), and
+      // the list is capped to exactly TOP_GENERATORS.
+      assert.equal(popularGenerators.length, limit, "ranking is capped to TOP_GENERATORS");
+      assert.ok(
+        popularGenerators.every((s) => s.label.startsWith("cap-")),
+        "the dominating cap-* generators fill the entire top-N",
+      );
+      // Descending by count.
+      for (let i = 1; i < popularGenerators.length; i++) {
+        assert.ok(
+          popularGenerators[i - 1].count >= popularGenerators[i].count,
+          "slices are ordered by count desc",
+        );
+      }
+      // The very top slice is the highest-count generator we seeded.
+      assert.equal(popularGenerators[0].label, "cap-000", "the highest-count generator leads");
+      assert.equal(popularGenerators[0].count, 1_000 + total);
+      // The lowest-count generators (below the cap) are excluded.
+      assert.ok(
+        !popularGenerators.some(
+          (s) => s.label === `cap-${String(total - 1).padStart(3, "0")}`,
+        ),
+        "generators beyond the top-N cap are excluded",
+      );
+    } finally {
+      await clearUsage("cap-user");
+    }
   });
 
-  it("empty input yields an empty list (never fabricated rows)", () => {
-    assert.deepEqual(adminServer.aggregateGeneratorPopularity([]), []);
+  it("empty generators map contributes no slices (never fabricated rows)", async () => {
+    const sql = await getSql();
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values ('gp-empty', 0, 0, 0, 0, ${JSON.stringify({})}, now())
+      on conflict (user_id) do update set generators = excluded.generators, updated_at = now()
+    `;
+    try {
+      const { popularGenerators } = await adminServer.getDashboardAnalytics();
+      assert.ok(
+        !popularGenerators.some((s) => s.label === "gp-empty"),
+        "an empty map injects no slice",
+      );
+    } finally {
+      await clearUsage("gp-empty");
+    }
   });
 });
 

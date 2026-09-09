@@ -186,35 +186,6 @@ export async function setFeatured(
 }
 
 /**
- * Pure generator-popularity aggregation (Req 12) — no I/O, so it is directly
- * unit-testable. Sums each account's `usage_stats.generators` map (generator
- * kind → use count) across every account into a single ranked list, descending
- * by total count with the generator label as a stable tie-break, capped to
- * `limit`. Ignores non-positive/garbage counts and empty labels so a malformed
- * stored map can never inject a bogus slice.
- */
-export function aggregateGeneratorPopularity(
-  maps: Array<Record<string, unknown> | null | undefined>,
-  limit: number = TOP_GENERATORS,
-): AdminBreakdownSlice[] {
-  const totals = new Map<string, number>();
-  for (const map of maps) {
-    if (!map || typeof map !== "object" || Array.isArray(map)) continue;
-    for (const [rawKey, rawCount] of Object.entries(map)) {
-      const label = String(rawKey ?? "").trim();
-      if (!label) continue;
-      const n = typeof rawCount === "number" ? rawCount : Number(rawCount);
-      if (!Number.isFinite(n) || n <= 0) continue;
-      totals.set(label, (totals.get(label) ?? 0) + Math.round(n));
-    }
-  }
-  return [...totals.entries()]
-    .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => (b.count - a.count) || a.label.localeCompare(b.label))
-    .slice(0, Math.max(0, limit));
-}
-
-/**
  * Richer aggregate dashboard analytics (Req 12) — active users, popular
  * generators, and device/particle breakdowns — all derived from data already
  * collected server-side (`usage_stats`, `telemetry_samples`). Every value is an
@@ -236,15 +207,37 @@ export async function getDashboardAnalytics(): Promise<AdminDashboardAnalytics> 
   `;
   const activeUsers = num(activeRows[0]?.active);
 
-  // Popular generators: aggregate the per-account generators map in app code
-  // (jsonb key aggregation is backend-specific; reading the maps and summing in
-  // JS keeps it portable and lets the pure aggregator be unit-tested).
-  const genRows = await sql<{ generators: unknown }>`
-    select generators from usage_stats
+  // Popular generators: aggregate the per-account `generators` jsonb map ENTIRELY
+  // in SQL rather than materializing every account's map in application memory.
+  // `jsonb_each_text` expands each map into (key, value) rows via a lateral join,
+  // and we GROUP BY the generator key, summing the (rounded) counts and ordering
+  // count desc with the label as a stable tie-break, capped to TOP_GENERATORS.
+  // This is bounded (the DB returns at most TOP_GENERATORS rows, never every
+  // account's map) and matches the aggregate-in-SQL pattern of the sibling
+  // `getAnalytics`. `jsonb_each_text` is supported by the PGLite version in use
+  // (0.5.x) as well as Neon Postgres, so the query is portable across both
+  // backends. Garbage is rejected in-query to mirror the previous helper:
+  //   - blank keys (empty or whitespace-only) are dropped (`trim(key) <> ''`);
+  //   - non-numeric values are dropped (numeric-literal regex guard) so a bad
+  //     value never raises a cast error;
+  //   - non-positive counts are dropped (`value::numeric > 0`);
+  //   - each value is `round`ed before summing (parity with the old per-entry
+  //     Math.round), so a malformed stored map can never inject a bogus slice.
+  const genRows = await sql<{ label: string; count: string | number }>`
+    select trim(e.key) as label, sum(round(e.value::numeric))::int as count
+    from usage_stats
+    cross join lateral jsonb_each_text(usage_stats.generators) as e(key, value)
+    where trim(e.key) <> ''
+      and e.value ~ '^\\s*-?\\d+(\\.\\d+)?\\s*$'
+      and e.value::numeric > 0
+    group by trim(e.key)
+    order by count desc, label asc
+    limit ${TOP_GENERATORS}
   `;
-  const popularGenerators = aggregateGeneratorPopularity(
-    genRows.map((r) => (r.generators ?? {}) as Record<string, unknown>),
-  );
+  const popularGenerators: AdminBreakdownSlice[] = genRows.map((r) => ({
+    label: r.label,
+    count: num(r.count),
+  }));
 
   // Device-tier breakdown from telemetry, descending by sample count.
   const tierRows = await sql<{ device_tier: string; n: string | number }>`
