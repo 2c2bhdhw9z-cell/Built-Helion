@@ -25,6 +25,8 @@ type AdminServer = {
   suspendAccount: (adminId: string, targetId: string) => Promise<void>;
   reinstateAccount: (adminId: string, targetId: string) => Promise<void>;
   getDashboardAnalytics: () => Promise<import("./types.ts").AdminDashboardAnalytics>;
+  rollupDay: (day: Date | string) => Promise<import("./types.ts").AdminTrendPoint>;
+  getAnalyticsTrend: (days?: number) => Promise<import("./types.ts").AdminTrend>;
   TOP_GENERATORS: number;
 };
 
@@ -449,6 +451,92 @@ describe("getDashboardAnalytics — aggregates real usage/telemetry rows (Req 12
     const buckets = after.particleBuckets.map((s) => Number(s.label));
     for (let i = 1; i < buckets.length; i++) {
       assert.ok(buckets[i - 1] <= buckets[i], "particle buckets ascend");
+    }
+  });
+});
+
+describe("analytics rollup — DAU/WAU trend over real rows (Item 21)", () => {
+  // Uniquely-prefixed accounts and fixed historical days so this suite is
+  // self-contained and cleans up after itself in the shared PGLite instance.
+  const D1 = "2023-06-01";
+  const D2 = "2023-06-02";
+  const D3 = "2023-06-03";
+
+  async function seedUsageOn(userId: string, day: string): Promise<void> {
+    const sql = await getSql();
+    await sql`
+      insert into usage_stats (user_id, seconds, spawns, exports, peak, generators, updated_at)
+      values (${userId}, 0, 0, 0, 0, '{}'::jsonb, ${day}::date + interval '12 hours')
+      on conflict (user_id) do update set updated_at = excluded.updated_at
+    `;
+  }
+
+  async function clearUsage(...ids: string[]): Promise<void> {
+    const sql = await getSql();
+    for (const id of ids) await sql`delete from usage_stats where user_id = ${id}`;
+  }
+
+  it("rollupDay computes DAU per day and is idempotent", async () => {
+    const sql = await getSql();
+    try {
+      // D1: two distinct active accounts. D2: one account. D3: none.
+      await seedUsageOn("tr-a", D1);
+      await seedUsageOn("tr-b", D1);
+
+      const p1 = await adminServer.rollupDay(D1);
+      assert.equal(p1.dau, 2, "D1 has two distinct active users");
+
+      // Idempotent: re-rolling the same day yields the same row, not a duplicate.
+      const p1again = await adminServer.rollupDay(D1);
+      assert.equal(p1again.dau, 2, "re-rolling is stable");
+      const rows = await sql<{ n: string | number }>`
+        select count(*) as n from analytics_daily where day = ${D1}::date
+      `;
+      assert.equal(Number(rows[0]?.n), 1, "exactly one rollup row per day (upsert, not insert)");
+
+      // Move tr-b's activity to D2, re-roll D1 → it must now reflect the new
+      // truth (only tr-a active on D1), proving the upsert recomputes.
+      await seedUsageOn("tr-b", D2);
+      const p1recompute = await adminServer.rollupDay(D1);
+      assert.equal(p1recompute.dau, 1, "re-rolling recomputes from current raw rows");
+
+      const p2 = await adminServer.rollupDay(D2);
+      assert.equal(p2.dau, 1, "D2 has one active user");
+      const p3 = await adminServer.rollupDay(D3);
+      assert.equal(p3.dau, 0, "D3 has no active users");
+    } finally {
+      await clearUsage("tr-a", "tr-b");
+      await sql`delete from analytics_daily where day in (${D1}::date, ${D2}::date, ${D3}::date)`;
+    }
+  });
+
+  it("getAnalyticsTrend computes WAU as a distinct trailing-7-day active count", async () => {
+    const sql = await getSql();
+    // Two accounts active on consecutive recent days. WAU (trailing 7d) counts
+    // both distinct accounts once; DAU on each day counts only that day's actives.
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const todayKey = today.toISOString().slice(0, 10);
+    const yKey = yesterday.toISOString().slice(0, 10);
+    try {
+      await seedUsageOn("tr-wau-x", yKey);
+      await seedUsageOn("tr-wau-y", todayKey);
+
+      const { points } = await adminServer.getAnalyticsTrend(7);
+      assert.equal(points.length, 7, "trend spans the trailing window, zero-filled");
+      for (let i = 1; i < points.length; i++) {
+        assert.ok(points[i - 1]!.day <= points[i]!.day, "days ascend");
+      }
+      const todayPoint = points.find((p) => p.day === todayKey);
+      assert.ok(todayPoint, "today is in the window");
+      // Today's WAU includes BOTH accounts (both active within the trailing 7d).
+      assert.ok(todayPoint!.wau >= 2, "WAU counts distinct actives over 7 days");
+      // Today's DAU counts only accounts active today (at least tr-wau-y).
+      assert.ok(todayPoint!.dau >= 1, "DAU counts today's actives");
+      assert.ok(todayPoint!.wau >= todayPoint!.dau, "WAU >= DAU by definition");
+    } finally {
+      await clearUsage("tr-wau-x", "tr-wau-y");
+      await sql`delete from analytics_daily where day >= (now()::date - interval '7 days')`;
     }
   });
 });

@@ -7,6 +7,7 @@ import type {
   AdminAnalytics,
   AdminBreakdownSlice,
   AdminDashboardAnalytics,
+  AdminTrend,
 } from "@/lib/admin/types";
 
 /** Extract the admin token from `?token=...` (client-supplied, verified server-side). */
@@ -33,20 +34,20 @@ export const Route = createFileRoute("/admin/dashboard")({
     // 500ing every route (see the FEAT-001 login fix and admin.feedback.tsx).
     // Keep this route matching that pattern.
     try {
-      const { listAccountsFn, getAnalyticsFn, getDashboardAnalyticsFn } = await import(
-        "@/lib/admin/functions"
-      );
-      const [accounts, analytics, dashboard] = await Promise.all([
+      const { listAccountsFn, getAnalyticsFn, getDashboardAnalyticsFn, getAnalyticsTrendFn } =
+        await import("@/lib/admin/functions");
+      const [accounts, analytics, dashboard, trend] = await Promise.all([
         listAccountsFn({ data: { token: deps.token } }),
         getAnalyticsFn({ data: { token: deps.token } }),
         getDashboardAnalyticsFn({ data: { token: deps.token } }),
+        getAnalyticsTrendFn({ data: { token: deps.token } }),
       ]);
       // The gated fns map a denial to an empty list / null analytics. Treat a
       // null analytics AND empty account list as "no admin access" so we render
       // the same access-denied panel admin.feedback.tsx shows on a 403 rather
       // than a misleading empty dashboard.
       const authorized = analytics !== null || accounts.length > 0;
-      return { accounts, analytics, dashboard, authorized };
+      return { accounts, analytics, dashboard, trend, authorized };
     } catch (err) {
       const status = (err as { status?: number })?.status;
       if (status === 403) {
@@ -54,6 +55,7 @@ export const Route = createFileRoute("/admin/dashboard")({
           accounts: [] as AdminAccount[],
           analytics: null as AdminAnalytics | null,
           dashboard: null as AdminDashboardAnalytics | null,
+          trend: null as AdminTrend | null,
           authorized: false,
         };
       }
@@ -188,8 +190,65 @@ function Breakdown({
   );
 }
 
+/**
+ * DAU/WAU time-series trend (Item 21). A grouped mini bar chart — DAU and WAU
+ * per day plus a compact samples row — scaled to the largest value in the
+ * window. No chart library (same hand-rolled bar idiom as `Breakdown`).
+ * Aggregate only, no PII. Rolled up lazily-on-view (see getAnalyticsTrend).
+ */
+function TrendChart({ trend }: { trend: AdminTrend }) {
+  const points = trend.points;
+  const max = points.reduce((m, p) => Math.max(m, p.dau, p.wau), 0);
+  const latest = points[points.length - 1];
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-elevated px-4 py-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-2xs uppercase tracking-[0.12em] text-faint">
+          Active users · last {points.length} days
+        </span>
+        <span className="flex items-center gap-3 text-2xs text-faint">
+          <span className="flex items-center gap-1">
+            <span className="inline-block size-2 rounded-sm bg-fg/80" aria-hidden />
+            DAU {latest?.dau ?? 0}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block size-2 rounded-sm bg-fg/40" aria-hidden />
+            WAU {latest?.wau ?? 0}
+          </span>
+        </span>
+      </div>
+      {points.length === 0 ? (
+        <p className="py-4 text-center text-2xs text-faint">No activity recorded yet.</p>
+      ) : (
+        <div className="flex h-28 items-end gap-1" data-testid="admin-trend">
+          {points.map((p) => (
+            <div
+              key={p.day}
+              className="flex min-w-0 flex-1 items-end justify-center gap-0.5"
+              title={`${p.day} · DAU ${p.dau} · WAU ${p.wau} · ${p.samples} samples`}
+            >
+              <div
+                className="w-1/2 rounded-sm bg-fg/80"
+                style={{ height: `${max > 0 ? Math.max(2, Math.round((p.dau / max) * 100)) : 2}%` }}
+              />
+              <div
+                className="w-1/2 rounded-sm bg-fg/40"
+                style={{ height: `${max > 0 ? Math.max(2, Math.round((p.wau / max) * 100)) : 2}%` }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-2xs leading-relaxed text-faint">
+        DAU = distinct accounts active that day; WAU = distinct accounts over the trailing 7 days.
+        Rolled up on view (no scheduler).
+      </p>
+    </div>
+  );
+}
+
 function AdminDashboard() {
-  const { accounts, analytics, dashboard, authorized } = Route.useLoaderData();
+  const { accounts, analytics, dashboard, trend, authorized } = Route.useLoaderData();
   const { token } = Route.useSearch();
   const router = useRouter();
 
@@ -248,6 +307,15 @@ function AdminDashboard() {
             </div>
           )}
         </section>
+
+        {trend !== null && (
+          <section>
+            <h2 className="mb-3 text-2xs uppercase tracking-[0.12em] text-faint">
+              Trends
+            </h2>
+            <TrendChart trend={trend} />
+          </section>
+        )}
 
         {dashboard !== null && (
           <section>

@@ -4,6 +4,8 @@ import type {
   AdminAnalytics,
   AdminBreakdownSlice,
   AdminDashboardAnalytics,
+  AdminTrend,
+  AdminTrendPoint,
 } from "./types.ts";
 
 /**
@@ -267,4 +269,114 @@ export async function getDashboardAnalytics(): Promise<AdminDashboardAnalytics> 
   const telemetrySamples = deviceTiers.reduce((acc, s) => acc + s.count, 0);
 
   return { activeUsers, popularGenerators, deviceTiers, particleBuckets, telemetrySamples };
+}
+
+/** How many trailing days the DAU/WAU trend covers by default (Item 21). */
+export const TREND_DAYS = 14;
+
+/** Normalize a Date (or ISO date string) to its 'YYYY-MM-DD' UTC calendar day. */
+function toDayString(value: Date | string): string {
+  if (typeof value === "string") return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
+/**
+ * Compute and upsert one calendar day's analytics rollup row (Item 21).
+ *
+ * "Nightly rollup" without a cron runner: this is an IDEMPOTENT `rollupDay(day)`
+ * that recomputes the day's aggregate from the raw tables and upserts it
+ * (`on conflict (day) do update`), so calling it repeatedly for the same day is
+ * safe and always reflects the latest raw data. It is invoked LAZILY-ON-VIEW —
+ * when an admin loads the dashboard we roll up the recent window
+ * (`rollupRecentDays`) — rather than by a scheduler. Aggregate counts only:
+ *   active_users — distinct accounts whose usage_stats.updated_at is on `day`
+ *   samples      — telemetry_samples rows created on `day`
+ *
+ * `day` is a 'YYYY-MM-DD' string; the [day, day+1) half-open range keeps the
+ * query index-friendly and timezone-stable (UTC calendar day).
+ */
+export async function rollupDay(day: Date | string): Promise<AdminTrendPoint> {
+  const sql = await getSql();
+  const d = toDayString(day);
+  const active = await sql<{ n: string | number }>`
+    select count(distinct user_id) as n from usage_stats
+    where updated_at >= ${d}::date and updated_at < (${d}::date + interval '1 day')
+  `;
+  const samples = await sql<{ n: string | number }>`
+    select count(*) as n from telemetry_samples
+    where created_at >= ${d}::date and created_at < (${d}::date + interval '1 day')
+  `;
+  const activeUsers = num(active[0]?.n);
+  const sampleCount = num(samples[0]?.n);
+  await sql`
+    insert into analytics_daily (day, active_users, samples, rolled_at)
+    values (${d}::date, ${activeUsers}, ${sampleCount}, now())
+    on conflict (day) do update set
+      active_users = excluded.active_users,
+      samples = excluded.samples,
+      rolled_at = now()
+  `;
+  // WAU is derived on read (see getAnalyticsTrend); rollupDay returns dau/samples
+  // and leaves wau to the trailing-window computation there.
+  return { day: d, dau: activeUsers, wau: 0, samples: sampleCount };
+}
+
+/**
+ * Roll up the trailing `days` calendar days (Item 21), oldest→newest. Called
+ * lazily when the admin dashboard loads so recent days are always fresh without
+ * a scheduler. Idempotent (each day upserts).
+ */
+export async function rollupRecentDays(days = TREND_DAYS): Promise<void> {
+  const window = Math.min(90, Math.max(1, Math.floor(days)));
+  for (let i = window - 1; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    await rollupDay(day);
+  }
+}
+
+/**
+ * The DAU/WAU trend over the trailing `days` (Item 21). Rolls up the recent
+ * window first (lazy-on-view), then reads DAU/samples from `analytics_daily` and
+ * computes WAU on the fly as the distinct active users over each day's trailing
+ * 7-day window (from usage_stats.updated_at, so WAU is exact regardless of which
+ * days have rollup rows). Zero-filled so the chart always spans the full window.
+ * Aggregate only, no PII (Req 12).
+ */
+export async function getAnalyticsTrend(days = TREND_DAYS): Promise<AdminTrend> {
+  const window = Math.min(90, Math.max(1, Math.floor(days)));
+  await rollupRecentDays(window);
+  const sql = await getSql();
+
+  const since = new Date(Date.now() - (window - 1) * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const rows = await sql<{ day: string | Date; active_users: string | number; samples: string | number }>`
+    select day, active_users, samples from analytics_daily
+    where day >= ${since}::date
+    order by day asc
+  `;
+  const byDay = new Map<string, { dau: number; samples: number }>();
+  for (const r of rows) {
+    byDay.set(toDayString(r.day), { dau: num(r.active_users), samples: num(r.samples) });
+  }
+
+  const points: AdminTrendPoint[] = [];
+  for (let i = window - 1; i >= 0; i--) {
+    const dayDate = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const day = dayDate.toISOString().slice(0, 10);
+    // WAU: distinct active users over the trailing 7 days ending on `day`.
+    const wauRows = await sql<{ n: string | number }>`
+      select count(distinct user_id) as n from usage_stats
+      where updated_at >= (${day}::date - interval '6 days')
+        and updated_at < (${day}::date + interval '1 day')
+    `;
+    const rolled = byDay.get(day);
+    points.push({
+      day,
+      dau: rolled?.dau ?? 0,
+      wau: num(wauRows[0]?.n),
+      samples: rolled?.samples ?? 0,
+    });
+  }
+  return { points };
 }
