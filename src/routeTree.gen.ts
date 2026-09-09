@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as AdminAuditRouteImport } from './routes/admin.audit'
+import { Route as AdminCommentsRouteImport } from './routes/admin.comments'
 import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
 import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
 import { Route as ApiRtcRouteImport } from './routes/api/rtc'
@@ -39,6 +40,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const AdminAuditRoute = AdminAuditRouteImport.update({
   id: '/admin/audit',
   path: '/admin/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCommentsRoute = AdminCommentsRouteImport.update({
+  id: '/admin/comments',
+  path: '/admin/comments',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminDashboardRoute = AdminDashboardRouteImport.update({
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/comments': typeof AdminCommentsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/comments': typeof AdminCommentsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/comments': typeof AdminCommentsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/feedback': typeof AdminFeedbackRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/settings'
     | '/admin/audit'
+    | '/admin/comments'
     | '/admin/dashboard'
     | '/admin/feedback'
     | '/api/rtc'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/settings'
     | '/admin/audit'
+    | '/admin/comments'
     | '/admin/dashboard'
     | '/admin/feedback'
     | '/api/rtc'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/settings'
     | '/admin/audit'
+    | '/admin/comments'
     | '/admin/dashboard'
     | '/admin/feedback'
     | '/api/rtc'
@@ -164,6 +176,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
   AdminAuditRoute: typeof AdminAuditRoute
+  AdminCommentsRoute: typeof AdminCommentsRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdminFeedbackRoute: typeof AdminFeedbackRoute
   ApiRtcRoute: typeof ApiRtcRoute
@@ -201,6 +214,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/audit'
       fullPath: '/admin/audit'
       preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/comments': {
+      id: '/admin/comments'
+      path: '/admin/comments'
+      fullPath: '/admin/comments'
+      preLoaderRoute: typeof AdminCommentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/dashboard': {
@@ -260,6 +280,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,
   AdminAuditRoute: AdminAuditRoute,
+  AdminCommentsRoute: AdminCommentsRoute,
   AdminDashboardRoute: AdminDashboardRoute,
   AdminFeedbackRoute: AdminFeedbackRoute,
   ApiRtcRoute: ApiRtcRoute,
