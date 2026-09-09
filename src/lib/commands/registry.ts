@@ -30,6 +30,7 @@ export type CommandStore = {
   resetView: () => void;
   setView: (v: { zoom?: number }) => void;
   setHelpOpen: (v: boolean) => void;
+  setTourOpen: (v: boolean) => void;
   undo: () => void;
   redo: () => void;
   applyScene: (id: SceneId) => void;
@@ -203,6 +204,13 @@ export function buildCommands(opts: { toggleFullscreen: () => void }): LabComman
       keys: ["?"],
       keywords: "keys help overlay",
       run: (s) => s.setHelpOpen(!s.helpOpen),
+    },
+    {
+      id: "help.tour",
+      label: "Take the welcome tour",
+      group: "Help",
+      keywords: "onboarding intro guide getting started",
+      run: (s) => s.setTourOpen(true),
     },
   ];
 

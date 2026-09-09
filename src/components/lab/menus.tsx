@@ -186,6 +186,7 @@ export function GeneratorBar() {
           className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
           role="group"
           aria-label="Generators and scenes"
+          data-tour="generators"
         >
           {GENERATORS.map(renderChip)}
           <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden />
@@ -210,7 +211,7 @@ export function GeneratorBar() {
         </div>
       </div>
       <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1" data-tour="count">
           <SliderRow
             label="Count"
             value={spawnCount}
@@ -268,6 +269,7 @@ export function ToolBar() {
           className="lab-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
           role="group"
           aria-label="Interaction tools"
+          data-tour="tools"
         >
           {TOOLS.map((t) => {
             const Icon = t.icon;

@@ -108,6 +108,11 @@ type LabState = {
   helpOpen: boolean;
   /** Whether the cmdk command palette is open (Item 16). Opened with Cmd/Ctrl+K. */
   commandPaletteOpen: boolean;
+  /**
+   * Whether the first-run onboarding tour is showing (Item 14). Auto-opens once
+   * for a first-time visitor; re-launchable from the command palette / help.
+   */
+  tourOpen: boolean;
   /** Whether the keyframe timeline panel is open (Item 1). */
   timelineOpen: boolean;
   viewZoom: number;
@@ -269,6 +274,7 @@ type LabState = {
   clearSim: () => void;
   setHelpOpen: (v: boolean) => void;
   setCommandPaletteOpen: (v: boolean) => void;
+  setTourOpen: (v: boolean) => void;
   setView: (v: Partial<{ zoom: number; panX: number; panY: number; rotate: number; pitch: number }>) => void;
   resetView: () => void;
   setFillFrame: (v: boolean) => void;
@@ -483,6 +489,7 @@ export const useLab = create<LabState>((set, get) => ({
   perfCompact: false,
   helpOpen: false,
   commandPaletteOpen: false,
+  tourOpen: false,
   timelineOpen: false,
   viewZoom: 1,
   viewPanX: 0,
@@ -625,6 +632,7 @@ export const useLab = create<LabState>((set, get) => ({
   setTimelineOpen: (v) => set({ timelineOpen: v }),
   setHelpOpen: (v) => set({ helpOpen: v }),
   setCommandPaletteOpen: (v) => set({ commandPaletteOpen: v }),
+  setTourOpen: (v) => set({ tourOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
   setStartRecording: (fn) => set({ startRecording: fn }),

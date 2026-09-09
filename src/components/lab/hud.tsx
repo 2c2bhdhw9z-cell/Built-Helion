@@ -148,6 +148,7 @@ export function Hud() {
   const helpOpen = useLab((s) => s.helpOpen);
   const setHelpOpen = useLab((s) => s.setHelpOpen);
   const setCommandPaletteOpen = useLab((s) => s.setCommandPaletteOpen);
+  const setTourOpen = useLab((s) => s.setTourOpen);
   const uiTopOpen = useLab((s) => s.uiTopOpen);
   const [shortcutMac] = useState(detectMac);
   const [fullscreen, setFullscreen] = useState(false);
@@ -642,6 +643,17 @@ export function Hud() {
             <li>Long-press the canvas on touch to switch tools</li>
             <li>Use the chevrons to hide the menus and see the sim</li>
           </ul>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3 h-8 w-full"
+            onClick={() => {
+              setHelpOpen(false);
+              setTourOpen(true);
+            }}
+          >
+            Take the welcome tour
+          </Button>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

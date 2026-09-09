@@ -174,6 +174,7 @@ describe("commands run against the store", () => {
       resetView: () => calls.push("resetView"),
       setView: (v) => calls.push(`view:${v.zoom}`),
       setHelpOpen: (v) => calls.push(`help:${v}`),
+      setTourOpen: (v) => calls.push(`tour:${v}`),
       undo: () => calls.push("undo"),
       redo: () => calls.push("redo"),
       applyScene: (id) => calls.push(`scene:${id}`),
