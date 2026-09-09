@@ -7,8 +7,10 @@ import test from "node:test";
 import {
   appNameFromHost,
   createHeadInjector,
+  framePolicyForPath,
   injectHelionPwaHead,
   isDocumentPath,
+  isEmbedPath,
   isInstallQuery,
   isPrecachableAssetPath,
   publicAppHost,
@@ -586,4 +588,49 @@ test("vite plugin serves and bakes the service worker", () => {
   assert.match(middleware, /virtual:helion-sw/);
   assert.match(middleware, /SW_PATH/);
   assert.match(middleware, /text\/javascript/);
+});
+
+// ---------------------------------------------------------------------------
+// Clickjacking / framing policy (Finding 3). Only the pure decision function is
+// unit-testable here; the header wiring in the Nitro middleware is asserted
+// structurally (it imports + applies framePolicyForPath), since exercising real
+// response headers needs a live server runtime.
+// ---------------------------------------------------------------------------
+
+test("isEmbedPath matches only the /embed/:id player path", () => {
+  assert.equal(isEmbedPath("/embed"), true);
+  assert.equal(isEmbedPath("/embed/abc123"), true);
+  assert.equal(isEmbedPath("/embed/abc?x=1"), true);
+  assert.equal(isEmbedPath("/"), false);
+  assert.equal(isEmbedPath("/login"), false);
+  assert.equal(isEmbedPath("/s/abc"), false);
+  // A path that merely starts with the letters "embed" is not the embed route.
+  assert.equal(isEmbedPath("/embedded-thing"), false);
+});
+
+test("framePolicyForPath leaves /embed/* framable (frame-ancestors *, no XFO)", () => {
+  const policy = framePolicyForPath("/embed/abc123");
+  assert.equal(policy.framable, true);
+  assert.equal(policy.headers["content-security-policy"], "frame-ancestors *");
+  // The permissive embed policy must NOT emit an X-Frame-Options that would
+  // block framing (XFO has no "allow any origin" value).
+  assert.equal(policy.headers["x-frame-options"], undefined);
+});
+
+test("framePolicyForPath denies framing for the interactive app + auth routes", () => {
+  for (const path of ["/", "/login", "/admin/dashboard", "/s/abc"]) {
+    const policy = framePolicyForPath(path);
+    assert.equal(policy.framable, false, `${path} must be non-framable`);
+    assert.equal(policy.headers["x-frame-options"], "DENY");
+    assert.equal(policy.headers["content-security-policy"], "frame-ancestors 'self'");
+  }
+});
+
+test("nitro middleware applies the scoped frame policy to documents", () => {
+  const middleware = readFileSync(
+    join(TEMPLATE_ROOT, "server/middleware/helion-pwa.ts"),
+    "utf8",
+  );
+  assert.match(middleware, /framePolicyForPath/);
+  assert.match(middleware, /applyFramePolicy/);
 });

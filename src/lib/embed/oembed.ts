@@ -129,3 +129,22 @@ export function creationIdFromUrl(url: string): string | null {
     return null;
   }
 }
+
+/**
+ * True when `url` is an absolute URL whose host matches the known public share
+ * origin's host. The oEmbed endpoint uses this to REJECT a foreign-origin `url`
+ * before resolving an id from it: `creationIdFromUrl` will happily pull an id
+ * out of `https://evil.example/s/<id>`, but a consumer must only be able to ask
+ * this provider to unfurl its OWN creations (Finding 5). Host comparison is
+ * case-insensitive and ignores the port; a relative or unparseable url is not
+ * "known".
+ */
+export function isKnownShareUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const known = new URL(PUBLIC_SHARE_ORIGIN);
+    return u.hostname.toLowerCase() === known.hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}

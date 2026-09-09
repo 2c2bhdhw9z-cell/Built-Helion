@@ -14,6 +14,10 @@ type PublicCommentRow = {
   id: string;
   creation_id: string;
   author: string | null;
+  // `body` is stored and projected RAW (no HTML sanitization on write or read).
+  // It is safe ONLY because the UI renders it as an escaped React text child;
+  // it MUST NEVER be fed to `dangerouslySetInnerHTML` or any other non-React
+  // HTML sink. See the contract on `PublicComment.body` in ./types.ts.
   body: string;
   created_at: string | Date;
 };

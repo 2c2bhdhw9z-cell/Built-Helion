@@ -23,6 +23,14 @@ export interface PublicComment {
   id: string;
   creationId: string;
   author: string;
+  /**
+   * The comment text, PERSISTED RAW (no HTML sanitization is applied on write).
+   * It is only safe because it is rendered as an escaped React text child, which
+   * neutralizes any markup. This body MUST ONLY ever be rendered as escaped React
+   * text (e.g. `{comment.body}`) — NEVER via `dangerouslySetInnerHTML` or any
+   * other non-React HTML sink (innerHTML, insertAdjacentHTML, document.write,
+   * etc.), which would turn a stored comment into a stored-XSS vector.
+   */
   body: string;
   createdAt: string | Date;
 }

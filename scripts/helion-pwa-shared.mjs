@@ -193,6 +193,47 @@ export function acceptsHtml(accept) {
   return value === "" || value.includes("text/html") || value.includes("*/*");
 }
 
+/** True for the chromeless embed player path (`/embed/:id`), which is meant to
+ * be framed inside third-party pages (blogs, tweets, CMSes). */
+export function isEmbedPath(pathname) {
+  const path = String(pathname ?? "");
+  return path === "/embed" || path.startsWith("/embed/");
+}
+
+/**
+ * Decide the framing policy for a response to a document path. Pure so it is
+ * unit-testable and shared by the Nitro middleware.
+ *
+ * `/embed/*` is intentionally framable (it exists to be embedded in an iframe),
+ * so it gets a PERMISSIVE `frame-ancestors *` and NO `X-Frame-Options`. Every
+ * other document — the interactive, auth-bearing app (its root, `/login`, the
+ * dashboards, the share page, …) — must NOT be framable, or it is clickjackable;
+ * those get `X-Frame-Options: DENY` plus CSP `frame-ancestors 'self'`.
+ *
+ * Scoped to frame-ancestors / X-Frame-Options ONLY — it deliberately sets no
+ * other CSP directives so existing asset/script/style loading is untouched.
+ *
+ * @param {string} pathname
+ * @returns {{ framable: boolean, headers: Record<string,string> }}
+ */
+export function framePolicyForPath(pathname) {
+  if (isEmbedPath(pathname)) {
+    // Permissive: any site may frame the embed player.
+    return {
+      framable: true,
+      headers: { "content-security-policy": "frame-ancestors *" },
+    };
+  }
+  // Non-framable: deny cross-origin (and same-origin) framing of the app.
+  return {
+    framable: false,
+    headers: {
+      "x-frame-options": "DENY",
+      "content-security-policy": "frame-ancestors 'self'",
+    },
+  };
+}
+
 /** The same URL without the install-tutorial params (used as the app link). */
 export function stripInstallParams(url) {
   const [path = "/", query = ""] = String(url ?? "/").split("?", 2);

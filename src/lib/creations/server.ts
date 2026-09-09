@@ -244,12 +244,24 @@ export async function setCreationPublic(
   return rows.length > 0;
 }
 
+/**
+ * Resolve the PII-free { id, name, config } projection of a PUBLIC creation for
+ * the unauthed, public read surfaces: the /s/:id share route, the /embed/:id
+ * chromeless player, and the /api/oembed provider (all reach here via
+ * `getSharedCreationFn`, which carries NO viewer/auth context). The query is
+ * gated on `is_public = true` — mirroring the comments layer's
+ * `isCreationPublic` — so a private/unlisted creation's config is NEVER served
+ * to a caller who merely knows its id. Owner-scoped access (viewing your own
+ * unlisted creation) is a DIFFERENT path served by `getOwnedCreation`, which
+ * authenticates the owner; no public consumer relies on this resolver returning
+ * a non-public row. Returns null for an unknown OR non-public id.
+ */
 export async function getPublicCreation(id: string): Promise<PublicCreation | null> {
   const sql = await getSql();
   const rows = await sql<{ id: string; name: string; config: unknown }>`
     select id, name, config
     from creations
-    where id = ${id}
+    where id = ${id} and is_public = true
   `;
   const row = rows[0];
   if (!row) return null;

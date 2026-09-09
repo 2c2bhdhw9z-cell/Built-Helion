@@ -75,6 +75,7 @@ type CreationsServer = {
   listCreations: (userId: string) => Promise<CreationRow[]>;
   deleteCreation: (userId: string, id: string) => Promise<boolean>;
   getPublicCreation: (id: string) => Promise<PublicCreation | null>;
+  getOwnedCreation: (userId: string, id: string) => Promise<PublicCreation | null>;
   setCreationPublic: (userId: string, id: string, isPublic: boolean) => Promise<boolean>;
   listLibrary: (sort: "recent" | "featured", viewerId: string | null) => Promise<import("./types.ts").LibraryItem[]>;
   toggleLike: (userId: string, creationId: string) => Promise<{ liked: boolean; likeCount: number }>;
@@ -430,9 +431,12 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
       "Shared Nebula",
       validConfig(),
     );
+    // A fresh creation is unlisted; getPublicCreation is PUBLIC-ONLY, so publish
+    // it before it can resolve through the public read surface.
+    await server.setCreationPublic("public-owner", inserted.id, true);
 
     const publicCreation = await server.getPublicCreation(inserted.id);
-    assert.ok(publicCreation, "a valid share id must resolve to a creation");
+    assert.ok(publicCreation, "a valid PUBLIC share id must resolve to a creation");
 
     // The public projection carries EXACTLY { id, name, config } — no user_id,
     // no created_at, no email, no PII of any kind.
@@ -457,6 +461,40 @@ describe("creations DB round trip (real PGLite, migration 0004)", () => {
 
     const missing = await server.getPublicCreation("no-such-share-id");
     assert.equal(missing, null, "an unknown share id must return null");
+  });
+
+  it("getPublicCreation is PUBLIC-ONLY: private/unlisted creations resolve to null (embed/oEmbed privacy)", async () => {
+    // Finding 1: /embed/:id and /api/oembed resolve creations through
+    // getSharedCreationFn -> getPublicCreation with NO viewer/auth context. A
+    // private/unlisted creation MUST NOT be served to an unauthed caller who
+    // merely knows its id, matching the oEmbed handler's "public only" claim.
+    const owner = "privacy-owner";
+    const inserted = await server.insertCreation(owner, "Secret Nebula", validConfig());
+
+    // While unlisted (the default), the public resolver refuses it — so the
+    // embed player and the oEmbed endpoint 404/degrade rather than leak config.
+    const whilePrivate = await server.getPublicCreation(inserted.id);
+    assert.equal(whilePrivate, null, "an unlisted creation must NOT resolve through getPublicCreation");
+
+    // Owner access is a DIFFERENT, authenticated path via getOwnedCreation,
+    // which still returns the owner's own unlisted row.
+    const ownerView = await server.getOwnedCreation(owner, inserted.id);
+    assert.ok(ownerView, "the owner can still read their own unlisted creation");
+    assert.equal(ownerView.id, inserted.id);
+    const nonOwnerView = await server.getOwnedCreation("someone-else", inserted.id);
+    assert.equal(nonOwnerView, null, "a non-owner cannot read it via getOwnedCreation either");
+
+    // Once published, the public resolver serves it (embed/oEmbed succeed).
+    await server.setCreationPublic(owner, inserted.id, true);
+    const nowPublic = await server.getPublicCreation(inserted.id);
+    assert.ok(nowPublic, "a PUBLIC creation resolves through the public read surface");
+    assert.equal(nowPublic.id, inserted.id);
+    assert.equal(nowPublic.name, "Secret Nebula");
+
+    // Unpublishing it again re-hides it from the public surface.
+    await server.setCreationPublic(owner, inserted.id, false);
+    const reHidden = await server.getPublicCreation(inserted.id);
+    assert.equal(reHidden, null, "unpublishing must remove it from the public surface again");
   });
 
   it("new creations default to unlisted (is_public false)", async () => {

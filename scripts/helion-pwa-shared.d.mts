@@ -16,6 +16,11 @@ export declare function resolvePublicHost(hostHeader: string | null | undefined)
 export declare function isInstallQuery(url: string | null | undefined): boolean;
 export declare function isDocumentPath(pathname: string | null | undefined): boolean;
 export declare function acceptsHtml(accept: string | null | undefined): boolean;
+export declare function isEmbedPath(pathname: string | null | undefined): boolean;
+export declare function framePolicyForPath(pathname: string | null | undefined): {
+  framable: boolean;
+  headers: Record<string, string>;
+};
 export declare function stripInstallParams(url: string | null | undefined): string;
 export declare function renderInstallPageHtml(
   template: string,

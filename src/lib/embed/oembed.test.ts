@@ -72,4 +72,19 @@ describe("oEmbed builders", () => {
     const url = oembed.embedUrl("a b/c");
     assert.ok(url.endsWith("/embed/a%20b%2Fc"), "id is URL-encoded into the path");
   });
+
+  it("isKnownShareUrl accepts only the public share origin's host, rejects foreign hosts", async () => {
+    const codec = await import("../share/codec.ts");
+    const knownHost = new URL(codec.PUBLIC_SHARE_ORIGIN).hostname;
+    // A url on the real share host (any scheme/port/path) is known.
+    assert.equal(oembed.isKnownShareUrl(`https://${knownHost}/s/abc`), true);
+    assert.equal(oembed.isKnownShareUrl(`https://${knownHost}/embed/abc?x=1`), true);
+    assert.equal(oembed.isKnownShareUrl(`https://${knownHost}:8080/embed/abc`), true);
+    // A foreign origin that merely mimics the /s/:id or /embed/:id shape is NOT.
+    assert.equal(oembed.isKnownShareUrl("https://evil.example/s/abc"), false);
+    assert.equal(oembed.isKnownShareUrl("https://evil.example/embed/abc"), false);
+    // A relative / unparseable url is not a known absolute share url.
+    assert.equal(oembed.isKnownShareUrl("/s/abc"), false);
+    assert.equal(oembed.isKnownShareUrl("not a url"), false);
+  });
 });
