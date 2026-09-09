@@ -6,6 +6,7 @@ import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screensh
 import { compositeTargetSize, exportMaxDim, exportTargetSize } from "@/lib/capture/composite";
 import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
+import { videoFilenameForMime } from "@/lib/capture/mime";
 import { downloadBlobObject } from "@/lib/perf/export";
 import { GifRecorder } from "@/lib/capture/gif";
 import { knockoutVoid } from "@/lib/capture/alpha";
@@ -436,13 +437,9 @@ export function CanvasStage() {
     }
     if (!blob) return;
     // webm for webm mimes (the common path); mp4 only if that was the picked
-    // codec. captureFilename only knows 'webm' extension, so build the mp4 name
-    // inline to keep the pure helper's kind union tight.
-    const filename =
-      mime && mime.startsWith("video/mp4")
-        ? captureFilename("webm").replace(/\.webm$/, ".mp4")
-        : captureFilename("webm");
-    downloadBlobObject(filename, blob);
+    // codec (Safari). videoFilenameForMime swaps only the extension on the
+    // timestamped base name.
+    downloadBlobObject(videoFilenameForMime(captureFilename("webm"), mime), blob);
   };
 
   const ensureCompositeCanvas = () => {

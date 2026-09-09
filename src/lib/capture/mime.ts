@@ -38,6 +38,25 @@ export function supportedRecordingMime(): string | null {
 }
 
 /**
+ * The file extension ("webm" or "mp4") for a recording mime string. Defaults to
+ * "webm" for anything that isn't explicitly an mp4 container (the recorder
+ * prefers webm; mp4 is the Safari fallback). Pure and case-insensitive.
+ */
+export function videoExtensionForMime(mime: string | null | undefined): "webm" | "mp4" {
+  return (mime ?? "").toLowerCase().startsWith("video/mp4") ? "mp4" : "webm";
+}
+
+/**
+ * Rewrite a base `.webm` capture filename to the correct extension for the
+ * given picked mime (webm or mp4). Keeps the timestamped base from
+ * captureFilename("webm") and only swaps the extension. Pure.
+ */
+export function videoFilenameForMime(webmName: string, mime: string | null | undefined): string {
+  const ext = videoExtensionForMime(mime);
+  return ext === "mp4" ? webmName.replace(/\.webm$/i, ".mp4") : webmName;
+}
+
+/**
  * Whether this environment can record a canvas to video: needs MediaRecorder,
  * a canvas `captureStream`, and at least one supported recording mime. All
  * globals are guarded so this is a safe no-throw `false` under SSR/node.

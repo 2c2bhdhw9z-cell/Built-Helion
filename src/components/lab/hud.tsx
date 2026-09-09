@@ -447,7 +447,13 @@ export function Hud() {
                 : "shrink-0"
             }
             aria-label={recording ? "Stop recording" : "Record"}
-            title={recording ? "Stop recording" : "Record"}
+            title={
+              !canRecord
+                ? "Video recording isn't supported in this browser — try GIF export"
+                : recording
+                  ? "Stop recording"
+                  : `Record ${exportSize === "1080" ? "1080" : exportSize === "4k" ? "4K" : "8K"} at ${recordFps} fps`
+            }
             disabled={!canRecord || (recording ? !stopRecording : !startRecording)}
             onClick={() => (recording ? stopRecording?.() : startRecording?.())}
           >

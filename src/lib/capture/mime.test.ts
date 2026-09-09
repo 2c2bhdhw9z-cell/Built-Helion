@@ -5,6 +5,8 @@ import {
   pickRecordingMime,
   supportedRecordingMime,
   canRecord,
+  videoExtensionForMime,
+  videoFilenameForMime,
 } from "./mime.ts";
 
 /** Build an isSupported probe that only returns true for the given types. */
@@ -48,6 +50,36 @@ describe("RECORDING_MIME_CANDIDATES", () => {
       "video/webm",
       "video/mp4",
     ]);
+  });
+});
+
+describe("videoExtensionForMime", () => {
+  it("returns mp4 only for an mp4 container", () => {
+    assert.equal(videoExtensionForMime("video/mp4"), "mp4");
+    assert.equal(videoExtensionForMime("video/mp4;codecs=avc1"), "mp4");
+    assert.equal(videoExtensionForMime("VIDEO/MP4"), "mp4");
+  });
+
+  it("defaults to webm for webm and unknown/null mimes", () => {
+    assert.equal(videoExtensionForMime("video/webm;codecs=vp9"), "webm");
+    assert.equal(videoExtensionForMime("video/webm"), "webm");
+    assert.equal(videoExtensionForMime(null), "webm");
+    assert.equal(videoExtensionForMime(undefined), "webm");
+    assert.equal(videoExtensionForMime(""), "webm");
+  });
+});
+
+describe("videoFilenameForMime", () => {
+  it("keeps .webm for webm mimes", () => {
+    assert.equal(videoFilenameForMime("helion-20240101-000000.webm", "video/webm"), "helion-20240101-000000.webm");
+  });
+
+  it("swaps to .mp4 for an mp4 mime", () => {
+    assert.equal(videoFilenameForMime("helion-20240101-000000.webm", "video/mp4"), "helion-20240101-000000.mp4");
+  });
+
+  it("leaves a webm name unchanged when mime is null", () => {
+    assert.equal(videoFilenameForMime("clip.webm", null), "clip.webm");
   });
 });
 
