@@ -143,6 +143,12 @@ type LabState = {
    */
   captureScreenshot: ((kind?: "png" | "jpg") => void) | null;
   /**
+   * Produce a small downscaled JPEG dataURL preview of the current sim for the
+   * history timeline (Item 15). Set by CanvasStage; returns null until the
+   * engine mounts (callers fall back to a placeholder). Synchronous and cheap.
+   */
+  captureThumbnail: (() => string | null) | null;
+  /**
    * Start recording the sim to a video. Set by CanvasStage once the engine is
    * running and cleared on unmount; the HUD record button calls it. Null until
    * the engine mounts (button then no-ops). NEVER gated on auth. The HUD should
@@ -260,6 +266,7 @@ type LabState = {
   setTimelineOpen: (v: boolean) => void;
   setEngineSystemInfo: (fn: null | (() => EngineSystemInfo)) => void;
   setCaptureScreenshot: (fn: ((kind?: "png" | "jpg") => void) | null) => void;
+  setCaptureThumbnail: (fn: (() => string | null) | null) => void;
   setStartRecording: (fn: (() => void) | null) => void;
   setStopRecording: (fn: (() => void) | null) => void;
   setRecording: (v: boolean) => void;
@@ -501,6 +508,7 @@ export const useLab = create<LabState>((set, get) => ({
   quality: "high",
   getEngineSystemInfo: null,
   captureScreenshot: null,
+  captureThumbnail: null,
   startRecording: null,
   stopRecording: null,
   startGif: null,
@@ -635,6 +643,7 @@ export const useLab = create<LabState>((set, get) => ({
   setTourOpen: (v) => set({ tourOpen: v }),
   setEngineSystemInfo: (fn) => set({ getEngineSystemInfo: fn }),
   setCaptureScreenshot: (fn) => set({ captureScreenshot: fn }),
+  setCaptureThumbnail: (fn) => set({ captureThumbnail: fn }),
   setStartRecording: (fn) => set({ startRecording: fn }),
   setStopRecording: (fn) => set({ stopRecording: fn }),
   setRecording: (v) => set({ recording: v }),

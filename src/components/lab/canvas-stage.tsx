@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ParticleEngine } from "@/engine/engine";
 import { useLab } from "@/store/lab-store";
-import { compositeCanvases, captureScreenshotBlob } from "@/lib/capture/screenshot";
+import { compositeCanvases, captureScreenshotBlob, captureThumbnailDataUrl } from "@/lib/capture/screenshot";
+import { thumbSize, THUMB_QUALITY } from "@/lib/history/thumbnails";
 import { compositeTargetSize, exportMaxDim, exportTargetSize } from "@/lib/capture/composite";
 import { captureFilename } from "@/lib/capture/filename";
 import { CanvasRecorder } from "@/lib/capture/recorder";
@@ -148,6 +149,16 @@ export function CanvasStage() {
     // composites them, and downloads a PNG. See captureScreenshot() below.
     useLab.getState().setCaptureScreenshot((kind) => {
       void captureScreenshot(kind);
+    });
+    // Expose a cheap synchronous thumbnail generator (Item 15) so the History
+    // dialog can attach a downscaled preview when a checkpoint is saved. Reads
+    // the current engine + walls canvases; never throws (returns null on any
+    // failure so the timeline just shows a placeholder).
+    useLab.getState().setCaptureThumbnail(() => {
+      const eng = engineRef.current;
+      if (!eng) return null;
+      const dims = thumbSize({ width: eng.canvas.width, height: eng.canvas.height });
+      return captureThumbnailDataUrl(eng.canvas, wallsCanvasRef.current, dims, THUMB_QUALITY);
     });
     // Expose record start/stop to the store (any user, no login). Both no-op
     // safely until an engine frame exists; the HUD only shows these when the
@@ -321,6 +332,7 @@ export function CanvasStage() {
       engineRef.current = null;
       useLab.getState().setEngineSystemInfo(null);
       useLab.getState().setCaptureScreenshot(null);
+      useLab.getState().setCaptureThumbnail(null);
       useLab.getState().setStartRecording(null);
       useLab.getState().setStopRecording(null);
       useLab.getState().setStartGif(null);

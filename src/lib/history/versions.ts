@@ -7,6 +7,12 @@ export type VersionEntry = {
   at: number;
   name: string;
   config: CreationConfig;
+  /**
+   * Optional small preview image (a downscaled JPEG dataURL) for the history
+   * timeline (Item 15). Omitted on older entries and on saves where no engine
+   * canvas was available; the timeline falls back to a placeholder tile.
+   */
+  thumb?: string;
 };
 
 const KEY = "helion.versions";
@@ -21,11 +27,19 @@ function readAll(): VersionEntry[] {
     const out: VersionEntry[] = [];
     for (const row of parsed) {
       if (!row || typeof row !== "object") continue;
-      const r = row as { id?: unknown; at?: unknown; name?: unknown; config?: unknown };
+      const r = row as {
+        id?: unknown;
+        at?: unknown;
+        name?: unknown;
+        config?: unknown;
+        thumb?: unknown;
+      };
       if (typeof r.id !== "string" || typeof r.at !== "number" || typeof r.name !== "string") continue;
       const config = normalizeCreationConfig(r.config);
       if (!config) continue;
-      out.push({ id: r.id, at: r.at, name: r.name.slice(0, 80), config });
+      const entry: VersionEntry = { id: r.id, at: r.at, name: r.name.slice(0, 80), config };
+      if (typeof r.thumb === "string" && r.thumb.startsWith("data:")) entry.thumb = r.thumb;
+      out.push(entry);
     }
     return out;
   } catch {
@@ -45,12 +59,17 @@ export function listVersions(): VersionEntry[] {
   return readAll();
 }
 
-export function pushVersion(name: string, config: CreationConfig): VersionEntry {
+export function pushVersion(
+  name: string,
+  config: CreationConfig,
+  thumb?: string,
+): VersionEntry {
   const entry: VersionEntry = {
     id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `v-${Date.now()}`,
     at: Date.now(),
     name: name.trim().slice(0, 80) || "Untitled",
     config,
+    ...(thumb && thumb.startsWith("data:") ? { thumb } : {}),
   };
   const next = [entry, ...readAll()].slice(0, LIMIT);
   writeAll(next);
