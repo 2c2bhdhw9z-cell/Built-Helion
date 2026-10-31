@@ -16,17 +16,9 @@ export function formatMs(ms: number): string {
 }
 
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes)) return "—";
-  // Keep a negative sign (deltas reach this helper) and pick the rung by
-  // magnitude so the ladder is never skipped.
-  const sign = bytes < 0 ? "-" : "";
-  const abs = Math.abs(bytes);
-  if (abs < 1024) return `${sign}${Math.round(abs)} B`;
-  if (abs < 1024 * 1024) return `${sign}${(abs / 1024).toFixed(1)} KB`;
-  // Chrome reports jsHeapSizeLimit in the multi-GB range, which used to print as
-  // "4096.0 MB"; add a GB rung so the perf hub stays readable.
-  if (abs < 1024 * 1024 * 1024) return `${sign}${(abs / (1024 * 1024)).toFixed(1)} MB`;
-  return `${sign}${(abs / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function clamp(n: number, lo: number, hi: number): number {
