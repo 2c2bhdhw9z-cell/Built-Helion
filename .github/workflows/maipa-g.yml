@@ -33,14 +33,14 @@ permissions:
 
 jobs:
   agent:
-    uses: 2c2bhdhw9z-cell/MAIPA-G/.github/workflows/agent.yml@8a5d2dae4466dd2db49b2a86c39a5cd9e18221df
+    uses: 2c2bhdhw9z-cell/MAIPA-G/.github/workflows/agent.yml@35f377b8a871a963dde3e681bff7d5347803cbc9
     with:
       job_id: ${{ inputs.job_id }}
       target_ref: ${{ inputs.target_ref }}
       data_owner: ${{ inputs.data_owner }}
       data_repo: ${{ inputs.data_repo }}
       data_branch: ${{ inputs.data_branch }}
-      maipag_revision: 8a5d2dae4466dd2db49b2a86c39a5cd9e18221df
+      maipag_revision: 35f377b8a871a963dde3e681bff7d5347803cbc9
     secrets:
       MAIPAG_APP_ID: ${{ secrets.MAIPAG_APP_ID }}
       MAIPAG_APP_PRIVATE_KEY: ${{ secrets.MAIPAG_APP_PRIVATE_KEY }}
